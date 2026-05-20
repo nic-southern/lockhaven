@@ -1,5 +1,6 @@
 # dependencies
 /node_modules
+**/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -10,17 +11,27 @@
 
 # testing
 /coverage
+**/coverage
 
 # next.js
 /.next/
 /out/
+**/.next/
+**/out/
 
 # production
 /build
+**/build
+dist/
+**/dist/
 
 # misc
 .DS_Store
 *.pem
+*.p12
+*.pfx
+*.key
+*.crt
 
 # debug
 npm-debug.log*
@@ -30,6 +41,19 @@ pnpm-debug.log*
 
 # env files
 .env*.local
+.env
+.env.*
+!.env.example
+!.env*.example
+
+# infra
+backups/
+dump.sql
+*.sqlite
+wg0.conf
+*.conf.private
+*.db
+*.sqlite3
 
 # typescript
 *.tsbuildinfo
