@@ -17,9 +17,11 @@ jobs:
       matrix:
         include:
           - name: web
+            package: newmarketsecurity-web
             context: .
             file: apps/web/Dockerfile
           - name: worker
+            package: newmarketsecurity-worker
             context: .
             file: apps/worker/Dockerfile
     steps:
@@ -30,13 +32,13 @@ jobs:
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GHCR_USER || github.actor }}
+          password: ${{ secrets.GHCR_WRITE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Compute image metadata
         id: meta
         run: |
-          echo "image=ghcr.io/${GITHUB_REPOSITORY}/${{ matrix.name }}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER}/${{ matrix.package }}" >> "$GITHUB_OUTPUT"
           echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/build-push-action@v6
@@ -44,6 +46,8 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           push: true
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           tags: |
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha }}
             ${{ steps.meta.outputs.image }}:main

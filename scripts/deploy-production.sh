@@ -45,8 +45,9 @@ if [ -z "${repo_slug:-}" ] || [ "$repo_slug" = "${repo_url:-}" ]; then
 fi
 repo_slug="${repo_slug%.git}"
 
-web_image="${WEB_IMAGE:-ghcr.io/${repo_slug}/web:main}"
-worker_image="${WORKER_IMAGE:-ghcr.io/${repo_slug}/worker:main}"
+repo_owner="${repo_slug%%/*}"
+web_image="${WEB_IMAGE:-ghcr.io/${repo_owner}/newmarketsecurity-web:main}"
+worker_image="${WORKER_IMAGE:-ghcr.io/${repo_owner}/newmarketsecurity-worker:main}"
 
 require_file "${TF_DIR}/provider.tf.example"
 
