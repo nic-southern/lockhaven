@@ -13,7 +13,7 @@ param(
 
   [string]$SerialNumber,
 
-  [string]$TunnelName = "nmstest",
+  [string]$TunnelName = "lockhaven",
 
   [switch]$RunAsAdministrator
 )

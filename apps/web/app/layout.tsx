@@ -2,6 +2,7 @@ import { Geist_Mono, Roboto } from "next/font/google"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import { getServerProductName } from "@/lib/product-name"
 import { cn } from "@/lib/utils"
 import { Providers } from "./providers"
 
@@ -12,8 +13,10 @@ const fontMono = Geist_Mono({
   variable: "--font-mono",
 })
 
+const productName = getServerProductName()
+
 export const metadata = {
-  title: "Management VPN",
+  title: productName,
   description: "Device inventory and private management access",
 }
 
@@ -34,6 +37,13 @@ export default function RootLayout({
       )}
     >
       <body>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__LOCKHAVEN_CONFIG__=${JSON.stringify({
+              productName,
+            })};`,
+          }}
+        />
         <ThemeProvider>
           <Providers>{children}</Providers>
         </ThemeProvider>

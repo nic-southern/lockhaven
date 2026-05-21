@@ -2,20 +2,20 @@
   "name": "@nms/db",
   "private": true,
   "type": "module",
-  "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
+  "main": "./dist/db/src/index.js",
+  "types": "./dist/db/src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
+      "types": "./dist/db/src/index.d.ts",
+      "default": "./dist/db/src/index.js"
     },
     "./client": {
-      "types": "./dist/src/client.d.ts",
-      "default": "./dist/src/client.js"
+      "types": "./dist/db/src/client.d.ts",
+      "default": "./dist/db/src/client.js"
     },
     "./schema": {
-      "types": "./dist/src/schema.d.ts",
-      "default": "./dist/src/schema.js"
+      "types": "./dist/db/src/schema.d.ts",
+      "default": "./dist/db/src/schema.js"
     }
   },
   "scripts": {

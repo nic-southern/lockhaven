@@ -11,6 +11,10 @@ packages:
   - wireguard
 
 runcmd:
-  - [bash, -lc, 'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; mkdir -p /etc/apt/keyrings; curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; chmod a+r /etc/apt/keyrings/docker.asc; . /etc/os-release; echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list; apt-get update; apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; iptables -N DOCKER-USER 2>/dev/null || true; iptables -F DOCKER-USER; iptables -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT; iptables -A DOCKER-USER -p tcp --dport 22 -j ACCEPT; iptables -A DOCKER-USER -p tcp --dport 80 -j ACCEPT; iptables -A DOCKER-USER -p tcp --dport 443 -j ACCEPT; iptables -A DOCKER-USER -p udp --dport 51820 -j ACCEPT; iptables -A DOCKER-USER -j RETURN; netfilter-persistent save']
+  - [
+      bash,
+      -lc,
+      'set -euo pipefail; export DEBIAN_FRONTEND=noninteractive; mkdir -p /etc/apt/keyrings; curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; chmod a+r /etc/apt/keyrings/docker.asc; . /etc/os-release; echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list; apt-get update; apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; iptables -N DOCKER-USER 2>/dev/null || true; iptables -F DOCKER-USER; iptables -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT; iptables -A DOCKER-USER -p tcp --dport 22 -j ACCEPT; iptables -A DOCKER-USER -p tcp --dport 80 -j ACCEPT; iptables -A DOCKER-USER -p tcp --dport 443 -j ACCEPT; iptables -A DOCKER-USER -p udp --dport 51820 -j ACCEPT; iptables -A DOCKER-USER -j RETURN; netfilter-persistent save',
+    ]
   - systemctl enable --now ssh
   - systemctl enable --now docker

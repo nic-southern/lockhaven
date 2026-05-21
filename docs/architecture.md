@@ -10,8 +10,8 @@ The system is a pnpm TypeScript monorepo with these layers:
 - `packages/remote-access` abstracts browser-launched remote sessions.
 
 Production services run as Docker containers on a single DigitalOcean droplet.
-The lab deploy uses Traefik for HTTPS routing. Production uses the same service
-layout with pinned container images and private data services on the droplet.
+Traefik handles HTTPS routing, pinned container images run the web and worker
+services, and private data services stay on the droplet.
 The droplet bootstrap settings live in `infra/cloud-init/user-data.yaml`.
 Host access rules are managed with `iptables` in Docker's `DOCKER-USER` chain so
 Docker can keep control of container networking.

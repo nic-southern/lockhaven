@@ -2,16 +2,16 @@
   "name": "@nms/auth",
   "private": true,
   "type": "module",
-  "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
+  "main": "./dist/auth/src/index.js",
+  "types": "./dist/auth/src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
+      "types": "./dist/auth/src/index.d.ts",
+      "default": "./dist/auth/src/index.js"
     },
     "./server": {
-      "types": "./dist/src/server.d.ts",
-      "default": "./dist/src/server.js"
+      "types": "./dist/auth/src/server.d.ts",
+      "default": "./dist/auth/src/server.js"
     }
   },
   "scripts": {

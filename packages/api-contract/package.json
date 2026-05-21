@@ -2,12 +2,12 @@
   "name": "@nms/api-contract",
   "private": true,
   "type": "module",
-  "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
+  "main": "./dist/api-contract/src/index.js",
+  "types": "./dist/api-contract/src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
+      "types": "./dist/api-contract/src/index.d.ts",
+      "default": "./dist/api-contract/src/index.js"
     }
   },
   "scripts": {

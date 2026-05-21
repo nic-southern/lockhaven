@@ -23,8 +23,11 @@ ENV NODE_ENV=production
 RUN apk add --no-cache nftables wireguard-tools
 RUN addgroup -g 1001 -S nodejs && adduser -S worker -u 1001
 COPY --from=build /repo/apps/worker/dist ./apps/worker/dist
+COPY --from=build /repo/apps/worker/src ./apps/worker/src
 COPY --from=build /repo/apps/worker/package.json ./apps/worker/package.json
+COPY --from=build /repo/apps/worker/node_modules ./apps/worker/node_modules
 COPY --from=build /repo/packages ./packages
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/package.json ./package.json
-CMD ["node", "apps/worker/dist/apps/worker/src/index.js"]
+USER worker
+CMD ["./apps/worker/node_modules/.bin/tsx", "apps/worker/src/index.ts"]

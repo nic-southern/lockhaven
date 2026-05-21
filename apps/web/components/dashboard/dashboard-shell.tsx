@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 
 import { signOut, useSession } from "@/lib/auth-client"
 import { Button } from "@/components/ui/button"
+import { getClientProductName, getProductInitials } from "@/lib/product-name"
 import { cn } from "@/lib/utils"
 
 const navItems = [
@@ -27,6 +28,7 @@ export function DashboardShell({
 }) {
   const pathname = usePathname()
   const { data: session, isPending } = useSession()
+  const productName = getClientProductName()
 
   return (
     <div className="min-h-svh bg-background">
@@ -35,11 +37,11 @@ export function DashboardShell({
           <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-4 px-6">
             <div className="flex items-center gap-3">
               <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground">
-                NM
+                {getProductInitials(productName)}
               </div>
               <div>
                 <p className="text-sm leading-none font-semibold">
-                  New Market Security
+                  {productName}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Management console

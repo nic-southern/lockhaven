@@ -11,7 +11,7 @@ import {
 } from "./index"
 
 test("encrypts and decrypts saved credentials", () => {
-  const secret = "0123456789abcdef0123456789abcdef"
+  const secret = "test-credential-key-".repeat(2)
   const encrypted = encryptSecret("hunter2", secret)
 
   assert.equal(decryptSecret(encrypted, secret), "hunter2")

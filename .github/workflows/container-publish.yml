@@ -17,11 +17,11 @@ jobs:
       matrix:
         include:
           - name: web
-            package: newmarketsecurity-web
+            package: lockhaven-web
             context: .
             file: apps/web/Dockerfile
           - name: worker
-            package: newmarketsecurity-worker
+            package: lockhaven-worker
             context: .
             file: apps/worker/Dockerfile
     steps:

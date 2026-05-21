@@ -2,12 +2,12 @@
   "name": "@nms/vpn",
   "private": true,
   "type": "module",
-  "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
+  "main": "./dist/vpn/src/index.js",
+  "types": "./dist/vpn/src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/src/index.d.ts",
-      "default": "./dist/src/index.js"
+      "types": "./dist/vpn/src/index.d.ts",
+      "default": "./dist/vpn/src/index.js"
     }
   },
   "scripts": {

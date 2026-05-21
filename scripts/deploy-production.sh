@@ -46,8 +46,8 @@ fi
 repo_slug="${repo_slug%.git}"
 
 repo_owner="${repo_slug%%/*}"
-web_image="${WEB_IMAGE:-ghcr.io/${repo_owner}/newmarketsecurity-web:main}"
-worker_image="${WORKER_IMAGE:-ghcr.io/${repo_owner}/newmarketsecurity-worker:main}"
+web_image="${WEB_IMAGE:-ghcr.io/${repo_owner}/lockhaven-web:main}"
+worker_image="${WORKER_IMAGE:-ghcr.io/${repo_owner}/lockhaven-worker:main}"
 
 require_file "${TF_DIR}/provider.tf.example"
 
@@ -75,7 +75,13 @@ else
 fi
 
 log "Generating deploy environment"
-admin_password="${ADMIN_PASSWORD:-$(openssl rand -hex 16)}"
+if [ -n "${ADMIN_PASSWORD:-}" ]; then
+  admin_password="$ADMIN_PASSWORD"
+  admin_password_generated=0
+else
+  admin_password="$(openssl rand -hex 16)"
+  admin_password_generated=1
+fi
 postgres_password="${POSTGRES_PASSWORD:-$(openssl rand -hex 16)}"
 guacamole_db_password="${GUACAMOLE_DB_PASSWORD:-$(openssl rand -hex 16)}"
 better_auth_secret="${BETTER_AUTH_SECRET:-$(openssl rand -hex 32)}"
@@ -87,6 +93,7 @@ APP_BASE_URL=https://${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
 BETTER_AUTH_URL=https://${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
 NEXTAUTH_URL=https://${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
 NEXT_PUBLIC_APP_URL=https://${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
+PRODUCT_NAME=${PRODUCT_NAME:-Lockhaven}
 ROOT_DOMAIN=${ROOT_DOMAIN:-example.com}
 APP_HOSTNAME=${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
 GUAC_HOSTNAME=${GUAC_HOSTNAME:?Set GUAC_HOSTNAME in .env.stage}
@@ -161,9 +168,35 @@ ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
   docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --remove-orphans
 "
 
+log "Applying database migrations and bootstrapping admin"
+ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
+  cd /opt/newmarketsecurity
+  docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm --no-deps worker sh -lc 'cd /repo/packages/db && ./node_modules/.bin/drizzle-kit migrate --config ./drizzle.config.ts && node scripts/bootstrap-admin.mjs'
+"
+
 cat <<EOF
 
 Deployment complete.
+
+Admin user:
+  ${ADMIN_EMAIL:-admin@example.com}
+EOF
+
+if [ "$admin_password_generated" = "1" ]; then
+  cat <<EOF
+
+Generated admin password:
+  ${admin_password}
+EOF
+else
+  cat <<EOF
+
+Admin password:
+  using ADMIN_PASSWORD from ${STAGE_FILE}
+EOF
+fi
+
+cat <<EOF
 
 Open:
   https://${APP_HOSTNAME}

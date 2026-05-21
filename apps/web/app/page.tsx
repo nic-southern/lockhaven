@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
+import { getClientProductName, getProductInitials } from "@/lib/product-name"
 import { getApiBaseUrl, trpc } from "@/lib/trpc"
 
 type HealthResponse = {
@@ -102,10 +103,9 @@ function downloadTextFile(filename: string, contents: string) {
 export default function Page() {
   const { data: session, isPending: sessionPending } = useSession()
   const utils = trpc.useUtils()
+  const productName = getClientProductName()
   const [enrollmentOpen, setEnrollmentOpen] = React.useState(false)
-  const [organizationName, setOrganizationName] = React.useState(
-    "New Market Security"
-  )
+  const [organizationName, setOrganizationName] = React.useState(productName)
   const [selectedOrganizationId, setSelectedOrganizationId] = React.useState("")
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
   const [selectedRoutePolicyId, setSelectedRoutePolicyId] = React.useState("")
@@ -368,11 +368,11 @@ export default function Page() {
         <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-4 px-6">
           <div className="flex items-center gap-3">
             <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground">
-              NM
+              {getProductInitials(productName)}
             </div>
             <div>
               <p className="text-sm leading-none font-semibold">
-                New Market Security
+                {productName}
               </p>
               <p className="text-xs text-muted-foreground">
                 Management console

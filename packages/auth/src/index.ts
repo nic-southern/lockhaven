@@ -88,7 +88,7 @@ function getCrossSubdomainCookieDomain() {
 }
 
 export const auth = betterAuth({
-  appName: "New Market Security",
+  appName: process.env.PRODUCT_NAME ?? process.env.APP_NAME ?? "Lockhaven",
   baseURL:
     process.env.BETTER_AUTH_URL ??
     process.env.NEXTAUTH_URL ??

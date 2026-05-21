@@ -48,6 +48,8 @@ export type EncryptedSecret = {
   authTag: string
 }
 
+const AES_256_GCM_AUTH_TAG_LENGTH = 16
+
 export function deriveSecretKey(secret: string) {
   return createHash("sha256").update(secret).digest()
 }
@@ -74,7 +76,8 @@ export function decryptSecret(payload: EncryptedSecret, secret: string) {
   const decipher = createDecipheriv(
     "aes-256-gcm",
     deriveSecretKey(secret),
-    Buffer.from(payload.iv, "base64")
+    Buffer.from(payload.iv, "base64"),
+    { authTagLength: AES_256_GCM_AUTH_TAG_LENGTH }
   )
 
   decipher.setAuthTag(Buffer.from(payload.authTag, "base64"))

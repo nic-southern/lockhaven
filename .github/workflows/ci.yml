@@ -7,6 +7,31 @@ on:
       - main
 
 jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Semgrep
+        run: python -m pip install semgrep
+
+      - name: Run Semgrep
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+        run: |
+          if [ -n "${SEMGREP_APP_TOKEN:-}" ]; then
+            semgrep ci
+          else
+            semgrep scan --config auto --error
+          fi
+
   verify:
     runs-on: ubuntu-latest
     steps:
