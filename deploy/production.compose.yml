@@ -133,11 +133,16 @@ services:
   worker:
     image: ${WORKER_IMAGE}
     restart: unless-stopped
+    user: "0:0"
+    privileged: true
     cap_add:
       - NET_ADMIN
       - NET_RAW
       - SYS_ADMIN
     pid: host
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
     env_file:
       - ../.env.deploy
     environment:
