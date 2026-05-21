@@ -1,0 +1,89 @@
+#!/usr/bin/env sh
+set -eu
+
+cmd="${1:-}"
+case "$cmd" in
+  add-peer)
+    public_key=""
+    allowed_ips=""
+    shift
+    while [ "${1:-}" != "" ]; do
+      case "$1" in
+        --public-key) public_key="${2:-}"; shift 2 ;;
+        --allowed-ips) allowed_ips="${2:-}"; shift 2 ;;
+        *) echo "unsupported argument" >&2; exit 1 ;;
+      esac
+    done
+    [ -n "$public_key" ] && [ -n "$allowed_ips" ] || exit 1
+    wg set wg0 peer "$public_key" allowed-ips "$allowed_ips"
+    ;;
+  remove-peer)
+    public_key=""
+    shift
+    while [ "${1:-}" != "" ]; do
+      case "$1" in
+        --public-key) public_key="${2:-}"; shift 2 ;;
+        *) echo "unsupported argument" >&2; exit 1 ;;
+      esac
+    done
+    [ -n "$public_key" ] || exit 1
+    wg set wg0 peer "$public_key" remove
+    ;;
+  show-status)
+    wg show wg0 dump
+    ;;
+  sync-firewall)
+    allowed_routes=""
+    shift
+    while [ "${1:-}" != "" ]; do
+      case "$1" in
+        --allowed-routes) allowed_routes="${2:-}"; shift 2 ;;
+        *) echo "unsupported argument" >&2; exit 1 ;;
+      esac
+    done
+
+    tmp_file="$(mktemp)"
+    {
+      cat <<'EOF'
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority 0;
+    policy drop;
+
+    iif lo accept
+    ct state established,related accept
+
+    tcp dport 80 accept
+    tcp dport 443 accept
+    udp dport 51820 accept
+    tcp dport 22 accept
+  }
+
+  chain forward {
+    type filter hook forward priority 0;
+    policy drop;
+EOF
+      if [ -n "$allowed_routes" ]; then
+        printf '    iifname "wg0" ip daddr { %s } accept\n' "$allowed_routes"
+      fi
+      cat <<'EOF'
+  }
+
+  chain output {
+    type filter hook output priority 0;
+    policy accept;
+  }
+}
+EOF
+    } >"$tmp_file"
+
+    nft -f "$tmp_file"
+    rm -f "$tmp_file"
+    ;;
+  *)
+    echo "usage: vpnctl {add-peer|remove-peer|show-status|sync-firewall}" >&2
+    exit 1
+    ;;
+esac

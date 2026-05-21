@@ -1,15 +1,21 @@
 {
   "name": "newmarketsecurity",
   "version": "0.0.1",
+  "packageManager": "pnpm@10.24.0",
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit"
+    "dev": "pnpm --filter @nms/web dev",
+    "dev:web": "pnpm --filter @nms/web dev",
+    "dev:worker": "pnpm --filter @nms/worker dev",
+    "db:bootstrap-admin": "pnpm --filter @nms/db db:bootstrap-admin",
+    "build:packages": "pnpm --filter @nms/shared build && pnpm --filter @nms/db build && pnpm --filter @nms/auth build && pnpm --filter @nms/vpn build && pnpm --filter @nms/remote-access build && pnpm --filter @nms/api-contract build",
+    "build": "pnpm --filter @nms/shared build && pnpm --filter @nms/db build && pnpm --filter @nms/auth build && pnpm --filter @nms/vpn build && pnpm --filter @nms/remote-access build && pnpm --filter @nms/api-contract build && pnpm --filter @nms/worker build && pnpm --filter @nms/web build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,yml,yaml}\""
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

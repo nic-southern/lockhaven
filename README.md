@@ -38,13 +38,26 @@ If you use `scripts/deploy-nmstest.sh`, it can also generate missing admin and d
 
 ## New Droplet
 
-1. Create an Ubuntu 24.04 droplet and attach your SSH key.
-2. Pass `infra/cloud-init/user-data.yaml` as cloud-init if your provider supports it.
+1. Copy `/.env.example` to `/.env` and generate the secret placeholders there.
+2. Edit `/.env.stage` with the values that vary by environment, especially hostnames and droplet settings.
 3. Copy `infra/terraform/provider.tf.example` to `infra/terraform/provider.tf`.
-4. Copy `infra/terraform/terraform.tfvars.example` to `infra/terraform/terraform.tfvars` and fill in the values.
-5. Copy `/.env.example` to `/.env` and fill in the generated secrets.
-6. Use `pnpm install` and `pnpm build` locally, or run `scripts/deploy-nmstest.sh` for the lab path.
-7. For production, push containers through CI, then run `docker compose -f deploy/production.compose.yml up -d` on the droplet with a populated `.env.deploy`.
+4. Put `DO_TOKEN` in `/.env.stage` or export `TF_VAR_do_token`, then run `scripts/deploy-production.sh`.
+5. That script writes `infra/terraform/terraform.tfvars`, generates `.env.deploy`, provisions the droplet, copies the production compose file, and starts the stack.
+6. For the lab path, use `scripts/deploy-nmstest.sh` instead.
+
+`/.env.stage` can also hold bootstrap-only values such as `GHCR_USER` and `GHCR_READ_TOKEN`; the script uses them to log in before pulling images, but they are not copied into the droplet's `.env.deploy`.
+
+If you need to find the right values:
+
+- `GHCR_USER` is your GitHub username or the machine user that owns the package token.
+- `GHCR_READ_TOKEN` should be a token with `read:packages` access.
+- `SSH_KEY_NAME` must match an SSH key already uploaded to DigitalOcean.
+- `DO_TOKEN` can live in `/.env.stage`; it is your DigitalOcean API token.
+- `TF_VAR_do_token` is the same token exported in your shell instead of the stage file.
+
+The droplet bootstrap now installs Docker from Docker's apt repository and uses `iptables` rules in the `DOCKER-USER` chain for host access control.
+
+If you want to rerun the bootstrap on an existing droplet without touching Terraform, set `DEPLOY_ONLY=1` and provide `DEPLOY_HOST`.
 
 ## CI/CD Pre-Flight
 
@@ -72,14 +85,13 @@ Before `terraform init`, make sure you have:
 
 - a DigitalOcean personal access token with droplet/firewall/DNS permissions
 - the name of an SSH key already uploaded to DigitalOcean, matching `ssh_key_name`
+- the matching private key loaded in your SSH agent for the Terraform file copies
 - a local `provider.tf` copied from `infra/terraform/provider.tf.example`
-- a filled `terraform.tfvars` copied from `infra/terraform/terraform.tfvars.example`
+- a staged root file at `/.env.stage`
+- either `TF_VAR_do_token` or `DO_TOKEN` exported in your shell
 
-Then run:
+Then run the production bootstrap script:
 
 ```bash
-cd infra/terraform
-terraform init
-terraform plan
-terraform apply
+scripts/deploy-production.sh
 ```

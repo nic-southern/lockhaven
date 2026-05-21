@@ -1,0 +1,169 @@
+services:
+  traefik:
+    image: traefik:v3.6
+    restart: unless-stopped
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=proxy
+      - --providers.file.filename=/etc/traefik/dynamic/tls.yml
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/traefik/certs:/etc/traefik/certs:ro
+      - /etc/traefik/dynamic:/etc/traefik/dynamic:ro
+    networks:
+      - proxy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nms_vpn
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nms_vpn"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  guacamole-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: guacamole_db
+      POSTGRES_USER: guacamole
+      POSTGRES_PASSWORD: ${GUACAMOLE_DB_PASSWORD}
+    volumes:
+      - guacamole_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guacamole -d guacamole_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  guacd:
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+    network_mode: host
+
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    restart: unless-stopped
+    environment:
+      GUACD_HOSTNAME: host.docker.internal
+      GUACD_PORT: 4822
+      POSTGRESQL_HOSTNAME: guacamole-db
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_DATABASE: guacamole_db
+      POSTGRESQL_USER: guacamole
+      POSTGRESQL_PASSWORD: ${GUACAMOLE_DB_PASSWORD}
+      HTTP_AUTH_ENABLED: "true"
+      HTTP_AUTH_HEADER: X-Authenticated-User
+      REMOTE_IP_VALVE_ENABLED: "true"
+      PROXY_ALLOWED_IPS_REGEX: 172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+|127\.0\.0\.1|::1
+    networks:
+      - default
+      - proxy
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.guacamole.rule=Host(`${GUAC_HOSTNAME}`)
+      - traefik.http.routers.guacamole.entrypoints=websecure
+      - traefik.http.routers.guacamole.tls=true
+      - traefik.http.routers.guacamole.middlewares=guacamole-auth
+      - traefik.http.services.guacamole.loadbalancer.server.port=8080
+      - traefik.http.middlewares.guacamole-auth.forwardauth.address=http://web:3000/api/guacamole/auth
+      - traefik.http.middlewares.guacamole-auth.forwardauth.authresponseheaders=X-Authenticated-User
+    depends_on:
+      guacamole-db:
+        condition: service_healthy
+      guacd:
+        condition: service_started
+
+  vnc-proxy:
+    image: alpine:3.20
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - ../.env.deploy
+    command: >
+      sh -lc "apk add --no-cache socat >/dev/null &&
+      exec socat -d -d
+      TCP-LISTEN:${VNC_PROXY_LISTEN_PORT:-15900},fork,reuseaddr
+      TCP:${VNC_PROXY_TARGET_HOST}:${VNC_PROXY_TARGET_PORT}"
+
+  web:
+    image: ${WEB_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - ../.env.deploy
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/nms_vpn
+      REDIS_URL: redis://redis:6379/0
+      NODE_ENV: production
+    networks:
+      - default
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=Host(`${APP_HOSTNAME}`)
+      - traefik.http.routers.web.entrypoints=websecure
+      - traefik.http.routers.web.tls=true
+      - traefik.http.services.web.loadbalancer.server.port=3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    image: ${WORKER_IMAGE}
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    env_file:
+      - ../.env.deploy
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@127.0.0.1:5432/nms_vpn
+      REDIS_URL: redis://127.0.0.1:6379/0
+      VPNCTL_PATH: /usr/local/sbin/vpnctl
+      WIREGUARD_INTERFACE: wg0
+      NODE_ENV: production
+    volumes:
+      - /usr/local/sbin/vpnctl:/usr/local/sbin/vpnctl:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  guacamole_postgres_data:
+
+networks:
+  proxy:
+    name: proxy

@@ -1,0 +1,31 @@
+{
+  "name": "@nms/api-contract",
+  "private": true,
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@nms/remote-access": "workspace:*",
+    "@nms/shared": "workspace:*",
+    "@trpc/server": "^11.7.2",
+    "drizzle-orm": "^0.44.7",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.22.3",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,68 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Create deployment
+        id: deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production',
+              auto_merge: false,
+              required_contexts: [],
+              transient_environment: false,
+              production_environment: true
+            });
+            core.setOutput('id', deployment.data.id.toString());
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            docker login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GHCR_READ_TOKEN }}"
+            cd /opt/newmarketsecurity
+            export WEB_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/web:${GITHUB_SHA}"
+            export WORKER_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/worker:${GITHUB_SHA}"
+            docker compose --env-file .env.deploy -f deploy/production.compose.yml pull
+            docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --remove-orphans
+
+      - name: Mark deployment success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number('${{ steps.deployment.outputs.id }}'),
+              state: 'success',
+              environment_url: 'https://${{ secrets.DEPLOY_HOST }}'
+            });
+
+      - name: Mark deployment failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: Number('${{ steps.deployment.outputs.id }}'),
+              state: 'failure'
+            });

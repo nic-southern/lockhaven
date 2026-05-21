@@ -45,6 +45,7 @@ pnpm-debug.log*
 .env.*
 !.env.example
 !.env*.example
+.env.stage
 
 # infra
 backups/
@@ -54,6 +55,11 @@ wg0.conf
 *.conf.private
 *.db
 *.sqlite3
+infra/terraform/provider.tf
+infra/terraform/terraform.tfvars
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
 
 # typescript
 *.tsbuildinfo
