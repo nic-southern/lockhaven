@@ -71,7 +71,7 @@ Set these GitHub Actions secrets before you can deploy:
 
 The droplet itself should have `/opt/newmarketsecurity/.env.deploy` with the generated runtime values from `/.env.example`, including:
 
-- `APP_HOSTNAME`, `GUAC_HOSTNAME`, and `VNC_HOSTNAME`
+- `APP_HOSTNAME` and `GUAC_HOSTNAME`
 - `POSTGRES_PASSWORD` and `GUACAMOLE_DB_PASSWORD`
 - `BETTER_AUTH_SECRET` and `REMOTE_CREDENTIALS_KEY`
 - `VPN_SERVER_PUBLIC_KEY`

@@ -33,9 +33,10 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: GITHUB_REPOSITORY,GITHUB_SHA
           script: |
             set -euo pipefail
-            docker login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GHCR_READ_TOKEN }}"
+            printf '%s\n' "${{ secrets.GHCR_READ_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             cd /opt/newmarketsecurity
             export WEB_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/web:${GITHUB_SHA}"
             export WORKER_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/worker:${GITHUB_SHA}"

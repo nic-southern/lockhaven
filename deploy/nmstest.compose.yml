@@ -102,18 +102,6 @@ services:
       guacd:
         condition: service_started
 
-  vnc-proxy:
-    image: alpine:3.20
-    restart: unless-stopped
-    network_mode: host
-    env_file:
-      - ../.env.deploy
-    command: >
-      sh -lc "apk add --no-cache socat >/dev/null &&
-      exec socat -d -d
-      TCP-LISTEN:${VNC_PROXY_LISTEN_PORT:-15900},fork,reuseaddr
-      TCP:${VNC_PROXY_TARGET_HOST}:${VNC_PROXY_TARGET_PORT}"
-
   web:
     build:
       context: ..

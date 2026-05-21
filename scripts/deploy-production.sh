@@ -43,6 +43,7 @@ fi
 if [ -z "${repo_slug:-}" ] || [ "$repo_slug" = "${repo_url:-}" ]; then
   repo_slug="your-org/your-repo"
 fi
+repo_slug="${repo_slug%.git}"
 
 web_image="${WEB_IMAGE:-ghcr.io/${repo_slug}/web:main}"
 worker_image="${WORKER_IMAGE:-ghcr.io/${repo_slug}/worker:main}"
@@ -88,10 +89,6 @@ NEXT_PUBLIC_APP_URL=https://${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
 ROOT_DOMAIN=${ROOT_DOMAIN:-example.com}
 APP_HOSTNAME=${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
 GUAC_HOSTNAME=${GUAC_HOSTNAME:?Set GUAC_HOSTNAME in .env.stage}
-VNC_HOSTNAME=${VNC_HOSTNAME:?Set VNC_HOSTNAME in .env.stage}
-VNC_PROXY_TARGET_HOST=${VNC_PROXY_TARGET_HOST:?Set VNC_PROXY_TARGET_HOST in .env.stage}
-VNC_PROXY_TARGET_PORT=${VNC_PROXY_TARGET_PORT:?Set VNC_PROXY_TARGET_PORT in .env.stage}
-VNC_PROXY_LISTEN_PORT=${VNC_PROXY_LISTEN_PORT:?Set VNC_PROXY_LISTEN_PORT in .env.stage}
 GUACAMOLE_BASE_URL=https://${GUAC_HOSTNAME:?Set GUAC_HOSTNAME in .env.stage}/guacamole/
 GUACAMOLE_DATABASE_URL=postgresql://guacamole:${guacamole_db_password}@guacamole-db:5432/guacamole_db
 DATABASE_URL=postgresql://postgres:${postgres_password}@127.0.0.1:5432/nms_vpn
