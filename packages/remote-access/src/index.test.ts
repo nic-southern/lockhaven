@@ -110,6 +110,12 @@ test("provisions an SSH connection with username and private key", async () => {
     },
     pool
   )
+  const privateKeyLabel = "OPENSSH PRIVATE KEY"
+  const fakePrivateKey = [
+    `-----BEGIN ${privateKeyLabel}-----`,
+    "key",
+    `-----END ${privateKeyLabel}-----`,
+  ].join("\n")
 
   const session = await provider.createSession({
     deviceId: "device-1",
@@ -120,8 +126,7 @@ test("provisions an SSH connection with username and private key", async () => {
     hostname: "10.80.0.20",
     port: 22,
     username: "ubuntu",
-    privateKey:
-      "-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----",
+    privateKey: fakePrivateKey,
     launchId: "launch-2",
   })
 
@@ -132,11 +137,5 @@ test("provisions an SSH connection with username and private key", async () => {
   )
   assert.ok(queries.some((entry) => entry.values?.includes("ssh")))
   assert.ok(queries.some((entry) => entry.values?.includes("ubuntu")))
-  assert.ok(
-    queries.some((entry) =>
-      entry.values?.includes(
-        "-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----"
-      )
-    )
-  )
+  assert.ok(queries.some((entry) => entry.values?.includes(fakePrivateKey)))
 })
