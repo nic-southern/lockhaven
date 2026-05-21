@@ -58,7 +58,7 @@ Then run:
 cd /opt/lockhaven
 docker compose --env-file .env.deploy -f deploy/production.compose.yml pull
 docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --remove-orphans
-docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm --no-deps worker sh -lc 'cd /repo/packages/db && ./node_modules/.bin/drizzle-kit migrate --config ./drizzle.config.ts && node scripts/bootstrap-admin.mjs'
+docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm migrate
 ```
 
 ### Production Expectations

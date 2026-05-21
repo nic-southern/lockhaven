@@ -126,7 +126,7 @@ export default function ConnectionsPage() {
         <h1 className="text-3xl font-semibold tracking-tight">
           Service entries
         </h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Edit the service entries that the dashboard can launch sessions
           against.
         </p>

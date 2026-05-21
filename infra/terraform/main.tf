@@ -18,18 +18,18 @@ resource "digitalocean_droplet" "vpn" {
 
   provisioner "remote-exec" {
     inline = [
-      "mkdir -p /opt/newmarketsecurity/deploy",
+      "mkdir -p /opt/lockhaven/deploy",
     ]
   }
 
   provisioner "file" {
     source      = "${path.module}/../../deploy/production.compose.yml"
-    destination = "/opt/newmarketsecurity/deploy/production.compose.yml"
+    destination = "/opt/lockhaven/deploy/production.compose.yml"
   }
 
   provisioner "file" {
     source      = "${path.module}/../../.env.deploy"
-    destination = "/opt/newmarketsecurity/.env.deploy"
+    destination = "/opt/lockhaven/.env.deploy"
   }
 
   provisioner "file" {

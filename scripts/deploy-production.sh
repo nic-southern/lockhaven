@@ -105,6 +105,7 @@ REDIS_URL=redis://127.0.0.1:6379/0
 VPN_PUBLIC_HOSTNAME=${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
 VPN_PUBLIC_PORT=51820
 VPN_SERVER_IP=10.80.0.1
+VPN_SERVER_PUBLIC_KEY=${VPN_SERVER_PUBLIC_KEY:-}
 VPN_DEFAULT_ALLOWED_IPS=10.80.0.1/32
 WIREGUARD_INTERFACE=wg0
 VPNCTL_PATH=/usr/local/sbin/vpnctl
@@ -138,15 +139,16 @@ else
 fi
 ssh_host="${SSH_HOST:-root@${droplet_ip}}"
 ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
+printf -v ghcr_user_quoted "%q" "$GHCR_USER"
 
 log "Copying deployment files to ${ssh_host}"
-ssh "${ssh_opts[@]}" "$ssh_host" "mkdir -p /opt/newmarketsecurity/deploy"
-scp "${ssh_opts[@]}" "$ROOT_DIR/deploy/production.compose.yml" "$ssh_host:/opt/newmarketsecurity/deploy/production.compose.yml"
-scp "${ssh_opts[@]}" "$DEPLOY_ENV_FILE" "$ssh_host:/opt/newmarketsecurity/.env.deploy"
+ssh "${ssh_opts[@]}" "$ssh_host" "mkdir -p /opt/lockhaven/deploy"
+scp "${ssh_opts[@]}" "$ROOT_DIR/deploy/production.compose.yml" "$ssh_host:/opt/lockhaven/deploy/production.compose.yml"
+scp "${ssh_opts[@]}" "$DEPLOY_ENV_FILE" "$ssh_host:/opt/lockhaven/.env.deploy"
 scp "${ssh_opts[@]}" "$ROOT_DIR/infra/systemd/vpnctl" "$ssh_host:/tmp/vpnctl"
-ssh "${ssh_opts[@]}" "$ssh_host" "install -m 0755 /tmp/vpnctl /usr/local/sbin/vpnctl && chmod 600 /opt/newmarketsecurity/.env.deploy"
+ssh "${ssh_opts[@]}" "$ssh_host" "install -m 0755 /tmp/vpnctl /usr/local/sbin/vpnctl && chmod 600 /opt/lockhaven/.env.deploy"
 
-log "Starting the stack on the new droplet"
+log "Preparing Docker on ${ssh_host}"
 ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
   until command -v docker >/dev/null 2>&1; do
     sleep 5
@@ -162,16 +164,82 @@ ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
     sleep 5
   done
   docker info >/dev/null 2>&1
-  printf '%s\n' '${GHCR_READ_TOKEN}' | docker login ghcr.io -u '${GHCR_USER}' --password-stdin
-  cd /opt/newmarketsecurity
+"
+
+log "Preparing WireGuard on ${ssh_host}"
+vpn_server_public_key="$(ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
+  if ! command -v wg >/dev/null 2>&1 || ! command -v wg-quick >/dev/null 2>&1; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update >/dev/null
+    apt-get install -y wireguard-tools >/dev/null
+  fi
+
+  install -d -m 0700 /etc/wireguard
+  private_key_path=/etc/wireguard/server-private.key
+  public_key_path=/etc/wireguard/server-public.key
+
+  if [ ! -s \"\$private_key_path\" ]; then
+    wg genkey > \"\$private_key_path\"
+  fi
+
+  chmod 0600 \"\$private_key_path\"
+  private_key=\$(cat \"\$private_key_path\")
+  public_key=\$(printf '%s' \"\$private_key\" | wg pubkey)
+  printf '%s\n' \"\$public_key\" > \"\$public_key_path\"
+  chmod 0644 \"\$public_key_path\"
+
+  cat > /etc/wireguard/wg0.conf <<EOF_WG
+[Interface]
+Address = 10.80.0.1/16
+ListenPort = 51820
+PrivateKey = \$private_key
+SaveConfig = false
+EOF_WG
+  chmod 0600 /etc/wireguard/wg0.conf
+
+  sysctl -w net.ipv4.ip_forward=1 >/dev/null
+  printf '%s\n' 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-lockhaven-wireguard.conf
+
+  if systemctl is-active --quiet wg-quick@wg0; then
+    systemctl restart wg-quick@wg0
+  else
+    systemctl enable --now wg-quick@wg0 >/dev/null
+  fi
+
+  printf '%s\n' \"\$public_key\"
+")"
+
+if grep -q '^VPN_SERVER_PUBLIC_KEY=' "$DEPLOY_ENV_FILE"; then
+  sed -i.bak "s|^VPN_SERVER_PUBLIC_KEY=.*|VPN_SERVER_PUBLIC_KEY=${vpn_server_public_key}|" "$DEPLOY_ENV_FILE"
+  rm -f "${DEPLOY_ENV_FILE}.bak"
+else
+  printf 'VPN_SERVER_PUBLIC_KEY=%s\n' "$vpn_server_public_key" >> "$DEPLOY_ENV_FILE"
+fi
+scp "${ssh_opts[@]}" "$DEPLOY_ENV_FILE" "$ssh_host:/opt/lockhaven/.env.deploy"
+ssh "${ssh_opts[@]}" "$ssh_host" "chmod 600 /opt/lockhaven/.env.deploy"
+
+log "Logging in to GHCR on ${ssh_host}"
+printf '%s\n' "$GHCR_READ_TOKEN" | ssh "${ssh_opts[@]}" "$ssh_host" "docker login ghcr.io -u ${ghcr_user_quoted} --password-stdin"
+
+log "Starting the stack on ${ssh_host}"
+ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
+  cd /opt/lockhaven
   docker compose --env-file .env.deploy -f deploy/production.compose.yml pull
-  docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --remove-orphans
+  docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d postgres redis guacamole-db guacd traefik
+  docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T postgres pg_isready -U postgres -d nms_vpn
+  docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T redis redis-cli ping
 "
 
 log "Applying database migrations and bootstrapping admin"
 ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
-  cd /opt/newmarketsecurity
-  docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm --no-deps worker sh -lc 'cd /repo/packages/db && ./node_modules/.bin/drizzle-kit migrate --config ./drizzle.config.ts && node scripts/bootstrap-admin.mjs'
+  cd /opt/lockhaven
+  docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm migrate
+"
+
+log "Starting application services on ${ssh_host}"
+ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
+  cd /opt/lockhaven
+  docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --remove-orphans
 "
 
 cat <<EOF

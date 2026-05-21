@@ -111,7 +111,7 @@ export default function SitesPage() {
           Sites
         </Badge>
         <h1 className="text-3xl font-semibold tracking-tight">Locations</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Create and update sites, then assign devices to the right location.
         </p>
       </section>
@@ -210,7 +210,7 @@ export default function SitesPage() {
                         colSpan={4}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        <Skeleton className="mx-auto h-5 w-40" />
+                        <Skeleton className="h-5 w-40" />
                       </TableCell>
                     </TableRow>
                   ) : sites.length === 0 ? (

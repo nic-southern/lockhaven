@@ -88,7 +88,7 @@ export default function RoutePoliciesPage() {
         <h1 className="text-3xl font-semibold tracking-tight">
           Allowed routes
         </h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Define the networks a device can reach once it joins the VPN.
         </p>
       </section>
@@ -171,7 +171,7 @@ export default function RoutePoliciesPage() {
                         colSpan={3}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        <Skeleton className="mx-auto h-5 w-40" />
+                        <Skeleton className="h-5 w-40" />
                       </TableCell>
                     </TableRow>
                   ) : routePolicies.length === 0 ? (
@@ -197,7 +197,7 @@ export default function RoutePoliciesPage() {
                         <TableCell className="font-medium">
                           {policy.name}
                         </TableCell>
-                        <TableCell className="max-w-xl font-mono text-xs break-words">
+                        <TableCell className="font-mono text-xs break-words">
                           {policy.routes.join(", ")}
                         </TableCell>
                         <TableCell>{policy.description ?? "—"}</TableCell>

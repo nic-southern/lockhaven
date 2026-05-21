@@ -165,7 +165,7 @@ export default function DeviceConfigPage() {
           <h1 className="text-3xl font-semibold tracking-tight">
             {device ? device.displayName : "Device details"}
           </h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Edit the device, adjust service entries, and launch remote access
             from one place.
           </p>

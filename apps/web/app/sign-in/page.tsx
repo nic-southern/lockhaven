@@ -13,7 +13,7 @@ export default function SignInPage() {
 
   return (
     <main className="flex min-h-svh items-center justify-center bg-background px-6">
-      <div className="w-full max-w-sm rounded-2xl border bg-card p-6 shadow-sm">
+      <div className="w-full rounded-2xl border bg-card p-6 shadow-sm">
         <div className="mb-6 space-y-2">
           <h1 className="text-2xl font-semibold">Sign in</h1>
           <p className="text-sm text-muted-foreground">

@@ -55,8 +55,7 @@ The current public repository is
 - `PRODUCT_NAME` controls customer-facing UI/auth naming for white-label
   deployments.
 - Container image names are `lockhaven-web` and `lockhaven-worker`.
-- Existing host paths still use `/opt/newmarketsecurity` for compatibility with
-  current deployed servers.
+- Production host paths use `/opt/lockhaven`.
 
 ## Deployment Notes
 

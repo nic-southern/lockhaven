@@ -1,9 +1,8 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$Token,
+  [string]$Token = $env:LOCKHAVEN_TOKEN,
 
-  [string]$BaseUrl = "https://app.example.com",
+  [string]$BaseUrl = "https://vpn.newmarketsecurity.com",
 
   [string]$Hostname = $env:COMPUTERNAME,
 
@@ -19,6 +18,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $Token) {
+  throw "Provide an enrollment token with -Token or LOCKHAVEN_TOKEN."
+}
 
 function Test-Administrator {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()

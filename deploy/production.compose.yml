@@ -133,19 +133,38 @@ services:
   worker:
     image: ${WORKER_IMAGE}
     restart: unless-stopped
-    network_mode: host
     cap_add:
       - NET_ADMIN
     env_file:
       - ../.env.deploy
     environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@127.0.0.1:5432/nms_vpn
-      REDIS_URL: redis://127.0.0.1:6379/0
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/nms_vpn
+      REDIS_URL: redis://redis:6379/0
       VPNCTL_PATH: /usr/local/sbin/vpnctl
       WIREGUARD_INTERFACE: wg0
       NODE_ENV: production
     volumes:
       - /usr/local/sbin/vpnctl:/usr/local/sbin/vpnctl:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  migrate:
+    image: ${WORKER_IMAGE}
+    profiles:
+      - tools
+    env_file:
+      - ../.env.deploy
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/nms_vpn
+      REDIS_URL: redis://redis:6379/0
+      NODE_ENV: production
+    command:
+      - sh
+      - -lc
+      - cd /repo/packages/db && ./node_modules/.bin/drizzle-kit migrate --config ./drizzle.config.ts && node scripts/bootstrap-admin.mjs
     depends_on:
       postgres:
         condition: service_healthy

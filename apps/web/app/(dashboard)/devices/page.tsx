@@ -142,7 +142,7 @@ export default function DevicesPage() {
           Devices
         </Badge>
         <h1 className="text-3xl font-semibold tracking-tight">Inventory</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Review device state, change the assigned site, update the VPN route
           policy, and manage service entries from one place.
         </p>
@@ -172,7 +172,7 @@ export default function DevicesPage() {
                         colSpan={2}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        <Skeleton className="mx-auto h-5 w-40" />
+                        <Skeleton className="h-5 w-40" />
                       </TableCell>
                     </TableRow>
                   ) : deviceIds.length === 0 ? (

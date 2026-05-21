@@ -34,7 +34,7 @@ export function DashboardShell({
     <div className="min-h-svh bg-background">
       {hideHeader ? null : (
         <header className="border-b bg-card/70 backdrop-blur">
-          <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-4 px-6">
+          <div className="flex h-16 w-full items-center justify-between gap-4 px-6">
             <div className="flex items-center gap-3">
               <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground">
                 {getProductInitials(productName)}
@@ -76,7 +76,7 @@ export function DashboardShell({
         </header>
       )}
 
-      <div className="mx-auto flex w-full max-w-7xl gap-6 px-6 py-8">
+      <div className="flex w-full gap-6 px-6 py-8">
         <aside className="hidden w-56 shrink-0 lg:block">
           <nav className="sticky top-8 flex flex-col gap-1 rounded-2xl border bg-card p-3 shadow-sm">
             {navItems.map((item) => {

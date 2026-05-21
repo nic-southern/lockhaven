@@ -164,7 +164,7 @@ export default function EnrollmentTokensPage() {
         <h1 className="text-3xl font-semibold tracking-tight">
           Token workspace
         </h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Create, edit, and revoke enrollment tokens from one place.
         </p>
       </section>
@@ -317,7 +317,7 @@ export default function EnrollmentTokensPage() {
                         colSpan={5}
                         className="py-8 text-center text-muted-foreground"
                       >
-                        <Skeleton className="mx-auto h-5 w-40" />
+                        <Skeleton className="h-5 w-40" />
                       </TableCell>
                     </TableRow>
                   ) : tokens.length === 0 ? (

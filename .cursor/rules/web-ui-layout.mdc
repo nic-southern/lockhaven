@@ -1,0 +1,13 @@
+---
+description: Full-width layout preference for the Lockhaven web UI
+globs: apps/web/**/*.{tsx,ts,css}
+alwaysApply: false
+---
+
+# Web UI Layout
+
+- Prefer full-width page and dashboard layouts that use the available viewport.
+- Do not add centered container wrappers such as `mx-auto max-w-*` for primary
+  app chrome, page bodies, cards, tables, or descriptive copy.
+- Use narrow widths only for controls that need an intrinsic size to work well,
+  such as small buttons, badges, icons, or compact form fields.

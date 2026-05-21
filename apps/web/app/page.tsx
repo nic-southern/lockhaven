@@ -35,17 +35,6 @@ type HealthResponse = {
   redis: "ok" | "degraded"
 }
 
-type EnrollmentResponse = {
-  device_id: string
-  vpn_ipv4: string
-  wireguard: {
-    server_public_key: string
-    endpoint: string
-    allowed_ips: string[]
-    persistent_keepalive: number
-  }
-}
-
 const statusVariant: Record<
   string,
   "default" | "secondary" | "destructive" | "outline"
@@ -70,34 +59,25 @@ function formatDate(value: string | Date | null | undefined) {
   }).format(new Date(value))
 }
 
-function buildWireGuardConfig(args: {
-  privateKey: string
-  address: string
-  serverPublicKey: string
-  endpoint: string
-  allowedIps: string[]
-  persistentKeepalive: number
-}) {
-  return [
-    "[Interface]",
-    `Address = ${args.address}`,
-    `PrivateKey = ${args.privateKey}`,
-    "",
-    "[Peer]",
-    `PublicKey = ${args.serverPublicKey}`,
-    `Endpoint = ${args.endpoint}`,
-    `AllowedIPs = ${args.allowedIps.join(", ")}`,
-    `PersistentKeepalive = ${args.persistentKeepalive}`,
-  ].join("\n")
+function quotePowerShell(value: string) {
+  return `'${value.replaceAll("'", "''")}'`
 }
 
-function downloadTextFile(filename: string, contents: string) {
-  const url = URL.createObjectURL(new Blob([contents], { type: "text/plain" }))
-  const link = document.createElement("a")
-  link.href = url
-  link.download = filename
-  link.click()
-  URL.revokeObjectURL(url)
+function quoteShell(value: string) {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+function buildWindowsInstallCommand(token: string, baseUrl: string) {
+  return [
+    `$Token = ${quotePowerShell(token)};`,
+    `$Script = "$env:TEMP\\lockhaven-enroll.ps1";`,
+    `Invoke-WebRequest -Uri "${baseUrl}/install/enroll-windows.ps1" -OutFile $Script;`,
+    "powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token",
+  ].join(" ")
+}
+
+function buildLinuxInstallCommand(token: string, baseUrl: string) {
+  return `curl -fsSL ${baseUrl}/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN=${quoteShell(token)} bash`
 }
 
 export default function Page() {
@@ -105,19 +85,12 @@ export default function Page() {
   const utils = trpc.useUtils()
   const productName = getClientProductName()
   const [enrollmentOpen, setEnrollmentOpen] = React.useState(false)
-  const [organizationName, setOrganizationName] = React.useState(productName)
-  const [selectedOrganizationId, setSelectedOrganizationId] = React.useState("")
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
   const [selectedRoutePolicyId, setSelectedRoutePolicyId] = React.useState("")
   const [enrollmentToken, setEnrollmentToken] = React.useState("")
-  const [hostname, setHostname] = React.useState("proxmox-test-vm")
-  const [osFamily, setOsFamily] = React.useState("linux")
-  const [osVersion, setOsVersion] = React.useState("debian")
-  const [architecture, setArchitecture] = React.useState("amd64")
-  const [serialNumber, setSerialNumber] = React.useState("local-test")
-  const [wireguardPrivateKey, setWireguardPrivateKey] = React.useState("")
-  const [wireguardPublicKey, setWireguardPublicKey] = React.useState("")
-  const [generatedConfig, setGeneratedConfig] = React.useState("")
+  const [installBaseUrl, setInstallBaseUrl] = React.useState(
+    "https://vpn.newmarketsecurity.com"
+  )
   const [enrollmentError, setEnrollmentError] = React.useState<string | null>(
     null
   )
@@ -262,36 +235,32 @@ export default function Page() {
     return new Map<string, string>(sites.map((site) => [site.id, site.name]))
   }, [sites])
 
-  const enrollmentOrganizationId =
-    selectedOrganizationId || organizations[0]?.id || ""
-  const enrollmentSites = React.useMemo(
-    () =>
-      sites.filter((site) => site.organizationId === enrollmentOrganizationId),
-    [enrollmentOrganizationId, sites]
+  const selectedSite = React.useMemo(
+    () => sites.find((site) => site.id === selectedSiteId),
+    [selectedSiteId, sites]
   )
 
   React.useEffect(() => {
-    if (
-      selectedSiteId &&
-      !enrollmentSites.some((site) => site.id === selectedSiteId)
-    ) {
+    setInstallBaseUrl(window.location.origin)
+  }, [])
+
+  React.useEffect(() => {
+    if (selectedSiteId && !sites.some((site) => site.id === selectedSiteId)) {
       setSelectedSiteId("")
     }
-  }, [enrollmentSites, selectedSiteId])
+  }, [selectedSiteId, sites])
 
   async function handleCreateEnrollmentToken() {
     setEnrollmentError(null)
-    setGeneratedConfig("")
 
     try {
-      let organizationId = selectedOrganizationId || organizations[0]?.id
+      let organizationId = selectedSite?.organizationId ?? organizations[0]?.id
 
       if (!organizationId) {
         const organization = await createOrganization.mutateAsync({
-          name: organizationName,
+          name: productName,
         })
         organizationId = organization.id
-        setSelectedOrganizationId(organization.id)
       }
 
       const result = await createEnrollmentToken.mutateAsync({
@@ -308,64 +277,17 @@ export default function Page() {
     }
   }
 
-  async function handleEnrollTestDevice() {
-    setEnrollmentError(null)
-
-    if (!enrollmentToken || !wireguardPrivateKey || !wireguardPublicKey) {
-      setEnrollmentError("Add an enrollment token and keypair first.")
-      return
-    }
-
-    try {
-      const response = await fetch("/api/enroll", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          token: enrollmentToken,
-          hostname,
-          os_family: osFamily,
-          os_version: osVersion,
-          architecture,
-          serial_number: serialNumber,
-          wireguard_public_key: wireguardPublicKey,
-          services: [
-            {
-              type: "ssh",
-              protocol: "tcp",
-              port: 22,
-            },
-          ],
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Enrollment failed")
-      }
-
-      const result = (await response.json()) as EnrollmentResponse
-      const config = buildWireGuardConfig({
-        privateKey: wireguardPrivateKey,
-        address: result.vpn_ipv4,
-        serverPublicKey: result.wireguard.server_public_key,
-        endpoint: result.wireguard.endpoint,
-        allowedIps: result.wireguard.allowed_ips,
-        persistentKeepalive: result.wireguard.persistent_keepalive,
-      })
-
-      setGeneratedConfig(config)
-      downloadTextFile(`${hostname}.conf`, `${config}\n`)
-      void utils.devices.list.invalidate()
-    } catch {
-      setEnrollmentError("We couldn't enroll this device.")
-    }
-  }
+  const windowsInstallCommand = enrollmentToken
+    ? buildWindowsInstallCommand(enrollmentToken, installBaseUrl)
+    : ""
+  const linuxInstallCommand = enrollmentToken
+    ? buildLinuxInstallCommand(enrollmentToken, installBaseUrl)
+    : ""
 
   return (
     <DashboardShell hideHeader>
       <header className="border-b bg-card/70 backdrop-blur">
-        <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-4 px-6">
+        <div className="flex h-16 w-full items-center justify-between gap-4 px-6">
           <div className="flex items-center gap-3">
             <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground">
               {getProductInitials(productName)}
@@ -405,7 +327,7 @@ export default function Page() {
           </div>
         </div>
       </header>
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-8">
+      <div className="flex w-full flex-col gap-6 px-6 py-8">
         <section className="flex flex-col gap-4 rounded-2xl border bg-card p-6 shadow-sm">
           <div className="flex flex-col gap-2">
             <Badge variant="outline" className="w-fit">
@@ -414,7 +336,7 @@ export default function Page() {
             <h1 className="text-3xl font-semibold tracking-tight">
               Device inventory and private management
             </h1>
-            <p className="max-w-2xl text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Track enrolled devices, review VPN and service state, and start
               remote sessions without exposing management services directly.
             </p>
@@ -434,43 +356,11 @@ export default function Page() {
             <CardHeader>
               <CardTitle>Enroll a Device</CardTitle>
               <CardDescription>
-                Create a one-time token, submit a device keypair, and download a
-                VPN profile.
+                Choose where the device belongs, then run the installer.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-4">
-                <div className="grid gap-2 text-sm">
-                  <label htmlFor="organization" className="font-medium">
-                    Organization
-                  </label>
-                  {organizations.length > 0 ? (
-                    <select
-                      id="organization"
-                      className="h-10 rounded-md border bg-background px-3"
-                      value={enrollmentOrganizationId}
-                      onChange={(event) => {
-                        setSelectedOrganizationId(event.target.value)
-                        setSelectedSiteId("")
-                      }}
-                    >
-                      {organizations.map((organization) => (
-                        <option key={organization.id} value={organization.id}>
-                          {organization.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      id="organization"
-                      className="h-10 rounded-md border bg-background px-3"
-                      value={organizationName}
-                      onChange={(event) =>
-                        setOrganizationName(event.target.value)
-                      }
-                    />
-                  )}
-                </div>
                 <div className="grid gap-2 text-sm">
                   <label htmlFor="site" className="font-medium">
                     Site
@@ -480,10 +370,10 @@ export default function Page() {
                     className="h-10 rounded-md border bg-background px-3"
                     value={selectedSiteId}
                     onChange={(event) => setSelectedSiteId(event.target.value)}
-                    disabled={enrollmentSites.length === 0}
+                    disabled={sites.length === 0}
                   >
                     <option value="">No site</option>
-                    {enrollmentSites.map((site) => (
+                    {sites.map((site) => (
                       <option key={site.id} value={site.id}>
                         {site.name}
                       </option>
@@ -527,102 +417,39 @@ export default function Page() {
                     <code className="break-all">{enrollmentToken}</code>
                   </div>
                 ) : null}
-                <p className="text-sm text-muted-foreground">
-                  Generate a keypair locally before enrolling:{" "}
-                  <code>wg genkey | tee privatekey | wg pubkey</code>
-                </p>
               </div>
 
               <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">Hostname</span>
-                    <input
-                      className="h-10 rounded-md border bg-background px-3"
-                      value={hostname}
-                      onChange={(event) => setHostname(event.target.value)}
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">System</span>
-                    <input
-                      className="h-10 rounded-md border bg-background px-3"
-                      value={osFamily}
-                      onChange={(event) => setOsFamily(event.target.value)}
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">Version</span>
-                    <input
-                      className="h-10 rounded-md border bg-background px-3"
-                      value={osVersion}
-                      onChange={(event) => setOsVersion(event.target.value)}
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">Architecture</span>
-                    <input
-                      className="h-10 rounded-md border bg-background px-3"
-                      value={architecture}
-                      onChange={(event) => setArchitecture(event.target.value)}
-                    />
-                  </label>
+                <div>
+                  <p className="font-medium">Run the installer</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Create a token, then run one command on the device.
+                  </p>
                 </div>
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Serial number</span>
-                  <input
-                    className="h-10 rounded-md border bg-background px-3"
-                    value={serialNumber}
-                    onChange={(event) => setSerialNumber(event.target.value)}
-                  />
-                </label>
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Private key</span>
-                  <textarea
-                    className="min-h-20 rounded-md border bg-background px-3 py-2 font-mono text-xs"
-                    value={wireguardPrivateKey}
-                    onChange={(event) =>
-                      setWireguardPrivateKey(event.target.value.trim())
-                    }
-                  />
-                </label>
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Public key</span>
-                  <textarea
-                    className="min-h-20 rounded-md border bg-background px-3 py-2 font-mono text-xs"
-                    value={wireguardPublicKey}
-                    onChange={(event) =>
-                      setWireguardPublicKey(event.target.value.trim())
-                    }
-                  />
-                </label>
-                <Button
-                  onClick={() => {
-                    void handleEnrollTestDevice()
-                  }}
-                  disabled={
-                    !enrollmentToken ||
-                    !wireguardPrivateKey ||
-                    !wireguardPublicKey
-                  }
-                >
-                  Enroll and download config
-                </Button>
+                {enrollmentToken ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                      <p className="mb-2 font-medium">Windows PowerShell</p>
+                      <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
+                        {windowsInstallCommand}
+                      </pre>
+                    </div>
+                    <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                      <p className="mb-2 font-medium">Linux</p>
+                      <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
+                        {linuxInstallCommand}
+                      </pre>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+                    Installer commands appear after you create a token.
+                  </div>
+                )}
                 {enrollmentError ? (
                   <p className="text-sm text-destructive">{enrollmentError}</p>
                 ) : null}
               </div>
-
-              {generatedConfig ? (
-                <div className="lg:col-span-2">
-                  <p className="mb-2 text-sm font-medium">
-                    Generated VPN profile
-                  </p>
-                  <pre className="max-h-72 overflow-auto rounded-lg border bg-muted/40 p-3 text-xs">
-                    {generatedConfig}
-                  </pre>
-                </div>
-              ) : null}
             </CardContent>
           </Card>
         ) : null}

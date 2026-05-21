@@ -51,7 +51,7 @@ export default function AuditPage() {
           Audit
         </Badge>
         <h1 className="text-3xl font-semibold tracking-tight">Activity log</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Review recent operational changes across the workspace.
         </p>
       </section>
@@ -123,7 +123,7 @@ export default function AuditPage() {
                       colSpan={5}
                       className="py-8 text-center text-muted-foreground"
                     >
-                      <Skeleton className="mx-auto h-5 w-40" />
+                      <Skeleton className="h-5 w-40" />
                     </TableCell>
                   </TableRow>
                 ) : filteredAudit.length === 0 ? (
@@ -149,7 +149,7 @@ export default function AuditPage() {
                         <TableCell>{event.organizationId ?? "—"}</TableCell>
                         <TableCell>{event.deviceId ?? "—"}</TableCell>
                         <TableCell>{formatDate(event.createdAt)}</TableCell>
-                        <TableCell className="max-w-md text-sm break-words text-muted-foreground">
+                        <TableCell className="text-sm break-words text-muted-foreground">
                           {details || "—"}
                         </TableCell>
                       </TableRow>

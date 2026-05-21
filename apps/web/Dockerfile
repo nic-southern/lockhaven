@@ -15,6 +15,9 @@ RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY . .
+RUN mkdir -p apps/web/public/install \
+  && cp scripts/enroll-windows.ps1 apps/web/public/install/enroll-windows.ps1 \
+  && cp scripts/enroll-linux.sh apps/web/public/install/enroll-linux.sh
 RUN pnpm --dir /repo build:packages && pnpm --filter @nms/web build
 
 FROM node:22-alpine AS runner
