@@ -29,11 +29,12 @@ const serviceLabels: Record<ServiceType, string> = {
   winrm_https: "WinRM",
 }
 
-const serviceDescriptions: Record<(typeof quickServiceTypes)[number], string> = {
-  vnc: "Screen access",
-  rdp: "Desktop access",
-  ssh: "Terminal access",
-}
+const serviceDescriptions: Record<(typeof quickServiceTypes)[number], string> =
+  {
+    vnc: "Screen access",
+    rdp: "Desktop access",
+    ssh: "Terminal access",
+  }
 
 export default function DeviceConfigPage() {
   const params = useParams<{ id: string }>()
@@ -665,7 +666,8 @@ export default function DeviceConfigPage() {
                                 ) as (typeof serviceTypes)[number])
                             const nextProtocol =
                               serviceDefaults[nextServiceType].protocol
-                            const nextPort = serviceDefaults[nextServiceType].port
+                            const nextPort =
+                              serviceDefaults[nextServiceType].port
 
                             void updateService.mutateAsync({
                               id: service.id,

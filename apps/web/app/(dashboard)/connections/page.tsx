@@ -27,11 +27,12 @@ const serviceLabels: Record<ServiceType, string> = {
   winrm_https: "WinRM",
 }
 
-const serviceDescriptions: Record<(typeof quickServiceTypes)[number], string> = {
-  vnc: "Screen access",
-  rdp: "Desktop access",
-  ssh: "Terminal access",
-}
+const serviceDescriptions: Record<(typeof quickServiceTypes)[number], string> =
+  {
+    vnc: "Screen access",
+    rdp: "Desktop access",
+    ssh: "Terminal access",
+  }
 
 export default function ConnectionsPage() {
   const utils = trpc.useUtils()
@@ -222,12 +223,12 @@ export default function ConnectionsPage() {
                       })
                     }}
                     disabled={
-                      !createDeviceId ||
-                      createService.isPending ||
-                      isActive
+                      !createDeviceId || createService.isPending || isActive
                     }
                   >
-                    {isActive ? "Enabled" : `Enable ${serviceLabels[serviceType]}`}
+                    {isActive
+                      ? "Enabled"
+                      : `Enable ${serviceLabels[serviceType]}`}
                   </Button>
                 </div>
               )
@@ -353,8 +354,8 @@ export default function ConnectionsPage() {
                           "Unknown device"}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {serviceLabels[serviceType]} · {service.healthStatus} · last checked{" "}
-                        {formatDate(service.lastCheckedAt)}
+                        {serviceLabels[serviceType]} · {service.healthStatus} ·
+                        last checked {formatDate(service.lastCheckedAt)}
                       </p>
                     </div>
                     <Badge variant={service.enabled ? "secondary" : "outline"}>

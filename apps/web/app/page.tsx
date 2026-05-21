@@ -25,10 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import {
-  getClientProductName,
-  getClientVpnBaseUrl,
-} from "@/lib/product-name"
+import { getClientProductName, getClientVpnBaseUrl } from "@/lib/product-name"
 import { getApiBaseUrl, trpc } from "@/lib/trpc"
 
 type HealthResponse = {

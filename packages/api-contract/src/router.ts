@@ -1168,7 +1168,8 @@ export const appRouter = createTRPCRouter({
         ) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "This launch path only supports VNC, RDP, and SSH services",
+            message:
+              "This launch path only supports VNC, RDP, and SSH services",
           })
         }
 
