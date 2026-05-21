@@ -1,4 +1,4 @@
-import type { Permission } from "@nms/shared"
+import { serviceDefaults, type Permission } from "@nms/shared"
 
 export type RemoteServiceType = "vnc" | "rdp" | "ssh" | "winrm_https"
 
@@ -13,6 +13,10 @@ export function permissionForServiceType(
     default:
       return "device:start_vnc"
   }
+}
+
+export function serviceConnectionDefaults(serviceType: RemoteServiceType) {
+  return serviceDefaults[serviceType]
 }
 
 export function normalizeRouteValues(routes: string[]) {

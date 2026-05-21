@@ -35,11 +35,11 @@ import {
   enrollmentTokenCreateSchema,
   enrollmentTokenUpdateSchema,
   remoteSessionRequestSchema,
-  vncServiceDefaults,
 } from "@nms/shared"
 import {
   normalizeRouteValues,
   permissionForServiceType,
+  serviceConnectionDefaults,
   siteBelongsToOrganization,
 } from "./helpers"
 
@@ -589,18 +589,13 @@ export const appRouter = createTRPCRouter({
           throw new TRPCError({ code: "CONFLICT" })
         }
 
+        const defaults = serviceConnectionDefaults(input.serviceType)
         const [record] = await ctx.db
           .insert(managementServices)
           .values({
             ...input,
-            protocol:
-              input.serviceType === "vnc"
-                ? vncServiceDefaults.protocol
-                : input.protocol,
-            port:
-              input.serviceType === "vnc"
-                ? vncServiceDefaults.port
-                : input.port,
+            protocol: defaults.protocol,
+            port: defaults.port,
           })
           .returning()
 
@@ -653,18 +648,13 @@ export const appRouter = createTRPCRouter({
           throw new TRPCError({ code: "CONFLICT" })
         }
 
+        const defaults = serviceConnectionDefaults(input.serviceType)
         const [record] = await ctx.db
           .update(managementServices)
           .set({
             serviceType: input.serviceType,
-            protocol:
-              input.serviceType === "vnc"
-                ? vncServiceDefaults.protocol
-                : input.protocol,
-            port:
-              input.serviceType === "vnc"
-                ? vncServiceDefaults.port
-                : input.port,
+            protocol: defaults.protocol,
+            port: defaults.port,
             enabled: input.enabled,
           })
           .where(eq(managementServices.id, input.id))
@@ -741,10 +731,11 @@ export const appRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND" })
         }
 
-        if (service.serviceType !== "vnc") {
+        if (service.serviceType !== "vnc" && service.serviceType !== "rdp") {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "Saved credentials are only supported for VNC services",
+            message:
+              "Saved passwords are only supported for VNC and RDP services",
           })
         }
 
@@ -1170,10 +1161,14 @@ export const appRouter = createTRPCRouter({
           throw new TRPCError({ code: "FORBIDDEN" })
         }
 
-        if (service.serviceType !== "vnc" && service.serviceType !== "ssh") {
+        if (
+          service.serviceType !== "vnc" &&
+          service.serviceType !== "rdp" &&
+          service.serviceType !== "ssh"
+        ) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "This launch path only supports VNC and SSH services",
+            message: "This launch path only supports VNC, RDP, and SSH services",
           })
         }
 
@@ -1206,7 +1201,7 @@ export const appRouter = createTRPCRouter({
         }
 
         const password =
-          service.serviceType === "vnc"
+          service.serviceType === "vnc" || service.serviceType === "rdp"
             ? decodePasswordRecord(credential)
             : null
         const sshCredential =

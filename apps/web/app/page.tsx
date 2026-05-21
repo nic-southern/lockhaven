@@ -6,7 +6,6 @@ import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
-import { signOut, useSession } from "@/lib/auth-client"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,7 +28,6 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import {
   getClientProductName,
   getClientVpnBaseUrl,
-  getProductInitials,
 } from "@/lib/product-name"
 import { getApiBaseUrl, trpc } from "@/lib/trpc"
 
@@ -91,7 +89,6 @@ function getEnrollmentTokenExpiration() {
 }
 
 export default function Page() {
-  const { data: session, isPending: sessionPending } = useSession()
   const utils = trpc.useUtils()
   const productName = getClientProductName()
   const [enrollmentOpen, setEnrollmentOpen] = React.useState(false)
@@ -294,49 +291,8 @@ export default function Page() {
     : ""
 
   return (
-    <DashboardShell hideHeader>
-      <header className="border-b bg-card/70 backdrop-blur">
-        <div className="flex h-16 w-full items-center justify-between gap-4 px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground">
-              {getProductInitials(productName)}
-            </div>
-            <div>
-              <p className="text-sm leading-none font-semibold">
-                {productName}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Management console
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden text-right text-sm sm:block">
-              <p className="font-medium">
-                {session?.user?.name ?? session?.user?.email ?? "Signed in"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {sessionPending ? "Checking session" : "Admin access"}
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              onClick={() => {
-                void signOut({
-                  fetchOptions: {
-                    onSuccess() {
-                      window.location.assign("/sign-in")
-                    },
-                  },
-                })
-              }}
-            >
-              Sign out
-            </Button>
-          </div>
-        </div>
-      </header>
-      <div className="flex w-full flex-col gap-6 px-6 py-8">
+    <DashboardShell>
+      <div className="flex w-full flex-col gap-6">
         <section className="flex flex-col gap-4 rounded-2xl border bg-card p-6 shadow-sm">
           <div className="flex flex-col gap-2">
             <Badge variant="outline" className="w-fit">

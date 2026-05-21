@@ -15,10 +15,23 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDate } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
-import { vncServiceDefaults } from "@nms/shared"
+import { serviceDefaults, type ServiceType } from "@nms/shared"
 
 const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
-const createServiceTypes = ["rdp", "ssh", "winrm_https"] as const
+const quickServiceTypes = ["vnc", "rdp", "ssh"] as const
+
+const serviceLabels: Record<ServiceType, string> = {
+  vnc: "VNC",
+  rdp: "RDP",
+  ssh: "SSH",
+  winrm_https: "WinRM",
+}
+
+const serviceDescriptions: Record<(typeof quickServiceTypes)[number], string> = {
+  vnc: "Screen access",
+  rdp: "Desktop access",
+  ssh: "Terminal access",
+}
 
 export default function ConnectionsPage() {
   const utils = trpc.useUtils()
@@ -26,9 +39,13 @@ export default function ConnectionsPage() {
   const devicesQuery = trpc.devices.list.useQuery()
   const [createDeviceId, setCreateDeviceId] = React.useState("")
   const [createServiceType, setCreateServiceType] =
-    React.useState<(typeof createServiceTypes)[number]>("ssh")
-  const [createProtocol, setCreateProtocol] = React.useState("tcp")
-  const [createPort, setCreatePort] = React.useState("22")
+    React.useState<(typeof serviceTypes)[number]>("ssh")
+  const [createProtocol, setCreateProtocol] = React.useState<string>(
+    serviceDefaults.ssh.protocol
+  )
+  const [createPort, setCreatePort] = React.useState(
+    String(serviceDefaults.ssh.port)
+  )
 
   const createService = trpc.managementServices.create.useMutation({
     async onSuccess() {
@@ -80,14 +97,6 @@ export default function ConnectionsPage() {
       ])
     },
   })
-  const enableVnc = trpc.managementServices.create.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.managementServices.list.invalidate(),
-        utils.devices.list.invalidate(),
-      ])
-    },
-  })
   const launchSession = trpc.sessions.create.useMutation({
     onSuccess(result) {
       if (!result) {
@@ -122,6 +131,16 @@ export default function ConnectionsPage() {
     () => new Map(devices.map((device) => [device.id, device.displayName])),
     [devices]
   )
+  const serviceByDeviceAndType = React.useMemo(
+    () =>
+      new Map(
+        services.map((service) => [
+          `${service.deviceId}:${service.serviceType}` as const,
+          service,
+        ])
+      ),
+    [services]
+  )
 
   return (
     <div className="space-y-6">
@@ -140,13 +159,13 @@ export default function ConnectionsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Enable VNC</CardTitle>
+          <CardTitle>Quick enable</CardTitle>
           <CardDescription>
-            Create a VNC service with the known defaults.
+            Create the common remote access services with the known defaults.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-end gap-3">
-          <label className="grid gap-2 text-sm">
+        <CardContent className="space-y-4">
+          <label className="grid gap-2 text-sm md:max-w-sm">
             <span className="font-medium">Device</span>
             <select
               className="h-10 rounded-md border bg-background px-3"
@@ -160,28 +179,68 @@ export default function ConnectionsPage() {
               ))}
             </select>
           </label>
-          <Button
-            onClick={() => {
-              void enableVnc.mutateAsync({
-                deviceId: createDeviceId,
-                serviceType: "vnc",
-                protocol: vncServiceDefaults.protocol,
-                port: vncServiceDefaults.port,
-                enabled: true,
-              })
-            }}
-            disabled={!createDeviceId || enableVnc.isPending}
-          >
-            Enable VNC
-          </Button>
+          <div className="grid gap-3 md:grid-cols-3">
+            {quickServiceTypes.map((serviceType) => {
+              const defaults = serviceDefaults[serviceType]
+              const isActive = Boolean(
+                serviceByDeviceAndType.get(`${createDeviceId}:${serviceType}`)
+              )
+
+              return (
+                <div
+                  key={serviceType}
+                  className="flex min-h-32 flex-col justify-between rounded-xl border bg-card p-4"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium">
+                          {serviceLabels[serviceType]}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {serviceDescriptions[serviceType]}
+                        </p>
+                      </div>
+                      <Badge variant={isActive ? "secondary" : "outline"}>
+                        {isActive ? "Enabled" : "Off"}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {defaults.protocol} · {defaults.port}
+                    </p>
+                  </div>
+                  <Button
+                    className="mt-4 w-fit"
+                    size="sm"
+                    onClick={() => {
+                      void createService.mutateAsync({
+                        deviceId: createDeviceId,
+                        serviceType,
+                        protocol: defaults.protocol,
+                        port: defaults.port,
+                        enabled: true,
+                      })
+                    }}
+                    disabled={
+                      !createDeviceId ||
+                      createService.isPending ||
+                      isActive
+                    }
+                  >
+                    {isActive ? "Enabled" : `Enable ${serviceLabels[serviceType]}`}
+                  </Button>
+                </div>
+              )
+            })}
+          </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Add service</CardTitle>
+          <CardTitle>Custom service</CardTitle>
           <CardDescription>
-            Create a non-VNC service entry for a device.
+            Create a service entry with custom settings.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-5 md:items-end">
@@ -190,15 +249,19 @@ export default function ConnectionsPage() {
             <select
               className="h-10 rounded-md border bg-background px-3"
               value={createServiceType}
-              onChange={(event) =>
-                setCreateServiceType(
-                  event.target.value as (typeof createServiceTypes)[number]
-                )
-              }
+              onChange={(event) => {
+                const serviceType = event.target
+                  .value as (typeof serviceTypes)[number]
+                const defaults = serviceDefaults[serviceType]
+
+                setCreateServiceType(serviceType)
+                setCreateProtocol(defaults.protocol)
+                setCreatePort(String(defaults.port))
+              }}
             >
-              {createServiceTypes.map((type) => (
+              {serviceTypes.map((type) => (
                 <option key={type} value={type}>
-                  {type}
+                  {serviceLabels[type]}
                 </option>
               ))}
             </select>
@@ -254,8 +317,11 @@ export default function ConnectionsPage() {
             <p className="text-sm text-muted-foreground">No services yet.</p>
           ) : (
             services.map((service) => {
-              const isVnc = service.serviceType === "vnc"
-              const isSsh = service.serviceType === "ssh"
+              const serviceType = service.serviceType as ServiceType
+              const isVnc = serviceType === "vnc"
+              const isRdp = serviceType === "rdp"
+              const isSsh = serviceType === "ssh"
+              const isPasswordService = isVnc || isRdp
 
               return (
                 <form
@@ -264,17 +330,12 @@ export default function ConnectionsPage() {
                   onSubmit={(event) => {
                     event.preventDefault()
                     const form = new FormData(event.currentTarget)
-                    const nextServiceType = isVnc
-                      ? "vnc"
-                      : (String(
-                          form.get("serviceType")
-                        ) as (typeof serviceTypes)[number])
-                    const nextProtocol = isVnc
-                      ? vncServiceDefaults.protocol
-                      : String(form.get("protocol"))
-                    const nextPort = isVnc
-                      ? vncServiceDefaults.port
-                      : Number(form.get("port"))
+                    const nextServiceType = String(
+                      form.get("serviceType")
+                    ) as (typeof serviceTypes)[number]
+                    const nextProtocol =
+                      serviceDefaults[nextServiceType].protocol
+                    const nextPort = serviceDefaults[nextServiceType].port
 
                     void updateService.mutateAsync({
                       id: service.id,
@@ -292,7 +353,7 @@ export default function ConnectionsPage() {
                           "Unknown device"}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {service.healthStatus} · last checked{" "}
+                        {serviceLabels[serviceType]} · {service.healthStatus} · last checked{" "}
                         {formatDate(service.lastCheckedAt)}
                       </p>
                     </div>
@@ -301,14 +362,16 @@ export default function ConnectionsPage() {
                     </Badge>
                   </div>
 
-                  {isVnc ? (
+                  {isPasswordService ? (
                     <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 text-sm md:col-span-5">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
-                          <p className="font-medium">VNC</p>
+                          <p className="font-medium">
+                            {serviceLabels[serviceType]}
+                          </p>
                           <p className="text-muted-foreground">
-                            {vncServiceDefaults.protocol} ·{" "}
-                            {vncServiceDefaults.port}
+                            {serviceDefaults[serviceType].protocol} ·{" "}
+                            {serviceDefaults[serviceType].port}
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -349,7 +412,7 @@ export default function ConnectionsPage() {
                         >
                           {serviceTypes.map((type) => (
                             <option key={type} value={type}>
-                              {type}
+                              {serviceLabels[type]}
                             </option>
                           ))}
                         </select>

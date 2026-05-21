@@ -139,3 +139,55 @@ test("provisions an SSH connection with username and private key", async () => {
   assert.ok(queries.some((entry) => entry.values?.includes("ubuntu")))
   assert.ok(queries.some((entry) => entry.values?.includes(fakePrivateKey)))
 })
+
+test("provisions an RDP connection through Guacamole", async () => {
+  const queries: Array<{ text: string; values?: unknown[] }> = []
+
+  const client = {
+    query: async (text: string, values?: unknown[]) => {
+      queries.push({ text, values })
+
+      if (text.includes("SELECT connection_id")) {
+        return { rows: [] }
+      }
+
+      if (text.includes("RETURNING connection_id")) {
+        return { rows: [{ connection_id: 44 }] }
+      }
+
+      return { rows: [] }
+    },
+    release: () => undefined,
+  }
+
+  const pool = {
+    connect: async () => client,
+  } as unknown as Pool
+
+  const provider = new GuacamoleRemoteAccessProvider(
+    {
+      baseUrl: "https://guac.example.com/guacamole/",
+      databaseUrl:
+        "postgresql://guacamole:guacamole@guacamole-db:5432/guacamole_db",
+    },
+    pool
+  )
+
+  const session = await provider.createSession({
+    deviceId: "device-1",
+    serviceId: "service-3",
+    serviceType: "rdp",
+    adminUserId: "admin-1",
+    connectionMethod: "guacamole",
+    hostname: "10.80.0.30",
+    port: 3389,
+    launchId: "launch-3",
+  })
+
+  assert.equal(session.sessionId, "nms-device-1-service-3-launch-3")
+  assert.match(
+    session.url,
+    /^https:\/\/guac\.example\.com\/guacamole\/#\/client\//
+  )
+  assert.ok(queries.some((entry) => entry.values?.includes("rdp")))
+})

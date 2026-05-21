@@ -2,6 +2,9 @@
 
 import * as React from "react"
 import { ThemeProvider as NextThemesProvider, useTheme } from "next-themes"
+import { MoonIcon, SunIcon } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
 
 function ThemeProvider({
   children,
@@ -10,7 +13,7 @@ function ThemeProvider({
   return (
     <NextThemesProvider
       attribute="class"
-      defaultTheme="system"
+      defaultTheme="light"
       enableSystem
       disableTransitionOnChange
       {...props}
@@ -68,4 +71,24 @@ function ThemeHotkey() {
   return null
 }
 
-export { ThemeProvider }
+function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme()
+  const isDark = resolvedTheme === "dark"
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      onClick={() => {
+        setTheme(isDark ? "light" : "dark")
+      }}
+    >
+      <MoonIcon className="dark:hidden" aria-hidden="true" />
+      <SunIcon className="hidden dark:block" aria-hidden="true" />
+    </Button>
+  )
+}
+
+export { ThemeProvider, ThemeToggle }

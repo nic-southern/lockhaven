@@ -256,9 +256,13 @@ export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
       throw new Error("Unsupported remote access provider")
     }
 
-    if (request.serviceType !== "vnc" && request.serviceType !== "ssh") {
+    if (
+      request.serviceType !== "vnc" &&
+      request.serviceType !== "rdp" &&
+      request.serviceType !== "ssh"
+    ) {
       throw new Error(
-        "Guacamole launch is only supported for VNC and SSH services"
+        "Guacamole launch is only supported for VNC, RDP, and SSH services"
       )
     }
 

@@ -89,10 +89,26 @@ export const managementServiceSchema = z.object({
   createdAt: z.coerce.date(),
 })
 
-export const vncServiceDefaults = {
-  protocol: "tcp",
-  port: 5900,
-} as const
+export const serviceDefaults = {
+  vnc: {
+    protocol: "tcp",
+    port: 5900,
+  },
+  rdp: {
+    protocol: "tcp",
+    port: 3389,
+  },
+  ssh: {
+    protocol: "tcp",
+    port: 22,
+  },
+  winrm_https: {
+    protocol: "tcp",
+    port: 5986,
+  },
+} as const satisfies Record<ServiceType, { protocol: "tcp"; port: number }>
+
+export const vncServiceDefaults = serviceDefaults.vnc
 
 export const enrollmentTokenCreateSchema = z.object({
   organizationId: z.string().uuid(),

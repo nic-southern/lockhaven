@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import { signOut, useSession } from "@/lib/auth-client"
+import { ThemeToggle } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { getClientProductName, getProductInitials } from "@/lib/product-name"
 import { cn } from "@/lib/utils"
@@ -57,6 +58,7 @@ export function DashboardShell({
                   {isPending ? "Loading" : "Signed in"}
                 </p>
               </div>
+              <ThemeToggle />
               <Button
                 variant="outline"
                 onClick={() => {

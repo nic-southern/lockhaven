@@ -17,9 +17,23 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatBytes, formatDate, statusVariant } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
-import { vncServiceDefaults } from "@nms/shared"
+import { serviceDefaults, type ServiceType } from "@nms/shared"
 
 const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
+const quickServiceTypes = ["vnc", "rdp", "ssh"] as const
+
+const serviceLabels: Record<ServiceType, string> = {
+  vnc: "VNC",
+  rdp: "RDP",
+  ssh: "SSH",
+  winrm_https: "WinRM",
+}
+
+const serviceDescriptions: Record<(typeof quickServiceTypes)[number], string> = {
+  vnc: "Screen access",
+  rdp: "Desktop access",
+  ssh: "Terminal access",
+}
 
 export default function DeviceConfigPage() {
   const params = useParams<{ id: string }>()
@@ -121,8 +135,12 @@ export default function DeviceConfigPage() {
   const [deviceRoutePolicyId, setDeviceRoutePolicyId] = React.useState("")
   const [newServiceType, setNewServiceType] =
     React.useState<(typeof serviceTypes)[number]>("ssh")
-  const [newServiceProtocol, setNewServiceProtocol] = React.useState("tcp")
-  const [newServicePort, setNewServicePort] = React.useState("22")
+  const [newServiceProtocol, setNewServiceProtocol] = React.useState<string>(
+    serviceDefaults.ssh.protocol
+  )
+  const [newServicePort, setNewServicePort] = React.useState(
+    String(serviceDefaults.ssh.port)
+  )
   const sitesQuery = trpc.sites.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
 
@@ -136,6 +154,16 @@ export default function DeviceConfigPage() {
   }, [deviceQuery.data])
 
   const device = deviceQuery.data
+  const serviceByType = React.useMemo(
+    () =>
+      new Map(
+        (device?.services ?? []).map((service) => [
+          service.serviceType as ServiceType,
+          service,
+        ])
+      ),
+    [device?.services]
+  )
   const sites = React.useMemo(() => sitesQuery.data ?? [], [sitesQuery.data])
   const routePolicies = React.useMemo(
     () => routePoliciesQuery.data ?? [],
@@ -321,21 +349,94 @@ export default function DeviceConfigPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-3">
+                {quickServiceTypes.map((serviceType) => {
+                  const defaults = serviceDefaults[serviceType]
+                  const existingService = serviceByType.get(serviceType)
+                  const isEnabled = Boolean(existingService?.enabled)
+
+                  return (
+                    <div
+                      key={serviceType}
+                      className="flex min-h-32 flex-col justify-between rounded-xl border bg-card p-4"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium">
+                              {serviceLabels[serviceType]}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {serviceDescriptions[serviceType]}
+                            </p>
+                          </div>
+                          <Badge variant={isEnabled ? "secondary" : "outline"}>
+                            {isEnabled ? "Enabled" : "Off"}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {defaults.protocol} · {defaults.port}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="mt-4 w-fit"
+                        variant={isEnabled ? "outline" : "default"}
+                        onClick={() => {
+                          if (existingService) {
+                            void updateService.mutateAsync({
+                              id: existingService.id,
+                              serviceType,
+                              protocol: defaults.protocol,
+                              port: defaults.port,
+                              enabled: true,
+                            })
+                            return
+                          }
+
+                          void createService.mutateAsync({
+                            deviceId: device.id,
+                            serviceType,
+                            protocol: defaults.protocol,
+                            port: defaults.port,
+                            enabled: true,
+                          })
+                        }}
+                        disabled={
+                          isEnabled ||
+                          createService.isPending ||
+                          updateService.isPending
+                        }
+                      >
+                        {isEnabled
+                          ? "Enabled"
+                          : `Enable ${serviceLabels[serviceType]}`}
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+
               <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-5 md:items-end">
                 <label className="grid gap-2 text-sm">
                   <span className="font-medium">Type</span>
                   <select
                     value={newServiceType}
-                    onChange={(event) =>
-                      setNewServiceType(
-                        event.target.value as (typeof serviceTypes)[number]
-                      )
-                    }
+                    onChange={(event) => {
+                      const serviceType = event.target
+                        .value as (typeof serviceTypes)[number]
+                      const defaults = serviceDefaults[serviceType]
+
+                      setNewServiceType(serviceType)
+                      setNewServiceProtocol(defaults.protocol)
+                      setNewServicePort(String(defaults.port))
+                    }}
                     className="h-10 rounded-md border bg-background px-3"
                   >
                     {serviceTypes.map((type) => (
                       <option key={type} value={type}>
-                        {type}
+                        {serviceLabels[type]}
                       </option>
                     ))}
                   </select>
@@ -384,8 +485,11 @@ export default function DeviceConfigPage() {
                 </p>
               ) : (
                 device.services.map((service) => {
-                  const isVnc = service.serviceType === "vnc"
-                  const isSsh = service.serviceType === "ssh"
+                  const serviceType = service.serviceType as ServiceType
+                  const isVnc = serviceType === "vnc"
+                  const isRdp = serviceType === "rdp"
+                  const isSsh = serviceType === "ssh"
+                  const isPasswordService = isVnc || isRdp
 
                   return (
                     <div
@@ -394,7 +498,9 @@ export default function DeviceConfigPage() {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3 md:col-span-5">
                         <div>
-                          <p className="font-medium">{service.serviceType}</p>
+                          <p className="font-medium">
+                            {serviceLabels[serviceType]}
+                          </p>
                           <p className="text-sm text-muted-foreground">
                             {service.protocol} · {service.port}
                           </p>
@@ -406,14 +512,16 @@ export default function DeviceConfigPage() {
                         </Badge>
                       </div>
 
-                      {isVnc ? (
+                      {isPasswordService ? (
                         <div className="rounded-lg border bg-muted/20 p-3 text-sm md:col-span-5">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
-                              <p className="font-medium">VNC</p>
+                              <p className="font-medium">
+                                {serviceLabels[serviceType]}
+                              </p>
                               <p className="text-muted-foreground">
-                                {vncServiceDefaults.protocol} ·{" "}
-                                {vncServiceDefaults.port}
+                                {serviceDefaults[serviceType].protocol} ·{" "}
+                                {serviceDefaults[serviceType].port}
                               </p>
                             </div>
                             {service.enabled ? (
@@ -469,7 +577,7 @@ export default function DeviceConfigPage() {
                             >
                               {serviceTypes.map((type) => (
                                 <option key={type} value={type}>
-                                  {type}
+                                  {serviceLabels[type]}
                                 </option>
                               ))}
                             </select>
@@ -548,27 +656,16 @@ export default function DeviceConfigPage() {
                                 `input[name="enabled-${service.id}"]`
                               )?.checked
                             )
-                            const nextServiceType = isVnc
-                              ? "vnc"
+                            const nextServiceType = isPasswordService
+                              ? serviceType
                               : (String(
                                   document.querySelector<HTMLSelectElement>(
                                     `select[name="serviceType-${service.id}"]`
                                   )?.value ?? service.serviceType
                                 ) as (typeof serviceTypes)[number])
                             const nextProtocol =
-                              nextServiceType === "vnc"
-                                ? vncServiceDefaults.protocol
-                                : (document.querySelector<HTMLInputElement>(
-                                    `input[name="protocol-${service.id}"]`
-                                  )?.value ?? service.protocol)
-                            const nextPort =
-                              nextServiceType === "vnc"
-                                ? vncServiceDefaults.port
-                                : Number(
-                                    document.querySelector<HTMLInputElement>(
-                                      `input[name="port-${service.id}"]`
-                                    )?.value ?? service.port
-                                  )
+                              serviceDefaults[nextServiceType].protocol
+                            const nextPort = serviceDefaults[nextServiceType].port
 
                             void updateService.mutateAsync({
                               id: service.id,
@@ -594,7 +691,7 @@ export default function DeviceConfigPage() {
                           Remove
                         </Button>
                       </div>
-                      {isVnc && service.enabled ? (
+                      {isPasswordService && service.enabled ? (
                         <div className="flex flex-wrap gap-2 md:col-span-5">
                           <input
                             name={`password-${service.id}`}

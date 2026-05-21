@@ -45,9 +45,15 @@ case "$cmd" in
     tmp_file="$(mktemp)"
     {
       cat <<'EOF'
-flush ruleset
+delete table inet lockhaven_filter
+EOF
+    } >"$tmp_file"
 
-table inet filter {
+    nft -f "$tmp_file" 2>/dev/null || true
+
+    {
+      cat <<'EOF'
+table inet lockhaven_filter {
   chain input {
     type filter hook input priority 0;
     policy drop;
@@ -65,11 +71,12 @@ table inet filter {
 
   chain forward {
     type filter hook forward priority 0;
-    policy drop;
+    policy accept;
 EOF
       if [ -n "$allowed_routes" ]; then
         printf '    iifname "wg0" ip daddr { %s } accept\n' "$allowed_routes"
       fi
+      printf '    iifname "wg0" drop\n'
       cat <<'EOF'
   }
 

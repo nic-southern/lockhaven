@@ -9,6 +9,12 @@ directly.
 
 Repository: [`nic-southern/lockhaven`](https://github.com/nic-southern/lockhaven)
 
+## Screenshots
+
+![Lockhaven overview dashboard](docs/screenshots/lockhaven-overview.png)
+
+![Lockhaven device management](docs/screenshots/lockhaven-device-management.png)
+
 ## Product Suite
 
 Lockhaven is built as a foundation for a broader remote infrastructure access
