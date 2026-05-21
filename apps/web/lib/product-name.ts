@@ -7,6 +7,7 @@ type ProductNameEnv = {
 
 type RuntimeProductConfig = {
   productName?: string | null
+  vpnPublicHostname?: string | null
 }
 
 declare global {
@@ -40,6 +41,39 @@ export function getClientProductName(config?: RuntimeProductConfig) {
   }
 
   return getServerProductName()
+}
+
+function normalizeBaseUrl(value: string | null | undefined) {
+  const trimmed = value?.trim()
+
+  if (!trimmed) {
+    return null
+  }
+
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`
+
+  return withProtocol.replace(/\/+$/, "")
+}
+
+export function getClientVpnBaseUrl(config?: RuntimeProductConfig) {
+  const configured = normalizeBaseUrl(
+    config?.vpnPublicHostname ??
+      (typeof window !== "undefined"
+        ? window.__LOCKHAVEN_CONFIG__?.vpnPublicHostname
+        : null)
+  )
+
+  if (configured) {
+    return configured
+  }
+
+  if (typeof window !== "undefined") {
+    return window.location.origin
+  }
+
+  return "https://<vpn-hostname>"
 }
 
 export function getProductInitials(productName: string) {

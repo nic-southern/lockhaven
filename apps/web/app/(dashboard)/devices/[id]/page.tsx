@@ -136,12 +136,10 @@ export default function DeviceConfigPage() {
   }, [deviceQuery.data])
 
   const device = deviceQuery.data
-  const sites = sitesQuery.data ?? []
-  const routePolicies = routePoliciesQuery.data ?? []
-
-  const siteNameById = React.useMemo(
-    () => new Map(sites.map((site) => [site.id, site.name])),
-    [sites]
+  const sites = React.useMemo(() => sitesQuery.data ?? [], [sitesQuery.data])
+  const routePolicies = React.useMemo(
+    () => routePoliciesQuery.data ?? [],
+    [routePoliciesQuery.data]
   )
 
   const vpnStatus = device

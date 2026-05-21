@@ -41,6 +41,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `window.__LOCKHAVEN_CONFIG__=${JSON.stringify({
               productName,
+              vpnPublicHostname: process.env.VPN_PUBLIC_HOSTNAME ?? null,
             })};`,
           }}
         />

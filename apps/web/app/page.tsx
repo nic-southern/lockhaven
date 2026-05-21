@@ -26,7 +26,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import { getClientProductName, getProductInitials } from "@/lib/product-name"
+import {
+  getClientProductName,
+  getClientVpnBaseUrl,
+  getProductInitials,
+} from "@/lib/product-name"
 import { getApiBaseUrl, trpc } from "@/lib/trpc"
 
 type HealthResponse = {
@@ -80,6 +84,12 @@ function buildLinuxInstallCommand(token: string, baseUrl: string) {
   return `curl -fsSL ${baseUrl}/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN=${quoteShell(token)} bash`
 }
 
+const ENROLLMENT_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
+
+function getEnrollmentTokenExpiration() {
+  return new Date(Date.now() + ENROLLMENT_TOKEN_TTL_MS)
+}
+
 export default function Page() {
   const { data: session, isPending: sessionPending } = useSession()
   const utils = trpc.useUtils()
@@ -88,9 +98,8 @@ export default function Page() {
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
   const [selectedRoutePolicyId, setSelectedRoutePolicyId] = React.useState("")
   const [enrollmentToken, setEnrollmentToken] = React.useState("")
-  const [installBaseUrl, setInstallBaseUrl] = React.useState(
-    "https://vpn.newmarketsecurity.com"
-  )
+  const [installBaseUrl, setInstallBaseUrl] =
+    React.useState(getClientVpnBaseUrl)
   const [enrollmentError, setEnrollmentError] = React.useState<string | null>(
     null
   )
@@ -241,7 +250,7 @@ export default function Page() {
   )
 
   React.useEffect(() => {
-    setInstallBaseUrl(window.location.origin)
+    setInstallBaseUrl(getClientVpnBaseUrl())
   }, [])
 
   React.useEffect(() => {
@@ -267,7 +276,7 @@ export default function Page() {
         organizationId,
         siteId: selectedSiteId || null,
         routePolicyId: selectedRoutePolicyId || null,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        expiresAt: getEnrollmentTokenExpiration(),
         maxUses: 1,
       })
 

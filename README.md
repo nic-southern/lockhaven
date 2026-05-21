@@ -148,17 +148,17 @@ path.
 Windows PowerShell:
 
 ```powershell
-$Token = "<enrollment-token>"; $Script = "$env:TEMP\lockhaven-enroll.ps1"; Invoke-WebRequest -Uri "https://vpn.newmarketsecurity.com/install/enroll-windows.ps1" -OutFile $Script; powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token
+$VpnHost = "https://<vpn-hostname>"; $Token = "<enrollment-token>"; $Script = "$env:TEMP\lockhaven-enroll.ps1"; Invoke-WebRequest -Uri "$VpnHost/install/enroll-windows.ps1" -OutFile $Script; powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $VpnHost
 ```
 
 Linux:
 
 ```bash
-curl -fsSL https://vpn.newmarketsecurity.com/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN="<enrollment-token>" bash
+VPN_HOST="https://<vpn-hostname>"; curl -fsSL "$VPN_HOST/install/enroll-linux.sh" | sudo LOCKHAVEN_TOKEN="<enrollment-token>" LOCKHAVEN_BASE_URL="$VPN_HOST" bash
 ```
 
-Both installers default to `https://vpn.newmarketsecurity.com`. Override the
-host with `-BaseUrl` on Windows or `LOCKHAVEN_BASE_URL` on Linux.
+Use the deployed VPN hostname for `<vpn-hostname>`, for example the value of
+`VPN_PUBLIC_HOSTNAME` in your environment.
 
 ### Path B: DIY Existing Host
 

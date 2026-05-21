@@ -52,7 +52,10 @@ export default function RoutePoliciesPage() {
     },
   })
 
-  const routePolicies = routePoliciesQuery.data ?? []
+  const routePolicies = React.useMemo(
+    () => routePoliciesQuery.data ?? [],
+    [routePoliciesQuery.data]
+  )
 
   React.useEffect(() => {
     if (routePolicies.length === 0) {
@@ -77,7 +80,7 @@ export default function RoutePoliciesPage() {
       setEditDescription(selectedPolicy.description ?? "")
       setEditRoutes(selectedPolicy.routes.join("\n"))
     }
-  }, [selectedPolicy?.id])
+  }, [selectedPolicy])
 
   return (
     <div className="space-y-6">

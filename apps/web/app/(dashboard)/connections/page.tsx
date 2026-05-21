@@ -98,8 +98,14 @@ export default function ConnectionsPage() {
     },
   })
 
-  const services = servicesQuery.data ?? []
-  const devices = devicesQuery.data ?? []
+  const services = React.useMemo(
+    () => servicesQuery.data ?? [],
+    [servicesQuery.data]
+  )
+  const devices = React.useMemo(
+    () => devicesQuery.data ?? [],
+    [devicesQuery.data]
+  )
 
   React.useEffect(() => {
     if (devices.length === 0) {

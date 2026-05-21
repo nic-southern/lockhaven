@@ -65,9 +65,15 @@ export default function SitesPage() {
     },
   })
 
-  const sites = sitesQuery.data ?? []
-  const organizations = organizationsQuery.data ?? []
-  const devices = devicesQuery.data ?? []
+  const sites = React.useMemo(() => sitesQuery.data ?? [], [sitesQuery.data])
+  const organizations = React.useMemo(
+    () => organizationsQuery.data ?? [],
+    [organizationsQuery.data]
+  )
+  const devices = React.useMemo(
+    () => devicesQuery.data ?? [],
+    [devicesQuery.data]
+  )
 
   React.useEffect(() => {
     if (sites.length === 0) {
@@ -102,7 +108,7 @@ export default function SitesPage() {
       setEditTimezone(selectedSite.timezone ?? "")
       setEditNotes(selectedSite.notes ?? "")
     }
-  }, [selectedSite?.id])
+  }, [selectedSite])
 
   return (
     <div className="space-y-6">

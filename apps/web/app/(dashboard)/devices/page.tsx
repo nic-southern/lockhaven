@@ -28,7 +28,10 @@ const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
 export default function DevicesPage() {
   const utils = trpc.useUtils()
   const devicesQuery = trpc.devices.list.useQuery()
-  const deviceIds = devicesQuery.data ?? []
+  const deviceIds = React.useMemo(
+    () => devicesQuery.data ?? [],
+    [devicesQuery.data]
+  )
   const [selectedDeviceId, setSelectedDeviceId] = React.useState("")
   const sitesQuery = trpc.sites.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
@@ -96,6 +99,7 @@ export default function DevicesPage() {
     React.useState<(typeof serviceTypes)[number]>("ssh")
   const [newServiceProtocol, setNewServiceProtocol] = React.useState("tcp")
   const [newServicePort, setNewServicePort] = React.useState("22")
+  const selectedDevice = deviceQuery.data
 
   React.useEffect(() => {
     if (deviceIds.length === 0) {
@@ -109,22 +113,19 @@ export default function DevicesPage() {
   }, [deviceIds, selectedDeviceId])
 
   React.useEffect(() => {
-    if (deviceQuery.data) {
-      setDeviceName(deviceQuery.data.displayName)
-      setDeviceHostname(deviceQuery.data.hostname ?? "")
-      setDeviceSiteId(deviceQuery.data.siteId ?? "")
-      setDeviceRoutePolicyId(deviceQuery.data.vpnIdentity?.routePolicyId ?? "")
-      setNewServiceDeviceId(deviceQuery.data.id)
+    if (selectedDevice) {
+      setDeviceName(selectedDevice.displayName)
+      setDeviceHostname(selectedDevice.hostname ?? "")
+      setDeviceSiteId(selectedDevice.siteId ?? "")
+      setDeviceRoutePolicyId(selectedDevice.vpnIdentity?.routePolicyId ?? "")
+      setNewServiceDeviceId(selectedDevice.id)
     }
-  }, [deviceQuery.data?.id])
+  }, [selectedDevice])
 
-  const selectedDevice = deviceQuery.data
-  const sites = sitesQuery.data ?? []
-  const routePolicies = routePoliciesQuery.data ?? []
-
-  const siteNameById = React.useMemo(
-    () => new Map(sites.map((site) => [site.id, site.name])),
-    [sites]
+  const sites = React.useMemo(() => sitesQuery.data ?? [], [sitesQuery.data])
+  const routePolicies = React.useMemo(
+    () => routePoliciesQuery.data ?? [],
+    [routePoliciesQuery.data]
   )
 
   const vpnStatus = selectedDevice
