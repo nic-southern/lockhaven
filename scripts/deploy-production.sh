@@ -250,6 +250,11 @@ ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
   docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T redis redis-cli ping
 
   docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T postgres sh -lc 'printf \"ALTER USER postgres PASSWORD '\\''%s'\\'';\\n\" \"\$POSTGRES_PASSWORD\" | psql -U postgres -d postgres'
+  docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T guacamole-db sh -lc 'printf \"ALTER USER guacamole PASSWORD '\\''%s'\\'';\\n\" \"\$POSTGRES_PASSWORD\" | psql -U guacamole -d guacamole_db'
+
+  if ! docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T guacamole-db psql -U guacamole -d guacamole_db -tAc \"select to_regclass('public.guacamole_connection')\" | grep -q guacamole_connection; then
+    docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm --no-deps --entrypoint /opt/guacamole/bin/initdb.sh guacamole --postgresql | docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T guacamole-db psql -U guacamole -d guacamole_db
+  fi
 "
 
 log "Applying database migrations and bootstrapping admin"

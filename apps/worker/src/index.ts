@@ -29,7 +29,6 @@ import {
 const execFileAsync = promisify(execFile)
 
 const redisUrl = process.env.REDIS_URL ?? "redis://127.0.0.1:6379/0"
-const wgInterface = process.env.WIREGUARD_INTERFACE ?? "wg0"
 const vpnctlPath = process.env.VPNCTL_PATH ?? "/usr/local/sbin/vpnctl"
 
 const connection = new Redis(redisUrl, {
@@ -38,7 +37,9 @@ const connection = new Redis(redisUrl, {
 
 async function readWireGuardDump() {
   try {
-    const { stdout } = await execFileAsync("wg", ["show", wgInterface, "dump"])
+    const { stdout } = await execFileAsync(vpnctlPath, ["show-status"], {
+      env: process.env,
+    })
     return parseWgDump(stdout)
   } catch {
     return []
