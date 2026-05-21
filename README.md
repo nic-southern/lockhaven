@@ -52,6 +52,7 @@ If you need to find the right values:
 - `GHCR_USER` is your GitHub username or the machine user that owns the package token.
 - `GHCR_READ_TOKEN` should be a token with `read:packages` access.
 - `SSH_KEY_NAME` must match an SSH key already uploaded to DigitalOcean.
+- `ACME_EMAIL` is the contact email used for Let's Encrypt certificate issuance.
 - `DO_TOKEN` can live in `/.env.stage`; it is your DigitalOcean API token.
 - `TF_VAR_do_token` is the same token exported in your shell instead of the stage file.
 
@@ -71,7 +72,7 @@ Set these GitHub Actions secrets before you can deploy:
 
 The droplet itself should have `/opt/newmarketsecurity/.env.deploy` with the generated runtime values from `/.env.example`, including:
 
-- `APP_HOSTNAME` and `GUAC_HOSTNAME`
+- `APP_HOSTNAME`, `GUAC_HOSTNAME`, and `ACME_EMAIL`
 - `POSTGRES_PASSWORD` and `GUACAMOLE_DB_PASSWORD`
 - `BETTER_AUTH_SECRET` and `REMOTE_CREDENTIALS_KEY`
 - `VPN_SERVER_PUBLIC_KEY`

@@ -90,6 +90,7 @@ NEXT_PUBLIC_APP_URL=https://${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
 ROOT_DOMAIN=${ROOT_DOMAIN:-example.com}
 APP_HOSTNAME=${APP_HOSTNAME:?Set APP_HOSTNAME in .env.stage}
 GUAC_HOSTNAME=${GUAC_HOSTNAME:?Set GUAC_HOSTNAME in .env.stage}
+ACME_EMAIL=${ACME_EMAIL:?Set ACME_EMAIL in .env.stage}
 GUACAMOLE_BASE_URL=https://${GUAC_HOSTNAME:?Set GUAC_HOSTNAME in .env.stage}/guacamole/
 GUACAMOLE_DATABASE_URL=postgresql://guacamole:${guacamole_db_password}@guacamole-db:5432/guacamole_db
 DATABASE_URL=postgresql://postgres:${postgres_password}@127.0.0.1:5432/nms_vpn
@@ -131,6 +132,13 @@ fi
 ssh_host="${SSH_HOST:-root@${droplet_ip}}"
 ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new)
 
+log "Copying deployment files to ${ssh_host}"
+ssh "${ssh_opts[@]}" "$ssh_host" "mkdir -p /opt/newmarketsecurity/deploy"
+scp "${ssh_opts[@]}" "$ROOT_DIR/deploy/production.compose.yml" "$ssh_host:/opt/newmarketsecurity/deploy/production.compose.yml"
+scp "${ssh_opts[@]}" "$DEPLOY_ENV_FILE" "$ssh_host:/opt/newmarketsecurity/.env.deploy"
+scp "${ssh_opts[@]}" "$ROOT_DIR/infra/systemd/vpnctl" "$ssh_host:/tmp/vpnctl"
+ssh "${ssh_opts[@]}" "$ssh_host" "install -m 0755 /tmp/vpnctl /usr/local/sbin/vpnctl && chmod 600 /opt/newmarketsecurity/.env.deploy"
+
 log "Starting the stack on the new droplet"
 ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
   until command -v docker >/dev/null 2>&1; do
@@ -149,19 +157,6 @@ ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
   docker info >/dev/null 2>&1
   printf '%s\n' '${GHCR_READ_TOKEN}' | docker login ghcr.io -u '${GHCR_USER}' --password-stdin
   cd /opt/newmarketsecurity
-  openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
-    -keyout /etc/traefik/certs/${APP_HOSTNAME}.key \
-    -out /etc/traefik/certs/${APP_HOSTNAME}.crt \
-    -subj /CN=${APP_HOSTNAME} \
-    -addext subjectAltName=DNS:${APP_HOSTNAME},DNS:*.${APP_HOSTNAME},DNS:${GUAC_HOSTNAME}
-  chmod 600 /etc/traefik/certs/${APP_HOSTNAME}.key
-  chmod 644 /etc/traefik/certs/${APP_HOSTNAME}.crt
-  cat > /etc/traefik/dynamic/tls.yml <<'EOF'
-tls:
-  certificates:
-    - certFile: /etc/traefik/certs/${APP_HOSTNAME}.crt
-      keyFile: /etc/traefik/certs/${APP_HOSTNAME}.key
-EOF
   docker compose --env-file .env.deploy -f deploy/production.compose.yml pull
   docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --remove-orphans
 "

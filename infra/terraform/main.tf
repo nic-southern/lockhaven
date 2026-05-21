@@ -19,8 +19,6 @@ resource "digitalocean_droplet" "vpn" {
   provisioner "remote-exec" {
     inline = [
       "mkdir -p /opt/newmarketsecurity/deploy",
-      "mkdir -p /etc/traefik/certs",
-      "mkdir -p /etc/traefik/dynamic",
     ]
   }
 

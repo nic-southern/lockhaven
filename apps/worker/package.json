@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "pnpm --dir ../.. build:packages && sh -c 'set -a; . ../../.env; set +a; tsx watch src/index.ts'",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/src/index.js",
+    "start": "node dist/apps/worker/src/index.js",
     "lint": "eslint",
     "typecheck": "tsc --noEmit"
   },
