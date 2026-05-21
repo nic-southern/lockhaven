@@ -20,8 +20,13 @@ RUN pnpm --dir /repo build:packages && pnpm --filter @nms/worker build
 FROM node:22-alpine AS runner
 WORKDIR /repo
 ENV NODE_ENV=production
-RUN apk add --no-cache nftables wireguard-tools
+RUN apk add --no-cache libcap nftables util-linux wireguard-tools
 RUN addgroup -g 1001 -S nodejs && adduser -S worker -u 1001
+RUN printf '%s\n' '#!/usr/bin/env sh' 'exec nsenter -t 1 -n /usr/local/sbin/vpnctl "$@"' > /usr/local/sbin/host-vpnctl \
+  && chmod 0755 /usr/local/sbin/host-vpnctl \
+  && setcap cap_sys_admin,cap_net_admin,cap_net_raw+ep /usr/bin/nsenter \
+  && setcap cap_net_admin,cap_net_raw+ep /usr/bin/wg \
+  && setcap cap_net_admin,cap_net_raw+ep /usr/sbin/nft
 COPY --from=build /repo/apps/worker/dist ./apps/worker/dist
 COPY --from=build /repo/apps/worker/src ./apps/worker/src
 COPY --from=build /repo/apps/worker/package.json ./apps/worker/package.json

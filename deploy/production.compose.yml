@@ -135,12 +135,15 @@ services:
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    pid: host
     env_file:
       - ../.env.deploy
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/nms_vpn
       REDIS_URL: redis://redis:6379/0
-      VPNCTL_PATH: /usr/local/sbin/vpnctl
+      VPNCTL_PATH: /usr/local/sbin/host-vpnctl
       WIREGUARD_INTERFACE: wg0
       NODE_ENV: production
     volumes:
