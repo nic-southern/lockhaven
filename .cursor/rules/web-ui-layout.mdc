@@ -8,6 +8,9 @@ alwaysApply: false
 
 - Prefer full-width page and dashboard layouts that use the available viewport.
 - Do not add centered container wrappers such as `mx-auto max-w-*` for primary
-  app chrome, page bodies, cards, tables, or descriptive copy.
-- Use narrow widths only for controls that need an intrinsic size to work well,
-  such as small buttons, badges, icons, or compact form fields.
+  app chrome, dashboard pages, data views, cards, or tables.
+- Keep focused pages compact when that is the natural shape of the task, such as
+  sign-in, setup, confirmation, and short single-form flows.
+- Use narrow widths for controls or content that need an intrinsic size to work
+  well, such as small buttons, badges, icons, compact form fields, and short
+  readable copy.

@@ -30,7 +30,7 @@ if [ -z "${TF_VAR_do_token:-}" ] && [ -n "${DO_TOKEN:-}" ]; then
 fi
 : "${TF_VAR_do_token:?Set TF_VAR_do_token or DO_TOKEN before running the script}"
 : "${GHCR_USER:?Set GHCR_USER in .env.stage}"
-: "${GHCR_READ_TOKEN:?Set GHCR_READ_TOKEN in .env.stage}"
+: "${GHCR_READ_TOKEN:?Set GHCR_READ_TOKEN in .env.stage or export it in your shell}"
 DEPLOY_ONLY="${DEPLOY_ONLY:-0}"
 
 repo_slug="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
@@ -150,20 +150,30 @@ ssh "${ssh_opts[@]}" "$ssh_host" "install -m 0755 /tmp/vpnctl /usr/local/sbin/vp
 
 log "Preparing Docker on ${ssh_host}"
 ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
-  until command -v docker >/dev/null 2>&1; do
+  if command -v cloud-init >/dev/null 2>&1; then
+    cloud-init status --wait
+  fi
+
+  for _ in \$(seq 1 120); do
+    command -v docker >/dev/null 2>&1 && break
     sleep 5
   done
+
+  command -v docker
+
   for _ in \$(seq 1 60); do
     docker compose version >/dev/null 2>&1 && break
     sleep 5
   done
-  docker compose version >/dev/null 2>&1
+  docker compose version
+
   systemctl start docker >/dev/null 2>&1 || true
+
   for _ in \$(seq 1 60); do
     docker info >/dev/null 2>&1 && break
     sleep 5
   done
-  docker info >/dev/null 2>&1
+  docker info >/dev/null
 "
 
 log "Preparing WireGuard on ${ssh_host}"
@@ -226,8 +236,20 @@ ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
   cd /opt/lockhaven
   docker compose --env-file .env.deploy -f deploy/production.compose.yml pull
   docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d postgres redis guacamole-db guacd traefik
-  docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T postgres pg_isready -U postgres -d nms_vpn
+
+  for _ in \$(seq 1 60); do
+    docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T postgres pg_isready -h 127.0.0.1 -U postgres -d nms_vpn && break
+    sleep 2
+  done
+  docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T postgres pg_isready -h 127.0.0.1 -U postgres -d nms_vpn
+
+  for _ in \$(seq 1 60); do
+    docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T redis redis-cli ping && break
+    sleep 2
+  done
   docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T redis redis-cli ping
+
+  docker compose --env-file .env.deploy -f deploy/production.compose.yml exec -T postgres sh -lc 'printf \"ALTER USER postgres PASSWORD '\\''%s'\\'';\\n\" \"\$POSTGRES_PASSWORD\" | psql -U postgres -d postgres'
 "
 
 log "Applying database migrations and bootstrapping admin"
