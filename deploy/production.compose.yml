@@ -69,6 +69,8 @@ services:
     image: guacamole/guacd:1.6.0
     restart: unless-stopped
     network_mode: host
+    volumes:
+      - guacamole_drive:/drive
 
   guacamole:
     image: guacamole/guacamole:1.6.0
@@ -185,6 +187,7 @@ services:
 volumes:
   postgres_data:
   guacamole_postgres_data:
+  guacamole_drive:
   letsencrypt:
 
 networks:

@@ -49,6 +49,8 @@ export type EncryptedSecret = {
 }
 
 const AES_256_GCM_AUTH_TAG_LENGTH = 16
+const GUACAMOLE_DRIVE_ROOT = "/drive"
+const GUACAMOLE_DRIVE_NAME = "Lockhaven"
 
 export function deriveSecretKey(secret: string) {
   return createHash("sha256").update(secret).digest()
@@ -99,6 +101,10 @@ export function buildGuacamoleClientUrl(baseUrl: string, connectionId: number) {
     `#/client/${encodeGuacamoleConnectionReference(connectionId)}`,
     baseUrl
   ).toString()
+}
+
+function buildGuacamoleDrivePath(connectionName: string) {
+  return `${GUACAMOLE_DRIVE_ROOT}/${connectionName}`
 }
 
 type UpsertConnectionInput = {
@@ -229,9 +235,29 @@ class GuacamoleConnectionStore {
         await client.query(
           `
             INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
-            VALUES ($1, 'server-alive-interval', '60')
+            VALUES
+              ($1, 'server-alive-interval', '60'),
+              ($1, 'enable-sftp', 'true')
           `,
           [connectionId]
+        )
+      }
+
+      if (input.protocol === "rdp") {
+        await client.query(
+          `
+            INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+            VALUES
+              ($1, 'enable-drive', 'true'),
+              ($1, 'drive-name', $2),
+              ($1, 'drive-path', $3),
+              ($1, 'create-drive-path', 'true')
+          `,
+          [
+            connectionId,
+            GUACAMOLE_DRIVE_NAME,
+            buildGuacamoleDrivePath(input.connectionName),
+          ]
         )
       }
 

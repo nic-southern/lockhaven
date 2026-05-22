@@ -143,6 +143,11 @@ test("provisions an SSH connection with username and private key", async () => {
       String(entry.text).includes("'server-alive-interval', '60'")
     )
   )
+  assert.ok(
+    queries.some((entry) =>
+      String(entry.text).includes("'enable-sftp', 'true'")
+    )
+  )
 })
 
 test("provisions an RDP connection through Guacamole", async () => {
@@ -195,4 +200,19 @@ test("provisions an RDP connection through Guacamole", async () => {
     /^https:\/\/guac\.example\.com\/guacamole\/#\/client\//
   )
   assert.ok(queries.some((entry) => entry.values?.includes("rdp")))
+  assert.ok(
+    queries.some((entry) =>
+      String(entry.text).includes("'enable-drive', 'true'")
+    )
+  )
+  assert.ok(
+    queries.some((entry) =>
+      String(entry.text).includes("'create-drive-path', 'true'")
+    )
+  )
+  assert.ok(
+    queries.some((entry) =>
+      entry.values?.includes("/drive/nms-device-1-service-3-launch-3")
+    )
+  )
 })
