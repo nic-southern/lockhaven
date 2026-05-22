@@ -9,6 +9,7 @@ services:
       - --entrypoints.web.http.redirections.entrypoint.permanent=true
       - --entrypoints.websecure.address=:443
       - --entrypoints.websecure.http.tls=true
+      - --entrypoints.websecure.transport.respondingTimeouts.idleTimeout=0
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=proxy
@@ -80,6 +81,7 @@ services:
       POSTGRESQL_DATABASE: guacamole_db
       POSTGRESQL_USER: guacamole
       POSTGRESQL_PASSWORD: ${GUACAMOLE_DB_PASSWORD}
+      API_SESSION_TIMEOUT: ${GUACAMOLE_API_SESSION_TIMEOUT:-1440}
       HTTP_AUTH_ENABLED: "true"
       HTTP_AUTH_HEADER: X-Authenticated-User
       REMOTE_IP_VALVE_ENABLED: "true"
@@ -150,6 +152,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       VPNCTL_PATH: /usr/local/sbin/host-vpnctl
       WIREGUARD_INTERFACE: wg0
+      RUN_DB_MIGRATIONS_ON_START: "1"
       NODE_ENV: production
     volumes:
       - /usr/local/sbin/vpnctl:/usr/local/sbin/vpnctl:ro

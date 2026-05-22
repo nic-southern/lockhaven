@@ -3,53 +3,10 @@ import { betterAuth } from "better-auth"
 
 import { db } from "@nms/db/client"
 import * as schema from "@nms/db/schema"
-import type { Permission } from "@nms/shared"
 
 import { hashPassword, verifyPassword } from "./password"
-
-export type AdminPrincipal = {
-  id: string
-  email: string
-  name: string | null
-  permissions: Permission[]
-}
-
-export function permissionsForRole(role: string): Permission[] {
-  if (role === "owner") {
-    return [
-      "device:view",
-      "device:create",
-      "device:update",
-      "device:enroll",
-      "device:revoke_vpn",
-      "device:start_vnc",
-      "device:start_rdp",
-      "device:start_ssh",
-      "organization:admin",
-      "site:admin",
-      "audit:view",
-    ]
-  }
-
-  return [
-    "device:view",
-    "device:create",
-    "device:update",
-    "device:enroll",
-    "device:revoke_vpn",
-    "device:start_vnc",
-    "device:start_rdp",
-    "device:start_ssh",
-    "audit:view",
-  ]
-}
-
-export function hasPermission(
-  permissions: Permission[],
-  required: Permission
-): boolean {
-  return permissions.includes(required)
-}
+export * from "./access"
+export { hashPassword, verifyPassword } from "./password"
 
 function isLocalhostHost(hostname: string) {
   return (

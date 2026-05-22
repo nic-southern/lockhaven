@@ -35,5 +35,8 @@ COPY --from=build /repo/apps/worker/node_modules ./apps/worker/node_modules
 COPY --from=build /repo/packages ./packages
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/package.json ./package.json
+COPY apps/worker/docker-entrypoint.sh ./apps/worker/docker-entrypoint.sh
+RUN chmod 0755 ./apps/worker/docker-entrypoint.sh
 USER worker
+ENTRYPOINT ["./apps/worker/docker-entrypoint.sh"]
 CMD ["./apps/worker/node_modules/.bin/tsx", "apps/worker/src/index.ts"]

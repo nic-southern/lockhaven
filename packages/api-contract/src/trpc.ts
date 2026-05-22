@@ -19,6 +19,19 @@ const ensureAdmin = t.middleware(({ ctx, next }) => {
   })
 })
 
+const ensurePlatformAccess = t.middleware(({ ctx, next }) => {
+  if (!ctx.actor) {
+    throw new TRPCError({ code: "UNAUTHORIZED" })
+  }
+
+  return next({
+    ctx: {
+      ...ctx,
+      actor: ctx.actor,
+    },
+  })
+})
+
 const requirePermission = (permission: Permission) =>
   t.middleware(({ ctx, next }) => {
     if (!ctx.actor) {
@@ -35,5 +48,6 @@ const requirePermission = (permission: Permission) =>
 export const createTRPCRouter = t.router
 export const publicProcedure = t.procedure
 export const adminProcedure = t.procedure.use(ensureAdmin)
+export const platformProcedure = t.procedure.use(ensurePlatformAccess)
 export const permissionProcedure = (permission: Permission) =>
   t.procedure.use(requirePermission(permission))

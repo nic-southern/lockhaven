@@ -17,6 +17,18 @@ import { deviceStatuses, permissions, serviceTypes } from "@nms/shared"
 export const statusEnum = pgEnum("device_status", deviceStatuses)
 export const serviceTypeEnum = pgEnum("service_type", serviceTypes)
 export const permissionEnum = pgEnum("permission", permissions)
+export const platformRoleEnum = pgEnum("platform_role", ["owner", "admin"])
+export const organizationRoleEnum = pgEnum("organization_role", [
+  "owner",
+  "admin",
+  "operator",
+  "viewer",
+])
+export const siteRoleEnum = pgEnum("site_role", ["operator", "viewer"])
+export const membershipStatusEnum = pgEnum("membership_status", [
+  "active",
+  "suspended",
+])
 
 export const organizations = pgTable("organizations", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -27,13 +39,42 @@ export const organizations = pgTable("organizations", {
     .defaultNow(),
 })
 
+export const organizationMemberships = pgTable(
+  "organization_memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: organizationRoleEnum("role").notNull(),
+    status: membershipStatusEnum("status").notNull().default("active"),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationUserIdx: uniqueIndex(
+      "organization_memberships_organization_user_idx"
+    ).on(table.organizationId, table.userId),
+  })
+)
+
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
-  role: text("role").notNull().default("admin"),
+  role: platformRoleEnum("role").notNull().default("admin"),
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -120,6 +161,36 @@ export const sites = pgTable("sites", {
     .defaultNow(),
 })
 
+export const siteMemberships = pgTable(
+  "site_memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: siteRoleEnum("role").notNull(),
+    status: membershipStatusEnum("status").notNull().default("active"),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    siteUserIdx: uniqueIndex("site_memberships_site_user_idx").on(
+      table.siteId,
+      table.userId
+    ),
+  })
+)
+
 export const devices = pgTable("devices", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id")
@@ -142,10 +213,18 @@ export const devices = pgTable("devices", {
 
 export const routePolicies = pgTable("route_policies", {
   id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull().unique(),
+  organizationId: uuid("organization_id").references(() => organizations.id, {
+    onDelete: "cascade",
+  }),
+  name: text("name").notNull(),
   routes: text("routes").array().notNull(),
   description: text("description"),
-})
+}, (table) => ({
+  organizationNameIdx: uniqueIndex("route_policies_organization_name_idx").on(
+    table.organizationId,
+    table.name
+  ),
+}))
 
 export const vpnIdentities = pgTable(
   "vpn_identities",
@@ -284,7 +363,9 @@ export const auditEvents = pgTable("audit_events", {
 })
 
 export type Organization = typeof organizations.$inferSelect
+export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
+export type SiteMembership = typeof siteMemberships.$inferSelect
 export type AuthUser = typeof user.$inferSelect
 export type Device = typeof devices.$inferSelect
 export type RoutePolicy = typeof routePolicies.$inferSelect

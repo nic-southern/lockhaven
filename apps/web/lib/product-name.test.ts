@@ -4,6 +4,7 @@ import test from "node:test"
 import {
   DEFAULT_PRODUCT_NAME,
   getClientProductName,
+  getClientSocBaseUrl,
   getServerProductName,
   getProductInitials,
 } from "./product-name"
@@ -29,6 +30,17 @@ test("reads the injected browser product name", () => {
     getClientProductName({ productName: "Customer Portal" }),
     "Customer Portal"
   )
+})
+
+test("reads and normalizes the injected SOC host", () => {
+  assert.equal(
+    getClientSocBaseUrl({ socBaseUrl: "soc.example.com/" }),
+    "https://soc.example.com"
+  )
+})
+
+test("returns null when no SOC host is configured", () => {
+  assert.equal(getClientSocBaseUrl({}), null)
 })
 
 test("creates readable initials from the product name", () => {

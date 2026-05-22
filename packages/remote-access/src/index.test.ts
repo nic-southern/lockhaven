@@ -138,6 +138,11 @@ test("provisions an SSH connection with username and private key", async () => {
   assert.ok(queries.some((entry) => entry.values?.includes("ssh")))
   assert.ok(queries.some((entry) => entry.values?.includes("ubuntu")))
   assert.ok(queries.some((entry) => entry.values?.includes(fakePrivateKey)))
+  assert.ok(
+    queries.some((entry) =>
+      String(entry.text).includes("'server-alive-interval', '60'")
+    )
+  )
 })
 
 test("provisions an RDP connection through Guacamole", async () => {

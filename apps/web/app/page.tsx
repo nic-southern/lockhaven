@@ -25,8 +25,18 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import { getClientProductName, getClientVpnBaseUrl } from "@/lib/product-name"
+import {
+  getClientProductName,
+  getClientSocBaseUrl,
+  getClientVpnBaseUrl,
+} from "@/lib/product-name"
 import { getApiBaseUrl, trpc } from "@/lib/trpc"
+import {
+  buildLinuxInstallCommand,
+  buildSocWindowsInstallCommand,
+  buildVpnAndSocWindowsInstallCommand,
+  buildWindowsInstallCommand,
+} from "@/lib/enrollment-commands"
 
 type HealthResponse = {
   ok: boolean
@@ -58,27 +68,6 @@ function formatDate(value: string | Date | null | undefined) {
   }).format(new Date(value))
 }
 
-function quotePowerShell(value: string) {
-  return `'${value.replaceAll("'", "''")}'`
-}
-
-function quoteShell(value: string) {
-  return `'${value.replaceAll("'", "'\\''")}'`
-}
-
-function buildWindowsInstallCommand(token: string, baseUrl: string) {
-  return [
-    `$Token = ${quotePowerShell(token)};`,
-    `$Script = "$env:TEMP\\lockhaven-enroll.ps1";`,
-    `Invoke-WebRequest -Uri "${baseUrl}/install/enroll-windows.ps1" -OutFile $Script;`,
-    "powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token",
-  ].join(" ")
-}
-
-function buildLinuxInstallCommand(token: string, baseUrl: string) {
-  return `curl -fsSL ${baseUrl}/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN=${quoteShell(token)} bash`
-}
-
 const ENROLLMENT_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 function getEnrollmentTokenExpiration() {
@@ -94,6 +83,7 @@ export default function Page() {
   const [enrollmentToken, setEnrollmentToken] = React.useState("")
   const [installBaseUrl, setInstallBaseUrl] =
     React.useState(getClientVpnBaseUrl)
+  const [socBaseUrl, setSocBaseUrl] = React.useState(getClientSocBaseUrl)
   const [enrollmentError, setEnrollmentError] = React.useState<string | null>(
     null
   )
@@ -245,6 +235,7 @@ export default function Page() {
 
   React.useEffect(() => {
     setInstallBaseUrl(getClientVpnBaseUrl())
+    setSocBaseUrl(getClientSocBaseUrl())
   }, [])
 
   React.useEffect(() => {
@@ -281,11 +272,37 @@ export default function Page() {
   }
 
   const windowsInstallCommand = enrollmentToken
-    ? buildWindowsInstallCommand(enrollmentToken, installBaseUrl)
+    ? buildWindowsInstallCommand({
+        token: enrollmentToken,
+        baseUrl: installBaseUrl,
+      })
     : ""
   const linuxInstallCommand = enrollmentToken
-    ? buildLinuxInstallCommand(enrollmentToken, installBaseUrl)
+    ? buildLinuxInstallCommand({
+        token: enrollmentToken,
+        baseUrl: installBaseUrl,
+      })
     : ""
+  const selectedSiteName = selectedSiteId
+    ? (siteNameById.get(selectedSiteId) ?? "")
+    : ""
+  const showSocCommands = Boolean(socBaseUrl)
+  const socWindowsInstallCommand =
+    socBaseUrl && selectedSiteName
+      ? buildSocWindowsInstallCommand({
+          baseUrl: socBaseUrl,
+          siteName: selectedSiteName,
+        })
+      : ""
+  const windowsVpnAndSocInstallCommand =
+    enrollmentToken && socBaseUrl && selectedSiteName
+      ? buildVpnAndSocWindowsInstallCommand({
+          vpnToken: enrollmentToken,
+          vpnBaseUrl: installBaseUrl,
+          socBaseUrl,
+          siteName: selectedSiteName,
+        })
+      : ""
 
   return (
     <DashboardShell>
@@ -391,11 +408,41 @@ export default function Page() {
                 {enrollmentToken ? (
                   <div className="space-y-3">
                     <div className="rounded-lg border bg-muted/40 p-3 text-sm">
-                      <p className="mb-2 font-medium">Windows PowerShell</p>
+                      <p className="mb-2 font-medium">VPN Windows</p>
                       <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
                         {windowsInstallCommand}
                       </pre>
                     </div>
+                    {showSocCommands ? (
+                      <>
+                        <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                          <p className="mb-2 font-medium">
+                            VPN + Lockhaven SOC Host
+                          </p>
+                          {windowsVpnAndSocInstallCommand ? (
+                            <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
+                              {windowsVpnAndSocInstallCommand}
+                            </pre>
+                          ) : (
+                            <p className="text-muted-foreground">
+                              Choose a site to create this command.
+                            </p>
+                          )}
+                        </div>
+                        <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+                          <p className="mb-2 font-medium">SOC only Windows</p>
+                          {socWindowsInstallCommand ? (
+                            <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
+                              {socWindowsInstallCommand}
+                            </pre>
+                          ) : (
+                            <p className="text-muted-foreground">
+                              Choose a site to create this command.
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    ) : null}
                     <div className="rounded-lg border bg-muted/40 p-3 text-sm">
                       <p className="mb-2 font-medium">Linux</p>
                       <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">

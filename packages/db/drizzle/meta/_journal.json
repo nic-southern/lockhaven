@@ -36,6 +36,13 @@
       "when": 1779307665985,
       "tag": "0004_device_check_in_secret",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779350000000,
+      "tag": "0005_acl_memberships",
+      "breakpoints": true
     }
   ]
 }

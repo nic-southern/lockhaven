@@ -25,8 +25,10 @@ import { trpc } from "@/lib/trpc"
 
 export default function RoutePoliciesPage() {
   const utils = trpc.useUtils()
+  const organizationsQuery = trpc.organizations.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
   const [selectedPolicyId, setSelectedPolicyId] = React.useState("")
+  const [createOrganizationId, setCreateOrganizationId] = React.useState("")
 
   const [createName, setCreateName] = React.useState("")
   const [createDescription, setCreateDescription] = React.useState("")
@@ -56,6 +58,16 @@ export default function RoutePoliciesPage() {
     () => routePoliciesQuery.data ?? [],
     [routePoliciesQuery.data]
   )
+  const organizations = React.useMemo(
+    () => organizationsQuery.data ?? [],
+    [organizationsQuery.data]
+  )
+
+  React.useEffect(() => {
+    if (organizations.length > 0 && !createOrganizationId) {
+      setCreateOrganizationId(organizations[0].id)
+    }
+  }, [createOrganizationId, organizations])
 
   React.useEffect(() => {
     if (routePolicies.length === 0) {
@@ -106,6 +118,21 @@ export default function RoutePoliciesPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <label className="grid gap-2 text-sm">
+              <span className="font-medium">Organization</span>
+              <select
+                className="h-10 rounded-md border bg-background px-3"
+                value={createOrganizationId}
+                onChange={(event) => setCreateOrganizationId(event.target.value)}
+              >
+                <option value="">Choose an organization</option>
+                {organizations.map((organization) => (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm">
               <span className="font-medium">Name</span>
               <input
                 className="h-10 rounded-md border bg-background px-3"
@@ -132,6 +159,7 @@ export default function RoutePoliciesPage() {
             <Button
               onClick={() => {
                 void createRoutePolicy.mutateAsync({
+                  organizationId: createOrganizationId,
                   name: createName,
                   routes: createRoutes
                     .split("\n")
@@ -143,7 +171,9 @@ export default function RoutePoliciesPage() {
                 setCreateDescription("")
                 setCreateRoutes("")
               }}
-              disabled={!createName || createRoutePolicy.isPending}
+              disabled={
+                !createOrganizationId || !createName || createRoutePolicy.isPending
+              }
             >
               Create policy
             </Button>
@@ -252,6 +282,8 @@ export default function RoutePoliciesPage() {
                 onClick={() => {
                   void updateRoutePolicy.mutateAsync({
                     id: selectedPolicy.id,
+                    organizationId:
+                      selectedPolicy.organizationId ?? createOrganizationId,
                     name: editName,
                     routes: editRoutes
                       .split("\n")

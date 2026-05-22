@@ -15,7 +15,9 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { buildSocWindowsInstallCommand } from "@/lib/enrollment-commands"
 import { formatBytes, formatDate, statusVariant } from "@/lib/dashboard"
+import { getClientSocBaseUrl } from "@/lib/product-name"
 import { trpc } from "@/lib/trpc"
 import { serviceDefaults, type ServiceType } from "@nms/shared"
 
@@ -142,8 +144,13 @@ export default function DeviceConfigPage() {
   const [newServicePort, setNewServicePort] = React.useState(
     String(serviceDefaults.ssh.port)
   )
+  const [socBaseUrl, setSocBaseUrl] = React.useState(getClientSocBaseUrl)
   const sitesQuery = trpc.sites.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
+
+  React.useEffect(() => {
+    setSocBaseUrl(getClientSocBaseUrl())
+  }, [])
 
   React.useEffect(() => {
     if (deviceQuery.data) {
@@ -178,6 +185,16 @@ export default function DeviceConfigPage() {
         ? "vpn_online"
         : "pending"
     : "pending"
+  const deviceSiteName = device?.siteId
+    ? (sites.find((site) => site.id === device.siteId)?.name ?? "")
+    : ""
+  const deviceSocCommand =
+    socBaseUrl && deviceSiteName
+      ? buildSocWindowsInstallCommand({
+          baseUrl: socBaseUrl,
+          siteName: deviceSiteName,
+        })
+      : ""
 
   return (
     <div className="space-y-6">
@@ -339,6 +356,26 @@ export default function DeviceConfigPage() {
                   </p>
                 </div>
               </div>
+
+              {socBaseUrl ? (
+                <div className="rounded-lg border bg-muted/20 p-4 text-sm">
+                  <div className="mb-3">
+                    <p className="font-medium">Lockhaven SOC Host</p>
+                    <p className="text-muted-foreground">
+                      Run this command to add monitoring for this device.
+                    </p>
+                  </div>
+                  {deviceSocCommand ? (
+                    <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
+                      {deviceSocCommand}
+                    </pre>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      Assign a site to create this command.
+                    </p>
+                  )}
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 

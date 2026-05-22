@@ -42,6 +42,7 @@ export default function RootLayout({
             __html: `window.__LOCKHAVEN_CONFIG__=${JSON.stringify({
               productName,
               vpnPublicHostname: process.env.VPN_PUBLIC_HOSTNAME ?? null,
+              socBaseUrl: process.env.SOC_BASE_URL ?? null,
             })};`,
           }}
         />

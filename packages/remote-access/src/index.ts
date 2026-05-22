@@ -225,6 +225,16 @@ class GuacamoleConnectionStore {
         )
       }
 
+      if (input.protocol === "ssh") {
+        await client.query(
+          `
+            INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+            VALUES ($1, 'server-alive-interval', '60')
+          `,
+          [connectionId]
+        )
+      }
+
       await client.query("COMMIT")
 
       return connectionId

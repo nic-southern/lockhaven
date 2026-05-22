@@ -20,7 +20,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { buildSocWindowsInstallCommand } from "@/lib/enrollment-commands"
 import { formatBytes, formatDate, statusVariant } from "@/lib/dashboard"
+import { getClientSocBaseUrl } from "@/lib/product-name"
 import { trpc } from "@/lib/trpc"
 
 const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
@@ -99,7 +101,12 @@ export default function DevicesPage() {
     React.useState<(typeof serviceTypes)[number]>("ssh")
   const [newServiceProtocol, setNewServiceProtocol] = React.useState("tcp")
   const [newServicePort, setNewServicePort] = React.useState("22")
+  const [socBaseUrl, setSocBaseUrl] = React.useState(getClientSocBaseUrl)
   const selectedDevice = deviceQuery.data
+
+  React.useEffect(() => {
+    setSocBaseUrl(getClientSocBaseUrl())
+  }, [])
 
   React.useEffect(() => {
     if (deviceIds.length === 0) {
@@ -135,6 +142,16 @@ export default function DevicesPage() {
         ? "vpn_online"
         : "pending"
     : "pending"
+  const selectedDeviceSiteName = selectedDevice?.siteId
+    ? (sites.find((site) => site.id === selectedDevice.siteId)?.name ?? "")
+    : ""
+  const selectedDeviceSocCommand =
+    socBaseUrl && selectedDeviceSiteName
+      ? buildSocWindowsInstallCommand({
+          baseUrl: socBaseUrl,
+          siteName: selectedDeviceSiteName,
+        })
+      : ""
 
   return (
     <div className="space-y-6">
@@ -352,6 +369,26 @@ export default function DevicesPage() {
                     </p>
                   </div>
                 </div>
+
+                {socBaseUrl ? (
+                  <div className="rounded-lg border bg-muted/20 p-4 text-sm">
+                    <div className="mb-3">
+                      <p className="font-medium">Lockhaven SOC Host</p>
+                      <p className="text-muted-foreground">
+                        Run this command to add monitoring for this device.
+                      </p>
+                    </div>
+                    {selectedDeviceSocCommand ? (
+                      <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
+                        {selectedDeviceSocCommand}
+                      </pre>
+                    ) : (
+                      <p className="text-muted-foreground">
+                        Assign a site to create this command.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">

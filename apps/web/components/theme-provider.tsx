@@ -71,16 +71,44 @@ function ThemeHotkey() {
   return null
 }
 
+function subscribeToHydrationStore() {
+  return () => {}
+}
+
+function getHydratedSnapshot() {
+  return true
+}
+
+function getServerHydrationSnapshot() {
+  return false
+}
+
+function useIsHydrated() {
+  return React.useSyncExternalStore(
+    subscribeToHydrationStore,
+    getHydratedSnapshot,
+    getServerHydrationSnapshot
+  )
+}
+
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
-  const isDark = resolvedTheme === "dark"
+  const isHydrated = useIsHydrated()
+  const isDark = isHydrated && resolvedTheme === "dark"
 
   return (
     <Button
       type="button"
       variant="outline"
       size="icon"
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={
+        isHydrated
+          ? isDark
+            ? "Switch to light mode"
+            : "Switch to dark mode"
+          : "Toggle color mode"
+      }
+      disabled={!isHydrated}
       onClick={() => {
         setTheme(isDark ? "light" : "dark")
       }}

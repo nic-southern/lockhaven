@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import { signOut, useSession } from "@/lib/auth-client"
+import { trpc } from "@/lib/trpc"
 import { ThemeToggle } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import { getClientProductName, getProductInitials } from "@/lib/product-name"
@@ -17,6 +18,7 @@ const navItems = [
   { href: "/connections", label: "Connections" },
   { href: "/route-policies", label: "Route policies" },
   { href: "/enrollment-tokens", label: "Enrollment tokens" },
+  { href: "/users", label: "Users" },
   { href: "/audit", label: "Audit" },
 ]
 
@@ -29,7 +31,15 @@ export function DashboardShell({
 }) {
   const pathname = usePathname()
   const { data: session, isPending } = useSession()
+  const accessQuery = trpc.access.me.useQuery()
   const productName = getClientProductName()
+  const visibleNavItems = React.useMemo(() => {
+    if (accessQuery.data?.canManageUsers === false) {
+      return navItems.filter((item) => item.href !== "/users")
+    }
+
+    return navItems
+  }, [accessQuery.data?.canManageUsers])
 
   return (
     <div className="min-h-svh bg-background">
@@ -81,7 +91,7 @@ export function DashboardShell({
       <div className="flex w-full gap-6 px-6 py-8">
         <aside className="hidden w-56 shrink-0 lg:block">
           <nav className="sticky top-8 flex flex-col gap-1 rounded-2xl border bg-card p-3 shadow-sm">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const active =
                 item.href === "/"
                   ? pathname === "/"
