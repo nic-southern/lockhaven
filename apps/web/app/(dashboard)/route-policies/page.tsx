@@ -122,7 +122,9 @@ export default function RoutePoliciesPage() {
               <select
                 className="h-10 rounded-md border bg-background px-3"
                 value={createOrganizationId}
-                onChange={(event) => setCreateOrganizationId(event.target.value)}
+                onChange={(event) =>
+                  setCreateOrganizationId(event.target.value)
+                }
               >
                 <option value="">Choose an organization</option>
                 {organizations.map((organization) => (
@@ -172,7 +174,9 @@ export default function RoutePoliciesPage() {
                 setCreateRoutes("")
               }}
               disabled={
-                !createOrganizationId || !createName || createRoutePolicy.isPending
+                !createOrganizationId ||
+                !createName ||
+                createRoutePolicy.isPending
               }
             >
               Create policy

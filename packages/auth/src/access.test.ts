@@ -24,8 +24,14 @@ test("maps organization roles to scoped permissions", () => {
 })
 
 test("maps site roles to scoped permissions", () => {
-  assert.equal(permissionsForSiteRole("operator").includes("device:update"), true)
-  assert.equal(permissionsForSiteRole("viewer").includes("device:update"), false)
+  assert.equal(
+    permissionsForSiteRole("operator").includes("device:update"),
+    true
+  )
+  assert.equal(
+    permissionsForSiteRole("viewer").includes("device:update"),
+    false
+  )
 })
 
 test("platform permissions stay separate from membership permissions", () => {

@@ -1,6 +1,10 @@
 import { TRPCError } from "@trpc/server"
 
-import { authorize, type ActorPrincipal, type AuthorizationResource } from "@nms/auth"
+import {
+  authorize,
+  type ActorPrincipal,
+  type AuthorizationResource,
+} from "@nms/auth"
 import type { Permission } from "@nms/shared"
 
 export function assertAuthorized(

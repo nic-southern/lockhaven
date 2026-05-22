@@ -180,7 +180,8 @@ export function organizationMembershipFor(
 
 export function siteMembershipFor(actor: ActorPrincipal, siteId: string) {
   return actor.siteMemberships.find(
-    (membership) => membership.siteId === siteId && membership.status === "active"
+    (membership) =>
+      membership.siteId === siteId && membership.status === "active"
   )
 }
 
@@ -227,7 +228,10 @@ export function authorize(
     return { allowed: true, reason: "platform_owner" }
   }
 
-  if (actor.platformRole === "admin" && allowsPlatformAccess(actor, permission)) {
+  if (
+    actor.platformRole === "admin" &&
+    allowsPlatformAccess(actor, permission)
+  ) {
     return { allowed: true, reason: "platform_admin" }
   }
 
@@ -239,7 +243,10 @@ export function authorize(
       }
 
     case "organization": {
-      const membership = organizationMembershipFor(actor, resource.organizationId)
+      const membership = organizationMembershipFor(
+        actor,
+        resource.organizationId
+      )
 
       if (membership && allowsOrganizationRole(membership.role, permission)) {
         return {
@@ -265,7 +272,10 @@ export function authorize(
       ) {
         return {
           allowed: true,
-          reason: resourceScopeReason("organization", organizationMembership.role),
+          reason: resourceScopeReason(
+            "organization",
+            organizationMembership.role
+          ),
         }
       }
 
@@ -285,7 +295,9 @@ export function authorize(
 
     case "device": {
       const siteMembership =
-        resource.siteId !== null ? siteMembershipFor(actor, resource.siteId) : null
+        resource.siteId !== null
+          ? siteMembershipFor(actor, resource.siteId)
+          : null
       if (siteMembership && allowsSiteRole(siteMembership.role, permission)) {
         return {
           allowed: true,
@@ -303,7 +315,10 @@ export function authorize(
       ) {
         return {
           allowed: true,
-          reason: resourceScopeReason("organization", organizationMembership.role),
+          reason: resourceScopeReason(
+            "organization",
+            organizationMembership.role
+          ),
         }
       }
 
@@ -340,7 +355,10 @@ export function authorize(
       ) {
         return {
           allowed: true,
-          reason: resourceScopeReason("organization", organizationMembership.role),
+          reason: resourceScopeReason(
+            "organization",
+            organizationMembership.role
+          ),
         }
       }
 
@@ -369,7 +387,10 @@ export function authorize(
       ) {
         return {
           allowed: true,
-          reason: resourceScopeReason("organization", organizationMembership.role),
+          reason: resourceScopeReason(
+            "organization",
+            organizationMembership.role
+          ),
         }
       }
 
@@ -392,7 +413,10 @@ export function authorize(
         ) {
           return {
             allowed: true,
-            reason: resourceScopeReason("organization", organizationMembership.role),
+            reason: resourceScopeReason(
+              "organization",
+              organizationMembership.role
+            ),
           }
         }
       }
@@ -430,7 +454,10 @@ export function authorize(
       ) {
         return {
           allowed: true,
-          reason: resourceScopeReason("organization", organizationMembership.role),
+          reason: resourceScopeReason(
+            "organization",
+            organizationMembership.role
+          ),
         }
       }
 

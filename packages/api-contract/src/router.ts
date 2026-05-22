@@ -10,11 +10,7 @@ import {
   permissionProcedure,
   publicProcedure,
 } from "./trpc"
-import {
-  actorOrganizationIds,
-  actorSiteIds,
-  assertAuthorized,
-} from "./access"
+import { actorOrganizationIds, actorSiteIds, assertAuthorized } from "./access"
 import { hashPassword } from "@nms/auth"
 import {
   auditEvents,
@@ -256,8 +252,8 @@ const accessRouter = createTRPCRouter({
       organizationMemberships: actor.organizationMemberships,
       siteMemberships: actor.siteMemberships,
       canManageUsers:
-          actor.platformRole === "owner" ||
-          actor.platformRole === "admin" ||
+        actor.platformRole === "owner" ||
+        actor.platformRole === "admin" ||
         actor.organizationMemberships.some(
           (membership) =>
             membership.status === "active" &&
@@ -358,91 +354,91 @@ const accessRouter = createTRPCRouter({
         organizationId: input.organizationId,
       })
 
-        const [existingUser] = await ctx.db
-          .select({ id: user.id })
-          .from(user)
-          .where(eq(user.email, input.email.toLowerCase()))
+      const [existingUser] = await ctx.db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.email, input.email.toLowerCase()))
 
-        if (existingUser) {
-          throw new TRPCError({ code: "CONFLICT" })
+      if (existingUser) {
+        throw new TRPCError({ code: "CONFLICT" })
+      }
+
+      const now = new Date()
+      const userId = randomUUID()
+      const passwordHash = await hashPassword(input.password)
+      const [createdUser] = await ctx.db
+        .insert(user)
+        .values({
+          id: userId,
+          name: input.name,
+          email: input.email.toLowerCase(),
+          emailVerified: true,
+          role: "admin",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+
+      await ctx.db.insert(account).values({
+        id: randomUUID(),
+        userId: createdUser.id,
+        accountId: createdUser.id,
+        providerId: "credential",
+        password: passwordHash,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      await ctx.db.insert(organizationMemberships).values({
+        id: randomUUID(),
+        organizationId: input.organizationId,
+        userId: createdUser.id,
+        role: input.organizationRole,
+        status: "active",
+        createdByUserId: ctx.actor?.id ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+
+      const uniqueSiteIds = [...new Set(input.siteIds)]
+
+      if (uniqueSiteIds.length > 0) {
+        const [matchedSites] = await Promise.all([
+          ctx.db
+            .select({
+              id: sites.id,
+              organizationId: sites.organizationId,
+            })
+            .from(sites)
+            .where(inArray(sites.id, uniqueSiteIds)),
+        ])
+
+        if (matchedSites.length !== uniqueSiteIds.length) {
+          throw new TRPCError({ code: "BAD_REQUEST" })
         }
 
-        const now = new Date()
-        const userId = randomUUID()
-        const passwordHash = await hashPassword(input.password)
-        const [createdUser] = await ctx.db
-          .insert(user)
-          .values({
-            id: userId,
-            name: input.name,
-            email: input.email.toLowerCase(),
-            emailVerified: true,
-            role: "admin",
-            status: "active",
+        if (
+          matchedSites.some(
+            (site) => site.organizationId !== input.organizationId
+          )
+        ) {
+          throw new TRPCError({ code: "BAD_REQUEST" })
+        }
+
+        await ctx.db.insert(siteMemberships).values(
+          uniqueSiteIds.map((siteId) => ({
+            id: randomUUID(),
+            siteId,
+            userId: createdUser.id,
+            role: input.siteRole,
+            status: "active" as const,
+            createdByUserId: ctx.actor?.id ?? null,
             createdAt: now,
             updatedAt: now,
-          })
-          .returning()
-
-        await ctx.db.insert(account).values({
-          id: randomUUID(),
-          userId: createdUser.id,
-          accountId: createdUser.id,
-          providerId: "credential",
-          password: passwordHash,
-          createdAt: now,
-          updatedAt: now,
-        })
-
-        await ctx.db.insert(organizationMemberships).values({
-          id: randomUUID(),
-          organizationId: input.organizationId,
-          userId: createdUser.id,
-          role: input.organizationRole,
-          status: "active",
-          createdByUserId: ctx.actor?.id ?? null,
-          createdAt: now,
-          updatedAt: now,
-        })
-
-        const uniqueSiteIds = [...new Set(input.siteIds)]
-
-        if (uniqueSiteIds.length > 0) {
-          const [matchedSites] = await Promise.all([
-            ctx.db
-              .select({
-                id: sites.id,
-                organizationId: sites.organizationId,
-              })
-              .from(sites)
-              .where(inArray(sites.id, uniqueSiteIds)),
-          ])
-
-          if (matchedSites.length !== uniqueSiteIds.length) {
-            throw new TRPCError({ code: "BAD_REQUEST" })
-          }
-
-          if (
-            matchedSites.some(
-              (site) => site.organizationId !== input.organizationId
-            )
-          ) {
-            throw new TRPCError({ code: "BAD_REQUEST" })
-          }
-
-          await ctx.db.insert(siteMemberships).values(
-            uniqueSiteIds.map((siteId) => ({
-              id: randomUUID(),
-              siteId,
-              userId: createdUser.id,
-              role: input.siteRole,
-              status: "active" as const,
-              createdByUserId: ctx.actor?.id ?? null,
-              createdAt: now,
-              updatedAt: now,
-            }))
-          )
-        }
+          }))
+        )
+      }
 
       return createdUser
     }),
@@ -454,31 +450,31 @@ const accessRouter = createTRPCRouter({
         organizationId: input.organizationId,
       })
 
-        const [record] = await ctx.db
-          .insert(organizationMemberships)
-          .values({
-            id: randomUUID(),
-            organizationId: input.organizationId,
-            userId: input.userId,
+      const [record] = await ctx.db
+        .insert(organizationMemberships)
+        .values({
+          id: randomUUID(),
+          organizationId: input.organizationId,
+          userId: input.userId,
+          role: input.role,
+          status: input.status,
+          createdByUserId: ctx.actor?.id ?? null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [
+            organizationMemberships.organizationId,
+            organizationMemberships.userId,
+          ],
+          set: {
             role: input.role,
             status: input.status,
-            createdByUserId: ctx.actor?.id ?? null,
-            createdAt: new Date(),
             updatedAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: [
-              organizationMemberships.organizationId,
-              organizationMemberships.userId,
-            ],
-            set: {
-              role: input.role,
-              status: input.status,
-              updatedAt: new Date(),
-              createdByUserId: ctx.actor?.id ?? null,
-            },
-          })
-          .returning()
+            createdByUserId: ctx.actor?.id ?? null,
+          },
+        })
+        .returning()
 
       return record
     }),
@@ -490,37 +486,37 @@ const accessRouter = createTRPCRouter({
         .from(sites)
         .where(eq(sites.id, input.siteId))
 
-        if (!site) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
+      if (!site) {
+        throw new TRPCError({ code: "NOT_FOUND" })
+      }
 
-        assertAuthorized(ctx.actor, "organization:admin", {
-          kind: "userManagement",
-          organizationId: site.organizationId,
+      assertAuthorized(ctx.actor, "organization:admin", {
+        kind: "userManagement",
+        organizationId: site.organizationId,
+      })
+
+      const [record] = await ctx.db
+        .insert(siteMemberships)
+        .values({
+          id: randomUUID(),
+          siteId: input.siteId,
+          userId: input.userId,
+          role: input.role,
+          status: input.status,
+          createdByUserId: ctx.actor?.id ?? null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         })
-
-        const [record] = await ctx.db
-          .insert(siteMemberships)
-          .values({
-            id: randomUUID(),
-            siteId: input.siteId,
-            userId: input.userId,
+        .onConflictDoUpdate({
+          target: [siteMemberships.siteId, siteMemberships.userId],
+          set: {
             role: input.role,
             status: input.status,
-            createdByUserId: ctx.actor?.id ?? null,
-            createdAt: new Date(),
             updatedAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: [siteMemberships.siteId, siteMemberships.userId],
-            set: {
-              role: input.role,
-              status: input.status,
-              updatedAt: new Date(),
-              createdByUserId: ctx.actor?.id ?? null,
-            },
-          })
-          .returning()
+            createdByUserId: ctx.actor?.id ?? null,
+          },
+        })
+        .returning()
 
       return record
     }),

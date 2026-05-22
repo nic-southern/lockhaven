@@ -211,20 +211,24 @@ export const devices = pgTable("devices", {
     .defaultNow(),
 })
 
-export const routePolicies = pgTable("route_policies", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id").references(() => organizations.id, {
-    onDelete: "cascade",
-  }),
-  name: text("name").notNull(),
-  routes: text("routes").array().notNull(),
-  description: text("description"),
-}, (table) => ({
-  organizationNameIdx: uniqueIndex("route_policies_organization_name_idx").on(
-    table.organizationId,
-    table.name
-  ),
-}))
+export const routePolicies = pgTable(
+  "route_policies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    routes: text("routes").array().notNull(),
+    description: text("description"),
+  },
+  (table) => ({
+    organizationNameIdx: uniqueIndex("route_policies_organization_name_idx").on(
+      table.organizationId,
+      table.name
+    ),
+  })
+)
 
 export const vpnIdentities = pgTable(
   "vpn_identities",

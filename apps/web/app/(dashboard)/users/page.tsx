@@ -132,7 +132,9 @@ export default function UsersPage() {
             <select
               className="h-10 rounded-md border bg-background px-3"
               value={selectedOrganizationId}
-              onChange={(event) => setSelectedOrganizationId(event.target.value)}
+              onChange={(event) =>
+                setSelectedOrganizationId(event.target.value)
+              }
             >
               <option value="">Choose an organization</option>
               {organizations.map((organization) => (
@@ -192,7 +194,9 @@ export default function UsersPage() {
               className="h-10 rounded-md border bg-background px-3"
               value={createSiteRole}
               onChange={(event) =>
-                setCreateSiteRole(event.target.value as (typeof siteRoles)[number])
+                setCreateSiteRole(
+                  event.target.value as (typeof siteRoles)[number]
+                )
               }
             >
               {siteRoles.map((role) => (
@@ -214,7 +218,10 @@ export default function UsersPage() {
                   const checked = createSiteIds.includes(site.id)
 
                   return (
-                    <label key={site.id} className="flex items-center gap-2 text-sm">
+                    <label
+                      key={site.id}
+                      className="flex items-center gap-2 text-sm"
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
@@ -323,7 +330,9 @@ export default function UsersPage() {
                         <TableCell className="text-sm text-muted-foreground">
                           {member.siteMemberships.length > 0
                             ? member.siteMemberships
-                                .map((site) => `${site.siteName} (${site.role})`)
+                                .map(
+                                  (site) => `${site.siteName} (${site.role})`
+                                )
                                 .join(", ")
                             : "—"}
                         </TableCell>
@@ -348,7 +357,9 @@ export default function UsersPage() {
               <>
                 <div className="rounded-lg border bg-muted/20 p-4 text-sm">
                   <p className="font-medium">{selectedMember.name}</p>
-                  <p className="text-muted-foreground">{selectedMember.email}</p>
+                  <p className="text-muted-foreground">
+                    {selectedMember.email}
+                  </p>
                 </div>
 
                 <label className="grid gap-2 text-sm">
