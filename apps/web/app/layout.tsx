@@ -15,6 +15,8 @@ const fontMono = Geist_Mono({
 
 const productName = getServerProductName()
 
+export const dynamic = "force-dynamic"
+
 export const metadata = {
   title: productName,
   description: "Device inventory and private management access",
