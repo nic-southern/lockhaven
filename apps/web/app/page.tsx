@@ -27,6 +27,7 @@ import {
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import {
   getClientProductName,
+  getClientSocEnrollmentPassword,
   getClientSocBaseUrl,
   getClientVpnBaseUrl,
 } from "@/lib/product-name"
@@ -84,6 +85,9 @@ export default function Page() {
   const [installBaseUrl, setInstallBaseUrl] =
     React.useState(getClientVpnBaseUrl)
   const [socBaseUrl, setSocBaseUrl] = React.useState(getClientSocBaseUrl)
+  const [socEnrollmentPassword, setSocEnrollmentPassword] = React.useState(
+    getClientSocEnrollmentPassword
+  )
   const [enrollmentError, setEnrollmentError] = React.useState<string | null>(
     null
   )
@@ -236,6 +240,7 @@ export default function Page() {
   React.useEffect(() => {
     setInstallBaseUrl(getClientVpnBaseUrl())
     setSocBaseUrl(getClientSocBaseUrl())
+    setSocEnrollmentPassword(getClientSocEnrollmentPassword())
   }, [])
 
   React.useEffect(() => {
@@ -287,20 +292,25 @@ export default function Page() {
     ? (siteNameById.get(selectedSiteId) ?? "")
     : ""
   const showSocCommands = Boolean(socBaseUrl)
+  const socCommandFallback = !selectedSiteName
+    ? "Choose a site to create this command."
+    : "Add an enrollment password to create this command."
   const socWindowsInstallCommand =
-    socBaseUrl && selectedSiteName
+    socBaseUrl && socEnrollmentPassword && selectedSiteName
       ? buildSocWindowsInstallCommand({
           baseUrl: socBaseUrl,
           siteName: selectedSiteName,
+          enrollmentPassword: socEnrollmentPassword,
         })
       : ""
   const windowsVpnAndSocInstallCommand =
-    enrollmentToken && socBaseUrl && selectedSiteName
+    enrollmentToken && socBaseUrl && socEnrollmentPassword && selectedSiteName
       ? buildVpnAndSocWindowsInstallCommand({
           vpnToken: enrollmentToken,
           vpnBaseUrl: installBaseUrl,
           socBaseUrl,
           siteName: selectedSiteName,
+          enrollmentPassword: socEnrollmentPassword,
         })
       : ""
 
@@ -425,7 +435,7 @@ export default function Page() {
                             </pre>
                           ) : (
                             <p className="text-muted-foreground">
-                              Choose a site to create this command.
+                              {socCommandFallback}
                             </p>
                           )}
                         </div>
@@ -437,7 +447,7 @@ export default function Page() {
                             </pre>
                           ) : (
                             <p className="text-muted-foreground">
-                              Choose a site to create this command.
+                              {socCommandFallback}
                             </p>
                           )}
                         </div>

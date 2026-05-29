@@ -17,7 +17,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { buildSocWindowsInstallCommand } from "@/lib/enrollment-commands"
 import { formatBytes, formatDate, statusVariant } from "@/lib/dashboard"
-import { getClientSocBaseUrl } from "@/lib/product-name"
+import {
+  getClientSocEnrollmentPassword,
+  getClientSocBaseUrl,
+} from "@/lib/product-name"
 import { trpc } from "@/lib/trpc"
 import { serviceDefaults, type ServiceType } from "@nms/shared"
 
@@ -145,11 +148,15 @@ export default function DeviceConfigPage() {
     String(serviceDefaults.ssh.port)
   )
   const [socBaseUrl, setSocBaseUrl] = React.useState(getClientSocBaseUrl)
+  const [socEnrollmentPassword, setSocEnrollmentPassword] = React.useState(
+    getClientSocEnrollmentPassword
+  )
   const sitesQuery = trpc.sites.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
 
   React.useEffect(() => {
     setSocBaseUrl(getClientSocBaseUrl())
+    setSocEnrollmentPassword(getClientSocEnrollmentPassword())
   }, [])
 
   React.useEffect(() => {
@@ -189,12 +196,16 @@ export default function DeviceConfigPage() {
     ? (sites.find((site) => site.id === device.siteId)?.name ?? "")
     : ""
   const deviceSocCommand =
-    socBaseUrl && deviceSiteName
+    socBaseUrl && socEnrollmentPassword && deviceSiteName
       ? buildSocWindowsInstallCommand({
           baseUrl: socBaseUrl,
           siteName: deviceSiteName,
+          enrollmentPassword: socEnrollmentPassword,
         })
       : ""
+  const deviceSocFallback = !deviceSiteName
+    ? "Assign a site to create this command."
+    : "Add an enrollment password to create this command."
 
   return (
     <div className="space-y-6">
@@ -370,9 +381,7 @@ export default function DeviceConfigPage() {
                       {deviceSocCommand}
                     </pre>
                   ) : (
-                    <p className="text-muted-foreground">
-                      Assign a site to create this command.
-                    </p>
+                    <p className="text-muted-foreground">{deviceSocFallback}</p>
                   )}
                 </div>
               ) : null}

@@ -45,6 +45,8 @@ export default function RootLayout({
               productName,
               vpnPublicHostname: process.env.VPN_PUBLIC_HOSTNAME ?? null,
               socBaseUrl: process.env.SOC_BASE_URL ?? null,
+              socEnrollmentPassword:
+                process.env.WAZUH_AGENT_ENROLLMENT_PASSWORD ?? null,
             })};`,
           }}
         />

@@ -51,10 +51,12 @@ export function buildLinuxInstallCommand({
 export function buildSocWindowsInstallCommand({
   baseUrl,
   siteName,
+  enrollmentPassword,
   deviceRole = DEFAULT_SOC_DEVICE_ROLE,
 }: {
   baseUrl: string
   siteName: string
+  enrollmentPassword: string
   deviceRole?: string
 }) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
@@ -63,7 +65,7 @@ export function buildSocWindowsInstallCommand({
     `$BaseUrl = ${quotePowerShell(normalizedBaseUrl)};`,
     `$Script = "$env:TEMP\\lockhaven-soc-enroll.ps1";`,
     'Invoke-WebRequest -Uri "$BaseUrl/install/enroll-windows.ps1" -OutFile $Script;',
-    `powershell.exe -ExecutionPolicy Bypass -File $Script -BaseUrl $BaseUrl -SiteId ${quotePowerShellDouble(siteName)} -DeviceRole ${quotePowerShellDouble(deviceRole)}`,
+    `powershell.exe -ExecutionPolicy Bypass -File $Script -BaseUrl $BaseUrl -SiteId ${quotePowerShellDouble(siteName)} -DeviceRole ${quotePowerShellDouble(deviceRole)} -EnrollmentPassword ${quotePowerShellDouble(enrollmentPassword)}`,
   ].join(" ")
 }
 
@@ -72,12 +74,14 @@ export function buildVpnAndSocWindowsInstallCommand({
   vpnBaseUrl,
   socBaseUrl,
   siteName,
+  enrollmentPassword,
   deviceRole = DEFAULT_SOC_DEVICE_ROLE,
 }: {
   vpnToken: string
   vpnBaseUrl: string
   socBaseUrl: string
   siteName: string
+  enrollmentPassword: string
   deviceRole?: string
 }) {
   return `${buildWindowsInstallCommand({
@@ -86,6 +90,7 @@ export function buildVpnAndSocWindowsInstallCommand({
   })}; ${buildSocWindowsInstallCommand({
     baseUrl: socBaseUrl,
     siteName,
+    enrollmentPassword,
     deviceRole,
   })}`
 }

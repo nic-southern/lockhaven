@@ -4,6 +4,7 @@ import test from "node:test"
 import {
   DEFAULT_PRODUCT_NAME,
   getClientProductName,
+  getClientSocEnrollmentPassword,
   getClientSocBaseUrl,
   getServerProductName,
   getProductInitials,
@@ -41,6 +42,17 @@ test("reads and normalizes the injected SOC host", () => {
 
 test("returns null when no SOC host is configured", () => {
   assert.equal(getClientSocBaseUrl({}), null)
+})
+
+test("reads the injected SOC enrollment password", () => {
+  assert.equal(
+    getClientSocEnrollmentPassword({ socEnrollmentPassword: "  secret  " }),
+    "secret"
+  )
+})
+
+test("returns null when no SOC enrollment password is configured", () => {
+  assert.equal(getClientSocEnrollmentPassword({}), null)
 })
 
 test("creates readable initials from the product name", () => {

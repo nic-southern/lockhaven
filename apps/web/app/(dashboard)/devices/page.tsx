@@ -22,7 +22,10 @@ import {
 } from "@/components/ui/table"
 import { buildSocWindowsInstallCommand } from "@/lib/enrollment-commands"
 import { formatBytes, formatDate, statusVariant } from "@/lib/dashboard"
-import { getClientSocBaseUrl } from "@/lib/product-name"
+import {
+  getClientSocEnrollmentPassword,
+  getClientSocBaseUrl,
+} from "@/lib/product-name"
 import { trpc } from "@/lib/trpc"
 
 const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
@@ -102,10 +105,14 @@ export default function DevicesPage() {
   const [newServiceProtocol, setNewServiceProtocol] = React.useState("tcp")
   const [newServicePort, setNewServicePort] = React.useState("22")
   const [socBaseUrl, setSocBaseUrl] = React.useState(getClientSocBaseUrl)
+  const [socEnrollmentPassword, setSocEnrollmentPassword] = React.useState(
+    getClientSocEnrollmentPassword
+  )
   const selectedDevice = deviceQuery.data
 
   React.useEffect(() => {
     setSocBaseUrl(getClientSocBaseUrl())
+    setSocEnrollmentPassword(getClientSocEnrollmentPassword())
   }, [])
 
   React.useEffect(() => {
@@ -146,12 +153,16 @@ export default function DevicesPage() {
     ? (sites.find((site) => site.id === selectedDevice.siteId)?.name ?? "")
     : ""
   const selectedDeviceSocCommand =
-    socBaseUrl && selectedDeviceSiteName
+    socBaseUrl && socEnrollmentPassword && selectedDeviceSiteName
       ? buildSocWindowsInstallCommand({
           baseUrl: socBaseUrl,
           siteName: selectedDeviceSiteName,
+          enrollmentPassword: socEnrollmentPassword,
         })
       : ""
+  const selectedDeviceSocFallback = !selectedDeviceSiteName
+    ? "Assign a site to create this command."
+    : "Add an enrollment password to create this command."
 
   return (
     <div className="space-y-6">
@@ -384,7 +395,7 @@ export default function DevicesPage() {
                       </pre>
                     ) : (
                       <p className="text-muted-foreground">
-                        Assign a site to create this command.
+                        {selectedDeviceSocFallback}
                       </p>
                     )}
                   </div>

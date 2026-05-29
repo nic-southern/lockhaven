@@ -39,12 +39,13 @@ test("builds the SOC enrollment command with the site name", () => {
       baseUrl: "https://soc.example.com/",
       siteName: "Venue '001'",
       deviceRole: "windows-endpoint",
+      enrollmentPassword: 'secret"`123',
     }),
     [
       "$BaseUrl = 'https://soc.example.com';",
       '$Script = "$env:TEMP\\lockhaven-soc-enroll.ps1";',
       'Invoke-WebRequest -Uri "$BaseUrl/install/enroll-windows.ps1" -OutFile $Script;',
-      'powershell.exe -ExecutionPolicy Bypass -File $Script -BaseUrl $BaseUrl -SiteId "Venue \'001\'" -DeviceRole "windows-endpoint"',
+      'powershell.exe -ExecutionPolicy Bypass -File $Script -BaseUrl $BaseUrl -SiteId "Venue \'001\'" -DeviceRole "windows-endpoint" -EnrollmentPassword "secret`` `"123"',
     ].join(" ")
   )
 })
@@ -57,6 +58,7 @@ test("builds a combined Windows VPN and SOC enrollment command", () => {
       socBaseUrl: "https://soc.example.com",
       siteName: "venue-001",
       deviceRole: "windows-endpoint",
+      enrollmentPassword: "soc-secret",
     }),
     `${buildWindowsInstallCommand({
       token: "nms_enroll_abc",
@@ -65,6 +67,7 @@ test("builds a combined Windows VPN and SOC enrollment command", () => {
       baseUrl: "https://soc.example.com",
       siteName: "venue-001",
       deviceRole: "windows-endpoint",
+      enrollmentPassword: "soc-secret",
     })}`
   )
 })
