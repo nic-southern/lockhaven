@@ -2,8 +2,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import { toast } from "sonner"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -21,6 +22,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Textarea } from "@/components/ui/textarea"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
 
 export default function RoutePoliciesPage() {
@@ -29,6 +36,7 @@ export default function RoutePoliciesPage() {
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
   const [selectedPolicyId, setSelectedPolicyId] = React.useState("")
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
 
   const [createName, setCreateName] = React.useState("")
   const [createDescription, setCreateDescription] = React.useState("")
@@ -41,16 +49,32 @@ export default function RoutePoliciesPage() {
   const createRoutePolicy = trpc.routePolicies.create.useMutation({
     async onSuccess() {
       await utils.routePolicies.list.invalidate()
+      setCreateName("")
+      setCreateDescription("")
+      setCreateRoutes("")
+      toast.success("Route policy created")
+    },
+    onError() {
+      toast.error("We couldn't create the route policy.")
     },
   })
   const updateRoutePolicy = trpc.routePolicies.update.useMutation({
     async onSuccess() {
       await utils.routePolicies.list.invalidate()
+      toast.success("Route policy updated")
+    },
+    onError() {
+      toast.error("We couldn't update the route policy.")
     },
   })
   const deleteRoutePolicy = trpc.routePolicies.delete.useMutation({
     async onSuccess() {
       await utils.routePolicies.list.invalidate()
+      setDeleteOpen(false)
+      toast.success("Route policy removed")
+    },
+    onError() {
+      toast.error("We couldn't remove the route policy.")
     },
   })
 
@@ -95,18 +119,12 @@ export default function RoutePoliciesPage() {
   }, [selectedPolicy])
 
   return (
-    <div className="space-y-6">
-      <section className="flex flex-col gap-2">
-        <Badge variant="outline" className="w-fit">
-          Route policies
-        </Badge>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Allowed routes
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Define the networks a device can reach once it joins the VPN.
-        </p>
-      </section>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        badge="Route policies"
+        title="Allowed routes"
+        description="Define the networks a device can reach once it joins the VPN."
+      />
 
       <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card>
@@ -116,11 +134,13 @@ export default function RoutePoliciesPage() {
               Create a named route set for enrollment tokens and devices.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Organization</span>
-              <select
-                className="h-10 rounded-md border bg-background px-3"
+          <CardContent className="flex flex-col gap-4">
+            <FormField
+              label="Organization"
+              htmlFor="policy-create-organization"
+            >
+              <NativeSelect
+                id="policy-create-organization"
                 value={createOrganizationId}
                 onChange={(event) =>
                   setCreateOrganizationId(event.target.value)
@@ -132,33 +152,36 @@ export default function RoutePoliciesPage() {
                     {organization.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Name</span>
-              <input
-                className="h-10 rounded-md border bg-background px-3"
+              </NativeSelect>
+            </FormField>
+            <FormField label="Name" htmlFor="policy-create-name">
+              <Input
+                id="policy-create-name"
                 value={createName}
                 onChange={(event) => setCreateName(event.target.value)}
               />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Routes</span>
-              <textarea
-                className="min-h-32 rounded-md border bg-background px-3 py-2 font-mono text-xs"
+            </FormField>
+            <FormField
+              label="Routes"
+              htmlFor="policy-create-routes"
+              description="One CIDR per line."
+            >
+              <Textarea
+                id="policy-create-routes"
+                className="min-h-32 font-mono text-xs"
                 value={createRoutes}
                 onChange={(event) => setCreateRoutes(event.target.value)}
               />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Description</span>
-              <textarea
-                className="min-h-24 rounded-md border bg-background px-3 py-2"
+            </FormField>
+            <FormField label="Description" htmlFor="policy-create-description">
+              <Textarea
+                id="policy-create-description"
                 value={createDescription}
                 onChange={(event) => setCreateDescription(event.target.value)}
               />
-            </label>
+            </FormField>
             <Button
+              className="w-fit"
               onClick={() => {
                 void createRoutePolicy.mutateAsync({
                   organizationId: createOrganizationId,
@@ -169,9 +192,6 @@ export default function RoutePoliciesPage() {
                     .filter(Boolean),
                   description: createDescription || null,
                 })
-                setCreateName("")
-                setCreateDescription("")
-                setCreateRoutes("")
               }}
               disabled={
                 !createOrganizationId ||
@@ -204,31 +224,28 @@ export default function RoutePoliciesPage() {
                 <TableBody>
                   {routePoliciesQuery.isLoading ? (
                     <TableRow>
-                      <TableCell
-                        colSpan={3}
-                        className="py-8 text-center text-muted-foreground"
-                      >
+                      <TableCell colSpan={3} className="py-10">
                         <Skeleton className="h-5 w-40" />
                       </TableCell>
                     </TableRow>
                   ) : routePolicies.length === 0 ? (
                     <TableRow>
-                      <TableCell
-                        colSpan={3}
-                        className="py-8 text-center text-muted-foreground"
-                      >
-                        No route policies yet
+                      <TableCell colSpan={3} className="p-0">
+                        <EmptyState
+                          title="No route policies yet"
+                          description="Create a policy to control what a device can reach."
+                          bordered={false}
+                        />
                       </TableCell>
                     </TableRow>
                   ) : (
                     routePolicies.map((policy) => (
                       <TableRow
                         key={policy.id}
-                        className={
-                          selectedPolicyId === policy.id
-                            ? "bg-muted/60"
-                            : undefined
-                        }
+                        className={cn(
+                          "cursor-pointer",
+                          selectedPolicyId === policy.id && "bg-muted/60"
+                        )}
                         onClick={() => setSelectedPolicyId(policy.id)}
                       >
                         <TableCell className="font-medium">
@@ -257,30 +274,33 @@ export default function RoutePoliciesPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Name</span>
-              <input
-                className="h-10 rounded-md border bg-background px-3"
+            <FormField label="Name" htmlFor="policy-edit-name">
+              <Input
+                id="policy-edit-name"
                 value={editName}
                 onChange={(event) => setEditName(event.target.value)}
               />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Description</span>
-              <textarea
-                className="min-h-24 rounded-md border bg-background px-3 py-2"
+            </FormField>
+            <FormField label="Description" htmlFor="policy-edit-description">
+              <Textarea
+                id="policy-edit-description"
                 value={editDescription}
                 onChange={(event) => setEditDescription(event.target.value)}
               />
-            </label>
-            <label className="grid gap-2 text-sm md:col-span-2">
-              <span className="font-medium">Routes</span>
-              <textarea
-                className="min-h-32 rounded-md border bg-background px-3 py-2 font-mono text-xs"
+            </FormField>
+            <FormField
+              label="Routes"
+              htmlFor="policy-edit-routes"
+              description="One CIDR per line."
+              className="md:col-span-2"
+            >
+              <Textarea
+                id="policy-edit-routes"
+                className="min-h-32 font-mono text-xs"
                 value={editRoutes}
                 onChange={(event) => setEditRoutes(event.target.value)}
               />
-            </label>
+            </FormField>
             <div className="flex flex-wrap gap-3 md:col-span-2">
               <Button
                 onClick={() => {
@@ -302,13 +322,7 @@ export default function RoutePoliciesPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => {
-                  if (window.confirm(`Remove ${selectedPolicy.name}?`)) {
-                    void deleteRoutePolicy.mutateAsync({
-                      id: selectedPolicy.id,
-                    })
-                  }
-                }}
+                onClick={() => setDeleteOpen(true)}
                 disabled={deleteRoutePolicy.isPending}
               >
                 Remove policy
@@ -317,6 +331,24 @@ export default function RoutePoliciesPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Remove route policy"
+        description={
+          selectedPolicy
+            ? `Remove ${selectedPolicy.name}? Devices and tokens using it will lose this route set.`
+            : "Remove this route policy?"
+        }
+        confirmLabel="Remove policy"
+        destructive
+        pending={deleteRoutePolicy.isPending}
+        onConfirm={() => {
+          if (!selectedPolicy) return
+          void deleteRoutePolicy.mutateAsync({ id: selectedPolicy.id })
+        }}
+      />
     </div>
   )
 }

@@ -4,6 +4,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -14,13 +15,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { buildSocWindowsInstallCommand } from "@/lib/enrollment-commands"
-import { formatBytes, formatDate, statusVariant } from "@/lib/dashboard"
+import { Textarea } from "@/components/ui/textarea"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { VpnStatusStrip } from "@/components/dashboard/stat-strip"
 import {
-  getClientSocEnrollmentPassword,
-  getClientSocBaseUrl,
-} from "@/lib/product-name"
+  formatBytes,
+  formatDate,
+  statusLabel,
+  statusVariant,
+} from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
 import { serviceDefaults, type ServiceType } from "@nms/shared"
 
@@ -57,6 +65,10 @@ export default function DeviceConfigPage() {
         utils.devices.byId.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      toast.success("Device updated")
+    },
+    onError() {
+      toast.error("We couldn't update the device.")
     },
   })
   const assignRoutePolicy = trpc.devices.assignRoutePolicy.useMutation({
@@ -65,6 +77,10 @@ export default function DeviceConfigPage() {
         utils.devices.byId.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      toast.success("Route policy updated")
+    },
+    onError() {
+      toast.error("We couldn't update the route policy.")
     },
   })
   const revokeVpn = trpc.devices.revokeVpn.useMutation({
@@ -73,6 +89,10 @@ export default function DeviceConfigPage() {
         utils.devices.byId.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      toast.success("VPN access revoked")
+    },
+    onError() {
+      toast.error("We couldn't revoke VPN access.")
     },
   })
   const createService = trpc.managementServices.create.useMutation({
@@ -81,6 +101,10 @@ export default function DeviceConfigPage() {
         utils.devices.byId.invalidate(),
         utils.managementServices.list.invalidate(),
       ])
+      toast.success("Service added")
+    },
+    onError() {
+      toast.error("We couldn't add the service.")
     },
   })
   const updateService = trpc.managementServices.update.useMutation({
@@ -89,6 +113,10 @@ export default function DeviceConfigPage() {
         utils.devices.byId.invalidate(),
         utils.managementServices.list.invalidate(),
       ])
+      toast.success("Service updated")
+    },
+    onError() {
+      toast.error("We couldn't update the service.")
     },
   })
   const deleteService = trpc.managementServices.delete.useMutation({
@@ -97,6 +125,10 @@ export default function DeviceConfigPage() {
         utils.devices.byId.invalidate(),
         utils.managementServices.list.invalidate(),
       ])
+      toast.success("Service removed")
+    },
+    onError() {
+      toast.error("We couldn't remove the service.")
     },
   })
   const setCredential = trpc.managementServices.setCredential.useMutation({
@@ -105,6 +137,10 @@ export default function DeviceConfigPage() {
         utils.devices.byId.invalidate(),
         utils.managementServices.list.invalidate(),
       ])
+      toast.success("Password saved")
+    },
+    onError() {
+      toast.error("We couldn't save the password.")
     },
   })
   const setSshCredential = trpc.managementServices.setSshCredential.useMutation(
@@ -114,6 +150,10 @@ export default function DeviceConfigPage() {
           utils.devices.byId.invalidate(),
           utils.managementServices.list.invalidate(),
         ])
+        toast.success("SSH key saved")
+      },
+      onError() {
+        toast.error("We couldn't save the SSH key.")
       },
     }
   )
@@ -123,6 +163,10 @@ export default function DeviceConfigPage() {
         utils.devices.byId.invalidate(),
         utils.managementServices.list.invalidate(),
       ])
+      toast.success("Credential cleared")
+    },
+    onError() {
+      toast.error("We couldn't clear the credential.")
     },
   })
   const launchSession = trpc.sessions.create.useMutation({
@@ -132,6 +176,9 @@ export default function DeviceConfigPage() {
       }
 
       window.open(result.url, "_blank", "noopener,noreferrer")
+    },
+    onError() {
+      toast.error("Couldn't start the session.")
     },
   })
 
@@ -147,17 +194,8 @@ export default function DeviceConfigPage() {
   const [newServicePort, setNewServicePort] = React.useState(
     String(serviceDefaults.ssh.port)
   )
-  const [socBaseUrl, setSocBaseUrl] = React.useState(getClientSocBaseUrl)
-  const [socEnrollmentPassword, setSocEnrollmentPassword] = React.useState(
-    getClientSocEnrollmentPassword
-  )
   const sitesQuery = trpc.sites.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
-
-  React.useEffect(() => {
-    setSocBaseUrl(getClientSocBaseUrl())
-    setSocEnrollmentPassword(getClientSocEnrollmentPassword())
-  }, [])
 
   React.useEffect(() => {
     if (deviceQuery.data) {
@@ -192,40 +230,19 @@ export default function DeviceConfigPage() {
         ? "vpn_online"
         : "pending"
     : "pending"
-  const deviceSiteName = device?.siteId
-    ? (sites.find((site) => site.id === device.siteId)?.name ?? "")
-    : ""
-  const deviceSocCommand =
-    socBaseUrl && socEnrollmentPassword && deviceSiteName
-      ? buildSocWindowsInstallCommand({
-          baseUrl: socBaseUrl,
-          siteName: deviceSiteName,
-          enrollmentPassword: socEnrollmentPassword,
-        })
-      : ""
-  const deviceSocFallback = !deviceSiteName
-    ? "Assign a site to create this command."
-    : "Add an enrollment password to create this command."
 
   return (
-    <div className="space-y-6">
-      <section className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <Badge variant="outline">Device config</Badge>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/devices">Back</Link>
-            </Button>
-          </div>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {device ? device.displayName : "Device details"}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Edit the device, adjust service entries, and launch remote access
-            from one place.
-          </p>
-        </div>
-      </section>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        badge="Device config"
+        title={device ? device.displayName : "Device details"}
+        description="Edit the device, adjust service entries, and launch remote access from one place."
+        actions={
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/devices">Back</Link>
+          </Button>
+        }
+      />
 
       {deviceQuery.isLoading ? (
         <Card>
@@ -235,12 +252,16 @@ export default function DeviceConfigPage() {
         </Card>
       ) : !device ? (
         <Card>
-          <CardContent className="py-8 text-sm text-muted-foreground">
-            We couldn&apos;t find that device.
+          <CardContent className="py-8">
+            <EmptyState
+              title="Device not found"
+              description="We couldn't find that device."
+              bordered={false}
+            />
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-6">
+        <div className="flex flex-col gap-6">
           <Card>
             <CardHeader>
               <CardTitle>Device details</CardTitle>
@@ -248,28 +269,25 @@ export default function DeviceConfigPage() {
                 Update the selected device and its connection state.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="flex flex-col gap-6">
               <div className="grid gap-4 md:grid-cols-2">
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Display name</span>
-                  <input
-                    className="h-10 rounded-md border bg-background px-3"
+                <FormField label="Display name" htmlFor="device-name">
+                  <Input
+                    id="device-name"
                     value={deviceName}
                     onChange={(event) => setDeviceName(event.target.value)}
                   />
-                </label>
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Host name</span>
-                  <input
-                    className="h-10 rounded-md border bg-background px-3"
+                </FormField>
+                <FormField label="Host name" htmlFor="device-hostname">
+                  <Input
+                    id="device-hostname"
                     value={deviceHostname}
                     onChange={(event) => setDeviceHostname(event.target.value)}
                   />
-                </label>
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Site</span>
-                  <select
-                    className="h-10 rounded-md border bg-background px-3"
+                </FormField>
+                <FormField label="Site" htmlFor="device-site">
+                  <NativeSelect
+                    id="device-site"
                     value={deviceSiteId}
                     onChange={(event) => setDeviceSiteId(event.target.value)}
                   >
@@ -279,12 +297,11 @@ export default function DeviceConfigPage() {
                         {site.name}
                       </option>
                     ))}
-                  </select>
-                </label>
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Route policy</span>
-                  <select
-                    className="h-10 rounded-md border bg-background px-3"
+                  </NativeSelect>
+                </FormField>
+                <FormField label="Route policy" htmlFor="device-route-policy">
+                  <NativeSelect
+                    id="device-route-policy"
                     value={deviceRoutePolicyId}
                     onChange={(event) =>
                       setDeviceRoutePolicyId(event.target.value)
@@ -296,8 +313,8 @@ export default function DeviceConfigPage() {
                         {policy.name}
                       </option>
                     ))}
-                  </select>
-                </label>
+                  </NativeSelect>
+                </FormField>
               </div>
 
               <div className="flex flex-wrap gap-3">
@@ -340,51 +357,30 @@ export default function DeviceConfigPage() {
                 </Button>
               </div>
 
-              <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 text-sm md:grid-cols-4">
-                <div>
-                  <p className="text-muted-foreground">VPN</p>
-                  <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
-                    {vpnStatus.replaceAll("_", " ")}
-                  </Badge>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Last connected</p>
-                  <p className="font-medium">
-                    {formatDate(device.vpnIdentity?.lastHandshakeAt)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Endpoint</p>
-                  <p className="font-medium">
-                    {device.vpnIdentity?.latestEndpoint ?? "—"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Traffic</p>
-                  <p className="font-medium">
-                    {formatBytes(device.vpnIdentity?.rxBytes)} in /{" "}
-                    {formatBytes(device.vpnIdentity?.txBytes)} out
-                  </p>
-                </div>
-              </div>
-
-              {socBaseUrl ? (
-                <div className="rounded-lg border bg-muted/20 p-4 text-sm">
-                  <div className="mb-3">
-                    <p className="font-medium">Lockhaven SOC Host</p>
-                    <p className="text-muted-foreground">
-                      Run this command to add monitoring for this device.
-                    </p>
-                  </div>
-                  {deviceSocCommand ? (
-                    <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
-                      {deviceSocCommand}
-                    </pre>
-                  ) : (
-                    <p className="text-muted-foreground">{deviceSocFallback}</p>
-                  )}
-                </div>
-              ) : null}
+              <VpnStatusStrip
+                items={[
+                  {
+                    label: "VPN",
+                    value: (
+                      <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
+                        {statusLabel(vpnStatus)}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    label: "Last connected",
+                    value: formatDate(device.vpnIdentity?.lastHandshakeAt),
+                  },
+                  {
+                    label: "Endpoint",
+                    value: device.vpnIdentity?.latestEndpoint ?? "—",
+                  },
+                  {
+                    label: "Traffic",
+                    value: `${formatBytes(device.vpnIdentity?.rxBytes)} in / ${formatBytes(device.vpnIdentity?.txBytes)} out`,
+                  },
+                ]}
+              />
             </CardContent>
           </Card>
 
@@ -395,7 +391,7 @@ export default function DeviceConfigPage() {
                 Manage the connection details attached to this device.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="flex flex-col gap-3">
               <div className="grid gap-3 md:grid-cols-3">
                 {quickServiceTypes.map((serviceType) => {
                   const defaults = serviceDefaults[serviceType]
@@ -407,7 +403,7 @@ export default function DeviceConfigPage() {
                       key={serviceType}
                       className="flex min-h-32 flex-col justify-between rounded-xl border bg-card p-4"
                     >
-                      <div className="space-y-2">
+                      <div className="flex flex-col gap-2">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="font-medium">
@@ -466,9 +462,9 @@ export default function DeviceConfigPage() {
               </div>
 
               <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-5 md:items-end">
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Type</span>
-                  <select
+                <FormField label="Type" htmlFor="new-service-type">
+                  <NativeSelect
+                    id="new-service-type"
                     value={newServiceType}
                     onChange={(event) => {
                       const serviceType = event.target
@@ -479,34 +475,31 @@ export default function DeviceConfigPage() {
                       setNewServiceProtocol(defaults.protocol)
                       setNewServicePort(String(defaults.port))
                     }}
-                    className="h-10 rounded-md border bg-background px-3"
                   >
                     {serviceTypes.map((type) => (
                       <option key={type} value={type}>
                         {serviceLabels[type]}
                       </option>
                     ))}
-                  </select>
-                </label>
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Protocol</span>
-                  <input
+                  </NativeSelect>
+                </FormField>
+                <FormField label="Protocol" htmlFor="new-service-protocol">
+                  <Input
+                    id="new-service-protocol"
                     value={newServiceProtocol}
                     onChange={(event) =>
                       setNewServiceProtocol(event.target.value)
                     }
-                    className="h-10 rounded-md border bg-background px-3"
                   />
-                </label>
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Port</span>
-                  <input
+                </FormField>
+                <FormField label="Port" htmlFor="new-service-port">
+                  <Input
+                    id="new-service-port"
                     type="number"
                     value={newServicePort}
                     onChange={(event) => setNewServicePort(event.target.value)}
-                    className="h-10 rounded-md border bg-background px-3"
                   />
-                </label>
+                </FormField>
                 <div className="md:col-span-2">
                   <Button
                     type="button"
@@ -527,9 +520,7 @@ export default function DeviceConfigPage() {
               </div>
 
               {device.services.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No services yet.
-                </p>
+                <EmptyState title="No services yet" bordered />
               ) : (
                 device.services.map((service) => {
                   const serviceType = service.serviceType as ServiceType
@@ -604,10 +595,8 @@ export default function DeviceConfigPage() {
                             </Badge>
                           </div>
                           <label className="mt-3 flex items-center gap-2 text-sm">
-                            <input
+                            <Checkbox
                               defaultChecked={service.enabled}
-                              type="checkbox"
-                              className="size-4 rounded border"
                               name={`enabled-${service.id}`}
                             />
                             Enabled
@@ -615,42 +604,46 @@ export default function DeviceConfigPage() {
                         </div>
                       ) : (
                         <>
-                          <label className="grid gap-2 text-sm">
-                            <span className="font-medium">Type</span>
-                            <select
+                          <FormField
+                            label="Type"
+                            htmlFor={`service-type-${service.id}`}
+                          >
+                            <NativeSelect
+                              id={`service-type-${service.id}`}
                               name={`serviceType-${service.id}`}
                               defaultValue={service.serviceType}
-                              className="h-10 rounded-md border bg-background px-3"
                             >
                               {serviceTypes.map((type) => (
                                 <option key={type} value={type}>
                                   {serviceLabels[type]}
                                 </option>
                               ))}
-                            </select>
-                          </label>
-                          <label className="grid gap-2 text-sm">
-                            <span className="font-medium">Protocol</span>
-                            <input
+                            </NativeSelect>
+                          </FormField>
+                          <FormField
+                            label="Protocol"
+                            htmlFor={`service-protocol-${service.id}`}
+                          >
+                            <Input
+                              id={`service-protocol-${service.id}`}
                               name={`protocol-${service.id}`}
                               defaultValue={service.protocol}
-                              className="h-10 rounded-md border bg-background px-3"
                             />
-                          </label>
-                          <label className="grid gap-2 text-sm">
-                            <span className="font-medium">Port</span>
-                            <input
+                          </FormField>
+                          <FormField
+                            label="Port"
+                            htmlFor={`service-port-${service.id}`}
+                          >
+                            <Input
+                              id={`service-port-${service.id}`}
                               name={`port-${service.id}`}
                               type="number"
                               defaultValue={service.port}
-                              className="h-10 rounded-md border bg-background px-3"
                             />
-                          </label>
+                          </FormField>
                           <label className="flex items-center gap-2 text-sm">
-                            <input
+                            <Checkbox
                               defaultChecked={service.enabled}
-                              type="checkbox"
-                              className="size-4 rounded border"
                               name={`enabled-${service.id}`}
                             />
                             Enabled
@@ -741,11 +734,11 @@ export default function DeviceConfigPage() {
                       </div>
                       {isPasswordService && service.enabled ? (
                         <div className="flex flex-wrap gap-2 md:col-span-5">
-                          <input
+                          <Input
                             name={`password-${service.id}`}
                             type="password"
                             placeholder="Set password"
-                            className="h-10 min-w-64 rounded-md border bg-background px-3"
+                            className="min-w-64"
                             onKeyDown={(event) => {
                               if (event.key === "Enter") {
                                 event.preventDefault()
@@ -797,20 +790,19 @@ export default function DeviceConfigPage() {
                       {isSsh && service.enabled ? (
                         <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 md:col-span-5">
                           <div className="grid gap-2 md:grid-cols-2">
-                            <input
+                            <Input
                               name={`ssh-username-${service.id}`}
                               placeholder="Username"
-                              className="h-10 rounded-md border bg-background px-3"
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") {
                                   event.preventDefault()
                                 }
                               }}
                             />
-                            <textarea
+                            <Textarea
                               name={`ssh-private-key-${service.id}`}
                               placeholder="Private key"
-                              className="min-h-24 rounded-md border bg-background px-3 py-2 font-mono text-xs"
+                              className="min-h-24 font-mono text-xs"
                             />
                           </div>
                           <div className="flex flex-wrap gap-2">

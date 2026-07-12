@@ -166,11 +166,6 @@ VPN_HOST="https://<vpn-hostname>"; curl -fsSL "$VPN_HOST/install/enroll-linux.sh
 Use the deployed VPN hostname for `<vpn-hostname>`, for example the value of
 `VPN_PUBLIC_HOSTNAME` in your environment.
 
-SOC enrollment commands are available in the Console when `SOC_BASE_URL` and
-`WAZUH_AGENT_ENROLLMENT_PASSWORD` are configured. The current SOC host is
-`https://soc.newmarketsecurity.com`, and Windows endpoint enrollment uses the
-`windows-endpoint` device role.
-
 ### Path B: DIY Existing Host
 
 Use this path when you already have a Linux host with Docker and Docker Compose.

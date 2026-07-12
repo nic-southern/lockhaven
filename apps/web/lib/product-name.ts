@@ -8,8 +8,6 @@ type ProductNameEnv = {
 type RuntimeProductConfig = {
   productName?: string | null
   vpnPublicHostname?: string | null
-  socBaseUrl?: string | null
-  socEnrollmentPassword?: string | null
 }
 
 declare global {
@@ -76,26 +74,6 @@ export function getClientVpnBaseUrl(config?: RuntimeProductConfig) {
   }
 
   return "https://<vpn-hostname>"
-}
-
-export function getClientSocBaseUrl(config?: RuntimeProductConfig) {
-  return normalizeBaseUrl(
-    config?.socBaseUrl ??
-      (typeof window !== "undefined"
-        ? window.__LOCKHAVEN_CONFIG__?.socBaseUrl
-        : null)
-  )
-}
-
-export function getClientSocEnrollmentPassword(config?: RuntimeProductConfig) {
-  const value =
-    config?.socEnrollmentPassword ??
-    (typeof window !== "undefined"
-      ? window.__LOCKHAVEN_CONFIG__?.socEnrollmentPassword
-      : null)
-  const trimmed = value?.trim()
-
-  return trimmed && trimmed.length > 0 ? trimmed : null
 }
 
 export function getProductInitials(productName: string) {

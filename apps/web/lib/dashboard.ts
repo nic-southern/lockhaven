@@ -9,6 +9,32 @@ export const statusVariant: Record<
   enrolled: "secondary",
   pending: "outline",
   revoked: "destructive",
+  ok: "default",
+  Down: "destructive",
+}
+
+const statusLabels: Record<string, string> = {
+  service_online: "Service online",
+  vpn_online: "VPN online",
+  degraded: "Degraded",
+  offline: "Offline",
+  enrolled: "Enrolled",
+  pending: "Pending",
+  revoked: "Revoked",
+  ok: "Healthy",
+  Down: "Down",
+  winrm_https: "WinRM",
+  vnc: "VNC",
+  rdp: "RDP",
+  ssh: "SSH",
+}
+
+export function statusLabel(value: string | null | undefined) {
+  if (!value) {
+    return "—"
+  }
+
+  return statusLabels[value] ?? value.replaceAll("_", " ")
 }
 
 export function formatDate(value: string | Date | null | undefined) {

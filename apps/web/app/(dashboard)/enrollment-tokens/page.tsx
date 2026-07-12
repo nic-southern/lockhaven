@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,6 +13,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -21,7 +25,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { formatDate } from "@/lib/dashboard"
+import { CodeBlock } from "@/components/dashboard/code-block"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { formatDate, statusLabel } from "@/lib/dashboard"
+import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
 
 function toDatetimeLocal(value: string | Date | null | undefined) {
@@ -85,6 +95,7 @@ export default function EnrollmentTokensPage() {
   const [createExpiresAt, setCreateExpiresAt] = React.useState("")
   const [createMaxUses, setCreateMaxUses] = React.useState("1")
   const [createdToken, setCreatedToken] = React.useState("")
+  const [revokeOpen, setRevokeOpen] = React.useState(false)
 
   const [editOrganizationId, setEditOrganizationId] = React.useState("")
   const [editSiteId, setEditSiteId] = React.useState("")
@@ -98,16 +109,29 @@ export default function EnrollmentTokensPage() {
       setCreatedToken(result.token)
       setSelectedTokenId(result.enrollmentToken.id)
       await utils.enrollmentTokens.list.invalidate()
+      toast.success("Enrollment token created")
+    },
+    onError() {
+      toast.error("We couldn't create the token.")
     },
   })
   const updateToken = trpc.enrollmentTokens.update.useMutation({
     async onSuccess() {
       await utils.enrollmentTokens.list.invalidate()
+      toast.success("Token updated")
+    },
+    onError() {
+      toast.error("We couldn't update the token.")
     },
   })
   const revokeToken = trpc.enrollmentTokens.revoke.useMutation({
     async onSuccess() {
       await utils.enrollmentTokens.list.invalidate()
+      setRevokeOpen(false)
+      toast.success("Token revoked")
+    },
+    onError() {
+      toast.error("We couldn't revoke the token.")
     },
   })
 
@@ -156,18 +180,12 @@ export default function EnrollmentTokensPage() {
     : "active"
 
   return (
-    <div className="space-y-6">
-      <section className="flex flex-col gap-2">
-        <Badge variant="outline" className="w-fit">
-          Enrollment tokens
-        </Badge>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Token workspace
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Create, edit, and revoke enrollment tokens from one place.
-        </p>
-      </section>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        badge="Enrollment tokens"
+        title="Token workspace"
+        description="Create, edit, and revoke enrollment tokens from one place."
+      />
 
       <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card>
@@ -177,11 +195,10 @@ export default function EnrollmentTokensPage() {
               Set the organization, site, policy, expiry, and use limit.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Organization</span>
-              <select
-                className="h-10 rounded-md border bg-background px-3"
+          <CardContent className="flex flex-col gap-4">
+            <FormField label="Organization" htmlFor="token-create-organization">
+              <NativeSelect
+                id="token-create-organization"
                 value={createOrganizationId}
                 onChange={(event) => {
                   setCreateOrganizationId(event.target.value)
@@ -194,12 +211,11 @@ export default function EnrollmentTokensPage() {
                     {organization.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Site</span>
-              <select
-                className="h-10 rounded-md border bg-background px-3"
+              </NativeSelect>
+            </FormField>
+            <FormField label="Site" htmlFor="token-create-site">
+              <NativeSelect
+                id="token-create-site"
                 value={createSiteId}
                 onChange={(event) => setCreateSiteId(event.target.value)}
               >
@@ -209,12 +225,11 @@ export default function EnrollmentTokensPage() {
                     {site.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Route policy</span>
-              <select
-                className="h-10 rounded-md border bg-background px-3"
+              </NativeSelect>
+            </FormField>
+            <FormField label="Route policy" htmlFor="token-create-policy">
+              <NativeSelect
+                id="token-create-policy"
                 value={createRoutePolicyId}
                 onChange={(event) => setCreateRoutePolicyId(event.target.value)}
               >
@@ -224,38 +239,42 @@ export default function EnrollmentTokensPage() {
                     {policy.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-4 rounded border"
+              </NativeSelect>
+            </FormField>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="token-create-site-wide"
                 checked={createSiteWide}
-                onChange={(event) => setCreateSiteWide(event.target.checked)}
+                onCheckedChange={(checked) =>
+                  setCreateSiteWide(checked === true)
+                }
               />
-              Site-wide reusable token
-            </label>
+              <Label
+                htmlFor="token-create-site-wide"
+                className="text-sm font-normal"
+              >
+                Site-wide reusable token
+              </Label>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm">
-                <span className="font-medium">Expires</span>
-                <input
+              <FormField label="Expires" htmlFor="token-create-expires">
+                <Input
+                  id="token-create-expires"
                   type="datetime-local"
-                  className="h-10 rounded-md border bg-background px-3"
                   value={createExpiresAt}
                   onChange={(event) => setCreateExpiresAt(event.target.value)}
                 />
-              </label>
-              <label className="grid gap-2 text-sm">
-                <span className="font-medium">Max uses</span>
-                <input
+              </FormField>
+              <FormField label="Max uses" htmlFor="token-create-max-uses">
+                <Input
+                  id="token-create-max-uses"
                   type="number"
                   min={1}
-                  className="h-10 rounded-md border bg-background px-3"
                   value={createMaxUses}
                   onChange={(event) => setCreateMaxUses(event.target.value)}
                   disabled={createSiteWide}
                 />
-              </label>
+              </FormField>
             </div>
             {createSiteWide ? (
               <p className="text-sm text-muted-foreground">
@@ -263,6 +282,7 @@ export default function EnrollmentTokensPage() {
               </p>
             ) : null}
             <Button
+              className="w-fit"
               onClick={() => {
                 void createToken.mutateAsync({
                   organizationId: createOrganizationId,
@@ -283,10 +303,7 @@ export default function EnrollmentTokensPage() {
               Create token
             </Button>
             {createdToken ? (
-              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-                <p className="mb-2 font-medium">Token value</p>
-                <code className="break-all">{createdToken}</code>
-              </div>
+              <CodeBlock label="Enrollment token" value={createdToken} />
             ) : null}
           </CardContent>
         </Card>
@@ -313,20 +330,18 @@ export default function EnrollmentTokensPage() {
                 <TableBody>
                   {tokensQuery.isLoading ? (
                     <TableRow>
-                      <TableCell
-                        colSpan={5}
-                        className="py-8 text-center text-muted-foreground"
-                      >
+                      <TableCell colSpan={5} className="py-10">
                         <Skeleton className="h-5 w-40" />
                       </TableCell>
                     </TableRow>
                   ) : tokens.length === 0 ? (
                     <TableRow>
-                      <TableCell
-                        colSpan={5}
-                        className="py-8 text-center text-muted-foreground"
-                      >
-                        No tokens yet
+                      <TableCell colSpan={5} className="p-0">
+                        <EmptyState
+                          title="No tokens yet"
+                          description="Create a token to enroll the first device."
+                          bordered={false}
+                        />
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -341,11 +356,10 @@ export default function EnrollmentTokensPage() {
                       return (
                         <TableRow
                           key={token.id}
-                          className={
-                            selectedTokenId === token.id
-                              ? "bg-muted/60"
-                              : undefined
-                          }
+                          className={cn(
+                            "cursor-pointer",
+                            selectedTokenId === token.id && "bg-muted/60"
+                          )}
                           onClick={() => setSelectedTokenId(token.id)}
                         >
                           <TableCell className="font-medium">
@@ -366,7 +380,7 @@ export default function EnrollmentTokensPage() {
                                 tokenStatusVariant[tokenStatus] ?? "outline"
                               }
                             >
-                              {tokenStatus.replaceAll("_", " ")}
+                              {statusLabel(tokenStatus)}
                             </Badge>
                           </TableCell>
                         </TableRow>
@@ -390,10 +404,9 @@ export default function EnrollmentTokensPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Organization</span>
-              <select
-                className="h-10 rounded-md border bg-background px-3"
+            <FormField label="Organization" htmlFor="token-edit-organization">
+              <NativeSelect
+                id="token-edit-organization"
                 value={editOrganizationId}
                 onChange={(event) => {
                   setEditOrganizationId(event.target.value)
@@ -405,12 +418,11 @@ export default function EnrollmentTokensPage() {
                     {organization.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Site</span>
-              <select
-                className="h-10 rounded-md border bg-background px-3"
+              </NativeSelect>
+            </FormField>
+            <FormField label="Site" htmlFor="token-edit-site">
+              <NativeSelect
+                id="token-edit-site"
                 value={editSiteId}
                 onChange={(event) => setEditSiteId(event.target.value)}
               >
@@ -420,12 +432,11 @@ export default function EnrollmentTokensPage() {
                     {site.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Route policy</span>
-              <select
-                className="h-10 rounded-md border bg-background px-3"
+              </NativeSelect>
+            </FormField>
+            <FormField label="Route policy" htmlFor="token-edit-policy">
+              <NativeSelect
+                id="token-edit-policy"
                 value={editRoutePolicyId}
                 onChange={(event) => setEditRoutePolicyId(event.target.value)}
               >
@@ -435,37 +446,39 @@ export default function EnrollmentTokensPage() {
                     {policy.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-4 rounded border"
+              </NativeSelect>
+            </FormField>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="token-edit-site-wide"
                 checked={editSiteWide}
-                onChange={(event) => setEditSiteWide(event.target.checked)}
+                onCheckedChange={(checked) => setEditSiteWide(checked === true)}
               />
-              Site-wide reusable token
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Expires</span>
-              <input
+              <Label
+                htmlFor="token-edit-site-wide"
+                className="text-sm font-normal"
+              >
+                Site-wide reusable token
+              </Label>
+            </div>
+            <FormField label="Expires" htmlFor="token-edit-expires">
+              <Input
+                id="token-edit-expires"
                 type="datetime-local"
-                className="h-10 rounded-md border bg-background px-3"
                 value={editExpiresAt}
                 onChange={(event) => setEditExpiresAt(event.target.value)}
               />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Max uses</span>
-              <input
+            </FormField>
+            <FormField label="Max uses" htmlFor="token-edit-max-uses">
+              <Input
+                id="token-edit-max-uses"
                 type="number"
                 min={1}
-                className="h-10 rounded-md border bg-background px-3"
                 value={editMaxUses}
                 onChange={(event) => setEditMaxUses(event.target.value)}
                 disabled={editSiteWide}
               />
-            </label>
+            </FormField>
             {editSiteWide ? (
               <p className="text-sm text-muted-foreground md:col-span-2">
                 Shared tokens can be reused until they expire or are revoked.
@@ -494,7 +507,7 @@ export default function EnrollmentTokensPage() {
                       tokenStatusVariant[selectedTokenStatus] ?? "outline"
                     }
                   >
-                    {selectedTokenStatus.replaceAll("_", " ")}
+                    {statusLabel(selectedTokenStatus)}
                   </Badge>
                 </div>
               </div>
@@ -523,11 +536,7 @@ export default function EnrollmentTokensPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => {
-                  if (window.confirm("Revoke this token?")) {
-                    void revokeToken.mutateAsync({ id: selectedToken.id })
-                  }
-                }}
+                onClick={() => setRevokeOpen(true)}
                 disabled={revokeToken.isPending}
               >
                 Revoke token
@@ -536,6 +545,20 @@ export default function EnrollmentTokensPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <ConfirmDialog
+        open={revokeOpen}
+        onOpenChange={setRevokeOpen}
+        title="Revoke token"
+        description="This token will stop working immediately. Devices that already enrolled with it are unaffected."
+        confirmLabel="Revoke token"
+        destructive
+        pending={revokeToken.isPending}
+        onConfirm={() => {
+          if (!selectedToken) return
+          void revokeToken.mutateAsync({ id: selectedToken.id })
+        }}
+      />
     </div>
   )
 }
