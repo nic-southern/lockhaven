@@ -62,14 +62,14 @@ test("generates wireguard keypairs as base64 32-byte values", () => {
 
 test("builds admin client config with overlay allowed ips", () => {
   const config = buildAdminClientConfig({
-    privateKey: "cHJpdmF0ZS1rZXktcGxhY2Vob2xkZXIhISE=",
+    privateKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     vpnIp: "10.80.100.11/32",
-    serverPublicKey: "c2VydmVyLXB1YmxpYy1rZXktcGxhY2Vob2xk",
+    serverPublicKey: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
     endpoint: "vpn.example.com:51820",
   })
 
   assert.match(config, /Address = 10\.80\.100\.11\/32/)
-  assert.match(config, /PrivateKey = /)
+  assert.match(config, /PrivateKey = A{43}=/)
   assert.match(config, /AllowedIPs = 10\.80\.0\.0\/16/)
   assert.match(config, /Endpoint = vpn\.example\.com:51820/)
 })
