@@ -146,6 +146,8 @@ export const enrollmentRequestSchema = z.object({
       type: z.enum(serviceTypes),
       protocol: z.string().default("tcp"),
       port: z.number().int().positive(),
+      /** Optional saved password for VNC/RDP (ignored for SSH). */
+      password: z.string().min(1).optional(),
     })
   ),
 })

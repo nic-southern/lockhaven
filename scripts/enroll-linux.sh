@@ -8,6 +8,8 @@ os_version="${LOCKHAVEN_OS_VERSION:-$(. /etc/os-release 2>/dev/null && printf '%
 architecture="${LOCKHAVEN_ARCHITECTURE:-$(uname -m)}"
 serial_number="${LOCKHAVEN_SERIAL_NUMBER:-$(cat /sys/class/dmi/id/product_uuid 2>/dev/null || hostname)}"
 tunnel_name="${LOCKHAVEN_TUNNEL_NAME:-lockhaven}"
+vnc_port="${LOCKHAVEN_VNC_PORT:-5900}"
+vnc_password_file="${LOCKHAVEN_VNC_PASSWORD_FILE:-/etc/manatee/vnc.password.txt}"
 
 usage() {
   cat <<'EOF'
@@ -15,12 +17,15 @@ Usage:
   LOCKHAVEN_TOKEN=<token> bash enroll-linux.sh
 
 Optional environment variables:
-  LOCKHAVEN_BASE_URL       Enrollment server URL. Defaults to https://vpn.newmarketsecurity.com
-  LOCKHAVEN_HOSTNAME       Device hostname. Defaults to hostname(1)
-  LOCKHAVEN_OS_VERSION     OS version string. Defaults to /etc/os-release PRETTY_NAME
-  LOCKHAVEN_ARCHITECTURE   Device architecture. Defaults to uname -m
-  LOCKHAVEN_SERIAL_NUMBER  Device serial number. Defaults to product_uuid or hostname
-  LOCKHAVEN_TUNNEL_NAME    WireGuard interface name. Defaults to lockhaven
+  LOCKHAVEN_BASE_URL            Enrollment server URL. Defaults to https://vpn.newmarketsecurity.com
+  LOCKHAVEN_HOSTNAME            Device hostname. Defaults to hostname(1)
+  LOCKHAVEN_OS_VERSION          OS version string. Defaults to /etc/os-release PRETTY_NAME
+  LOCKHAVEN_ARCHITECTURE        Device architecture. Defaults to uname -m
+  LOCKHAVEN_SERIAL_NUMBER       Device serial number. Defaults to product_uuid or hostname
+  LOCKHAVEN_TUNNEL_NAME         WireGuard interface name. Defaults to lockhaven
+  LOCKHAVEN_VNC_PORT            VNC listen port to register. Defaults to 5900
+  LOCKHAVEN_VNC_PASSWORD        VNC password to push to Console (overrides file)
+  LOCKHAVEN_VNC_PASSWORD_FILE   File with VNC password. Defaults to /etc/manatee/vnc.password.txt
 EOF
 }
 
@@ -70,11 +75,45 @@ for key in path:
 print(data if not isinstance(data, list) else ", ".join(data))' "$1"
 }
 
+resolve_vnc_password() {
+  if [ -n "${LOCKHAVEN_VNC_PASSWORD:-}" ]; then
+    printf '%s' "$LOCKHAVEN_VNC_PASSWORD"
+    return
+  fi
+  if [ -f "$vnc_password_file" ]; then
+    tr -d '\r\n' <"$vnc_password_file"
+    return
+  fi
+  printf ''
+}
+
 install_dependencies
 
 private_key="$(wg genkey)"
 public_key="$(printf '%s' "$private_key" | wg pubkey)"
 enroll_url="${base_url%/}/api/enroll"
+vnc_password="$(resolve_vnc_password)"
+
+if [ -n "$vnc_password" ]; then
+  vnc_service_json="$(cat <<EOF
+    {
+      "type": "vnc",
+      "protocol": "tcp",
+      "port": ${vnc_port},
+      "password": $(printf '%s' "$vnc_password" | json_escape)
+    }
+EOF
+)"
+else
+  vnc_service_json="$(cat <<EOF
+    {
+      "type": "vnc",
+      "protocol": "tcp",
+      "port": ${vnc_port}
+    }
+EOF
+)"
+fi
 
 payload="$(cat <<EOF
 {
@@ -90,7 +129,8 @@ payload="$(cat <<EOF
       "type": "ssh",
       "protocol": "tcp",
       "port": 22
-    }
+    },
+${vnc_service_json}
   ]
 }
 EOF
@@ -180,3 +220,8 @@ echo "WireGuard tunnel ready."
 echo "Interface: ${tunnel_name}"
 echo "Config: ${config_path}"
 echo "Check-in secret: ${secret_path}"
+if [ -n "$vnc_password" ]; then
+  echo "VNC service registered on port ${vnc_port} (password pushed to Console)."
+else
+  echo "VNC service registered on port ${vnc_port} (no password pushed)."
+fi

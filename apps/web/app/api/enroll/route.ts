@@ -166,6 +166,11 @@ export async function POST(request: Request) {
   const checkInSecret = randomBytes(32).toString("base64url")
   const checkInSecretHash = hashDeviceSecret(checkInSecret)
   const requestsSsh = input.services.some((service) => service.type === "ssh")
+  const requestsPasswordService = input.services.some(
+    (service) =>
+      (service.type === "vnc" || service.type === "rdp") &&
+      Boolean(service.password)
+  )
 
   if (!env.vpnServerPublicKey) {
     return Response.json(
@@ -174,7 +179,7 @@ export async function POST(request: Request) {
     )
   }
 
-  if (requestsSsh && !env.remoteCredentialsKey) {
+  if ((requestsSsh || requestsPasswordService) && !env.remoteCredentialsKey) {
     return Response.json(
       { error: "Remote credential secret is not configured" },
       { status: 500 }
@@ -325,6 +330,23 @@ export async function POST(request: Request) {
             sshPrivateKey,
             env.remoteCredentialsKey
           ),
+        })
+      }
+
+      if (
+        (service.type === "vnc" || service.type === "rdp") &&
+        service.password &&
+        env.remoteCredentialsKey
+      ) {
+        const encrypted = encryptRemoteSecret(
+          service.password,
+          env.remoteCredentialsKey
+        )
+        await tx.insert(managementServiceCredentials).values({
+          managementServiceId: createdService.id,
+          passwordCiphertext: encrypted.ciphertext,
+          passwordIv: encrypted.iv,
+          passwordAuthTag: encrypted.authTag,
         })
       }
     }

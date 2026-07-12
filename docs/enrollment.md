@@ -8,9 +8,13 @@
 5. When SSH is requested, the API also returns an SSH username and public key
    and stores the matching private key for Console remote access.
 6. The Linux installer writes that public key into `authorized_keys`.
-7. The agent includes that secret on `POST /api/agent/check-in` so the API can
+7. When VNC (or RDP) is requested with an optional `password`, the API stores
+   that password encrypted for Console remote sessions. The Linux installer
+   registers VNC on port 5900 and pushes `/etc/manatee/vnc.password.txt` (or
+   `LOCKHAVEN_VNC_PASSWORD`) when present.
+8. The agent includes that secret on `POST /api/agent/check-in` so the API can
    accept status updates for the enrolled device.
-8. The worker reconciles the server peer and status tables.
+9. The worker reconciles the server peer and status tables.
 
 For Windows devices, the enrollment script can generate the keypair, call the
 API over your app hostname, install WireGuard if needed, import the tunnel,
