@@ -49,6 +49,7 @@ import {
   serviceConnectionDefaults,
   siteBelongsToOrganization,
 } from "./helpers"
+import type { ApiContext } from "./context"
 
 function hashEnrollmentToken(token: string) {
   return createHash("sha256").update(token).digest("hex")
@@ -176,7 +177,7 @@ function buildEncryptedSshCredentialFields(
 }
 
 async function upsertSiteSshCredential(
-  db: any,
+  db: ApiContext["db"],
   siteId: string,
   username: string,
   privateKey: string,
@@ -206,7 +207,7 @@ async function upsertSiteSshCredential(
 }
 
 async function copySiteSshCredentialToService(
-  db: any,
+  db: ApiContext["db"],
   deviceSiteId: string | null,
   serviceId: string,
   serviceType: string
