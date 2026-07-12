@@ -352,7 +352,7 @@ async function main() {
   setInterval(() => {
     void queue.add("reconcile-vpn", {})
     void queue.add("refresh-services", {})
-  }, 60_000)
+  }, 15_000)
 }
 
 void main()

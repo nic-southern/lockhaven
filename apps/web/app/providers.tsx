@@ -3,6 +3,7 @@
 import * as React from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { trpc, createTrpcLinks } from "@/lib/trpc"
+import { AdminVpnConnectionProvider } from "@/lib/use-admin-vpn-connected"
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = React.useState(() => new QueryClient())
@@ -15,7 +16,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
-        {children}
+        <AdminVpnConnectionProvider>{children}</AdminVpnConnectionProvider>
       </trpc.Provider>
     </QueryClientProvider>
   )

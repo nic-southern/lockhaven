@@ -19,7 +19,6 @@ import {
 import { getClientProductName, getProductInitials } from "@/lib/product-name"
 import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
 
 const navItems = [
   { href: "/", label: "Overview" },
@@ -70,6 +69,52 @@ function NavLinks({
   )
 }
 
+function AdminVpnStatusIndicator({
+  connected,
+  checked,
+}: {
+  connected: boolean
+  checked: boolean
+}) {
+  const label = !checked
+    ? "Checking admin VPN"
+    : connected
+      ? "Admin VPN connected"
+      : "Admin VPN offline"
+
+  return (
+    <div
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium",
+        connected
+          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-border/80 bg-muted/40 text-muted-foreground"
+      )}
+      title={label}
+      aria-label={label}
+    >
+      <span className="relative flex size-2.5">
+        {connected ? (
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+        ) : null}
+        <span
+          className={cn(
+            "relative inline-flex size-2.5 rounded-full",
+            connected
+              ? "bg-emerald-500"
+              : checked
+                ? "bg-muted-foreground/50"
+                : "bg-muted-foreground/30"
+          )}
+        />
+      </span>
+      <span className="hidden sm:inline">
+        {connected ? "VPN on" : "VPN off"}
+      </span>
+    </div>
+  )
+}
+
 function handleSignOut() {
   void signOut({
     fetchOptions: {
@@ -103,12 +148,13 @@ export function DashboardShell({
     return navItems
   }, [accessQuery.data?.canManageUsers])
 
-  const vpnBadge =
-    adminVpnChecked && adminVpnConnected ? (
-      <Badge variant="secondary" className="font-normal">
-        Admin VPN connected
-      </Badge>
-    ) : null
+  const vpnStatus = (
+    <AdminVpnStatusIndicator
+      connected={adminVpnConnected}
+      checked={adminVpnChecked}
+    />
+  )
+
   return (
     <div className="min-h-svh bg-background">
       {hideHeader ? null : (
@@ -141,7 +187,7 @@ export function DashboardShell({
                     <p className="truncate text-sm text-muted-foreground">
                       {userLabel}
                     </p>
-                    {vpnBadge ? <div className="pt-1">{vpnBadge}</div> : null}
+                    <div className="pt-1">{vpnStatus}</div>
                   </SheetHeader>
                   <div className="flex-1 overflow-y-auto p-3">
                     <NavLinks
@@ -184,13 +230,20 @@ export function DashboardShell({
               </div>
             </div>
 
-            <div className="hidden items-center gap-3 lg:flex">
-              {vpnBadge}
-              <p className="max-w-[14rem] truncate text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {vpnStatus}
+              <p className="hidden max-w-[14rem] truncate text-sm text-muted-foreground lg:block">
                 {userLabel}
               </p>
-              <ThemeToggle />
-              <Button variant="outline" size="sm" onClick={handleSignOut}>
+              <div className="hidden lg:block">
+                <ThemeToggle />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="hidden lg:inline-flex"
+                onClick={handleSignOut}
+              >
                 Sign out
               </Button>
             </div>

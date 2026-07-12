@@ -2754,6 +2754,42 @@ export const appRouter = createTRPCRouter({
       }),
   }),
   adminVpn: createTRPCRouter({
+    connectionStatus: permissionProcedure("vpn:admin_profile").query(
+      async ({ ctx }) => {
+        const actor = requireActor(ctx.actor)
+        const profiles = await ctx.db
+          .select({
+            id: adminVpnProfiles.id,
+            vpnIpv4: adminVpnProfiles.vpnIpv4,
+            lastHandshakeAt: adminVpnProfiles.lastHandshakeAt,
+            serverPeerEnabled: adminVpnProfiles.serverPeerEnabled,
+            revokedAt: adminVpnProfiles.revokedAt,
+          })
+          .from(adminVpnProfiles)
+          .where(
+            and(
+              eq(adminVpnProfiles.userId, actor.id),
+              eq(adminVpnProfiles.serverPeerEnabled, true),
+              isNull(adminVpnProfiles.revokedAt)
+            )
+          )
+
+        const freshMs = 3 * 60 * 1000
+        const now = Date.now()
+        const connected = profiles.some((profile) => {
+          if (!profile.lastHandshakeAt) {
+            return false
+          }
+          return now - new Date(profile.lastHandshakeAt).getTime() < freshMs
+        })
+
+        return {
+          connected,
+          checkedAt: new Date(),
+          profileCount: profiles.length,
+        }
+      }
+    ),
     list: permissionProcedure("vpn:admin_profile").query(async ({ ctx }) => {
       const actor = requireActor(ctx.actor)
       const organizationIds = actorOrganizationIds(actor)
