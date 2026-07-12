@@ -139,12 +139,18 @@ print(ssh["public_key"] if ssh else "")' 2>/dev/null || true)"
     printf '%s\n' "$ssh_public_key" >>"$auth_keys"
   fi
 
+  printf '%s\n' "$ssh_public_key" >"/var/lib/lockhaven/${tunnel_name}.ssh-public-key"
+  printf '%s\n' "$ssh_username" >"/var/lib/lockhaven/${tunnel_name}.ssh-username"
+  chmod 0600 \
+    "/var/lib/lockhaven/${tunnel_name}.ssh-public-key" \
+    "/var/lib/lockhaven/${tunnel_name}.ssh-username"
+
   echo "SSH public key installed for ${ssh_username}."
 }
 
+install -d -m 0700 /etc/wireguard /var/lib/lockhaven
 install_ssh_authorized_key
 
-install -d -m 0700 /etc/wireguard /var/lib/lockhaven
 config_path="/etc/wireguard/${tunnel_name}.conf"
 secret_path="/var/lib/lockhaven/${tunnel_name}.check-in-secret"
 

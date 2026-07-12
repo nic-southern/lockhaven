@@ -3,7 +3,9 @@ import test from "node:test"
 
 import {
   buildLinuxInstallCommand,
+  buildLinuxUninstallCommand,
   buildWindowsInstallCommand,
+  buildWindowsUninstallCommand,
 } from "./enrollment-commands"
 
 test("builds the Windows VPN enrollment command", () => {
@@ -28,5 +30,27 @@ test("builds the Linux VPN enrollment command", () => {
       baseUrl: "https://vpn.example.com/",
     }),
     "curl -fsSL https://vpn.example.com/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN='nms_enroll_abc'\\''123' bash"
+  )
+})
+
+test("builds the Windows VPN uninstall command", () => {
+  assert.equal(
+    buildWindowsUninstallCommand({
+      baseUrl: "https://vpn.example.com/",
+    }),
+    [
+      '$Script = "$env:TEMP\\lockhaven-uninstall.ps1";',
+      'Invoke-WebRequest -Uri "https://vpn.example.com/install/uninstall-windows.ps1" -OutFile $Script;',
+      "powershell.exe -ExecutionPolicy Bypass -File $Script",
+    ].join(" ")
+  )
+})
+
+test("builds the Linux VPN uninstall command", () => {
+  assert.equal(
+    buildLinuxUninstallCommand({
+      baseUrl: "https://vpn.example.com/",
+    }),
+    "curl -fsSL https://vpn.example.com/install/uninstall-linux.sh | sudo bash"
   )
 })

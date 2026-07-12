@@ -41,3 +41,17 @@ export function buildLinuxInstallCommand({
 }) {
   return `curl -fsSL ${normalizeBaseUrl(baseUrl)}/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN=${quoteShell(token)} bash`
 }
+
+export function buildWindowsUninstallCommand({ baseUrl }: { baseUrl: string }) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+
+  return [
+    `$Script = "$env:TEMP\\lockhaven-uninstall.ps1";`,
+    `Invoke-WebRequest -Uri "${normalizedBaseUrl}/install/uninstall-windows.ps1" -OutFile $Script;`,
+    "powershell.exe -ExecutionPolicy Bypass -File $Script",
+  ].join(" ")
+}
+
+export function buildLinuxUninstallCommand({ baseUrl }: { baseUrl: string }) {
+  return `curl -fsSL ${normalizeBaseUrl(baseUrl)}/install/uninstall-linux.sh | sudo bash`
+}

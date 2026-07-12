@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { EmptyState } from "@/components/dashboard/empty-state"
+import { CodeBlock } from "@/components/dashboard/code-block"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { VpnStatusStrip } from "@/components/dashboard/stat-strip"
@@ -29,6 +30,11 @@ import {
   statusLabel,
   statusVariant,
 } from "@/lib/dashboard"
+import {
+  buildLinuxUninstallCommand,
+  buildWindowsUninstallCommand,
+} from "@/lib/enrollment-commands"
+import { getClientVpnBaseUrl } from "@/lib/product-name"
 import { trpc } from "@/lib/trpc"
 import { serviceDefaults, type ServiceType } from "@nms/shared"
 
@@ -196,6 +202,12 @@ export default function DeviceConfigPage() {
   )
   const sitesQuery = trpc.sites.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
+  const [installBaseUrl, setInstallBaseUrl] =
+    React.useState(getClientVpnBaseUrl)
+
+  React.useEffect(() => {
+    setInstallBaseUrl(getClientVpnBaseUrl())
+  }, [])
 
   React.useEffect(() => {
     if (deviceQuery.data) {
@@ -207,6 +219,12 @@ export default function DeviceConfigPage() {
   }, [deviceQuery.data])
 
   const device = deviceQuery.data
+  const linuxUninstallCommand = buildLinuxUninstallCommand({
+    baseUrl: installBaseUrl,
+  })
+  const windowsUninstallCommand = buildWindowsUninstallCommand({
+    baseUrl: installBaseUrl,
+  })
   const serviceByType = React.useMemo(
     () =>
       new Map(
@@ -381,6 +399,20 @@ export default function DeviceConfigPage() {
                   },
                 ]}
               />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Uninstall</CardTitle>
+              <CardDescription>
+                Run this on the device to remove the tunnel and local files.
+                Revoke VPN here afterward if the device should leave inventory.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <CodeBlock label="Linux" value={linuxUninstallCommand} />
+              <CodeBlock label="Windows" value={windowsUninstallCommand} />
             </CardContent>
           </Card>
 
