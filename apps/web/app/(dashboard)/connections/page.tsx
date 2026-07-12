@@ -22,6 +22,11 @@ import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { formatDate, statusLabel } from "@/lib/dashboard"
+import {
+  openRemoteLaunchResult,
+  preferredConnectionMethod,
+} from "@/lib/remote-launch"
+import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
 import { trpc } from "@/lib/trpc"
 import { serviceDefaults, type ServiceType } from "@nms/shared"
 
@@ -44,6 +49,7 @@ const serviceDescriptions: Record<(typeof quickServiceTypes)[number], string> =
 
 export default function ConnectionsPage() {
   const utils = trpc.useUtils()
+  const { connected: adminVpnConnected } = useAdminVpnConnected()
   const servicesQuery = trpc.managementServices.list.useQuery()
   const devicesQuery = trpc.devices.list.useQuery()
   const [createDeviceId, setCreateDeviceId] = React.useState("")
@@ -132,11 +138,7 @@ export default function ConnectionsPage() {
   })
   const launchSession = trpc.sessions.create.useMutation({
     onSuccess(result) {
-      if (!result) {
-        return
-      }
-
-      window.open(result.url, "_blank", "noopener,noreferrer")
+      openRemoteLaunchResult(result)
     },
     onError() {
       toast.error("Couldn't start the session.")
@@ -424,7 +426,10 @@ export default function ConnectionsPage() {
                               void launchSession.mutateAsync({
                                 deviceId: service.deviceId,
                                 serviceId: service.id,
-                                connectionMethod: "guacamole",
+                                connectionMethod: preferredConnectionMethod({
+                                  vpnConnected: adminVpnConnected,
+                                  serviceType: service.serviceType,
+                                }),
                               })
                             }}
                             disabled={launchSession.isPending}
@@ -491,7 +496,10 @@ export default function ConnectionsPage() {
                               void launchSession.mutateAsync({
                                 deviceId: service.deviceId,
                                 serviceId: service.id,
-                                connectionMethod: "guacamole",
+                                connectionMethod: preferredConnectionMethod({
+                                  vpnConnected: adminVpnConnected,
+                                  serviceType: service.serviceType,
+                                }),
                               })
                             }}
                             disabled={launchSession.isPending}

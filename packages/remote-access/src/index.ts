@@ -20,7 +20,7 @@ export type RemoteAccessSessionRequest = {
   serviceId: string
   serviceType: ServiceType
   adminUserId: string
-  connectionMethod: "guacamole" | "custom-novnc"
+  connectionMethod: "guacamole" | "custom-novnc" | "native"
   hostname: string
   port: number
   password?: string | null
@@ -151,6 +151,43 @@ export function buildGuacamoleClientUrl(baseUrl: string, connectionId: number) {
     `#/client/${encodeGuacamoleConnectionReference(connectionId)}`,
     baseUrl
   ).toString()
+}
+
+function normalizeHost(hostname: string) {
+  return hostname.trim().split("/")[0]
+}
+
+/** Build a native app deep link for direct overlay access (e.g. macOS Screen Sharing). */
+export function buildNativeAppUrl(args: {
+  serviceType: ServiceType
+  hostname: string
+  port: number
+  password?: string | null
+  username?: string | null
+}) {
+  const host = normalizeHost(args.hostname)
+
+  if (args.serviceType === "vnc") {
+    if (!args.password) {
+      throw new Error("VNC password is required for native launch")
+    }
+
+    const userinfo = `:${encodeURIComponent(args.password)}`
+    const portSuffix = args.port === 5900 ? "" : `:${args.port}`
+    return `vnc://${userinfo}@${host}${portSuffix}`
+  }
+
+  if (args.serviceType === "ssh") {
+    const user = args.username?.trim()
+    if (!user) {
+      throw new Error("SSH username is required for native launch")
+    }
+
+    const portSuffix = args.port === 22 ? "" : `:${args.port}`
+    return `ssh://${encodeURIComponent(user)}@${host}${portSuffix}`
+  }
+
+  throw new Error(`Native launch is not supported for ${args.serviceType}`)
 }
 
 function buildGuacamoleDrivePath(connectionName: string) {

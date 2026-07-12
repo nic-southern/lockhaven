@@ -13,6 +13,7 @@ import {
 import { actorOrganizationIds, actorSiteIds, assertAuthorized } from "./access"
 import { hashPassword } from "@nms/auth"
 import {
+  adminVpnProfiles,
   auditEvents,
   account,
   devices,
@@ -37,6 +38,7 @@ import {
   generateSiteSshKeyPair,
   guacamoleConfigSchema,
   GuacamoleRemoteAccessProvider,
+  buildNativeAppUrl,
   type EncryptedSecret,
 } from "@nms/remote-access"
 import {
@@ -44,6 +46,12 @@ import {
   enrollmentTokenUpdateSchema,
   remoteSessionRequestSchema,
 } from "@nms/shared"
+import {
+  allocateVpnIpv4,
+  buildAdminClientConfig,
+  generateWireGuardKeyPair,
+  normalizeVpnIpv4,
+} from "@nms/vpn"
 import {
   normalizeRouteValues,
   permissionForServiceType,
@@ -97,6 +105,62 @@ function encryptRemoteSecret(secret: string) {
 
 function decryptRemoteSecret(payload: EncryptedSecret) {
   return decryptSecret(payload, getCredentialSecret())
+}
+
+function requireVpnServerConfig() {
+  const serverPublicKey = process.env.VPN_SERVER_PUBLIC_KEY
+  const hostname = process.env.VPN_PUBLIC_HOSTNAME ?? "vpn.example.com"
+  const port = Number(process.env.VPN_PUBLIC_PORT ?? 51820)
+
+  if (!serverPublicKey) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "VPN server is not configured",
+    })
+  }
+
+  return {
+    serverPublicKey,
+    endpoint: `${hostname}:${port}`,
+  }
+}
+
+function adminVpnConfigFilename(organizationName: string, vpnIpv4: string) {
+  const safeName = organizationName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+  const address = normalizeVpnIpv4(vpnIpv4).replaceAll(".", "-")
+  return `lockhaven-admin-${safeName || "org"}-${address}.conf`
+}
+
+function serializeAdminVpnProfile(
+  profile: typeof adminVpnProfiles.$inferSelect
+) {
+  return {
+    id: profile.id,
+    organizationId: profile.organizationId,
+    userId: profile.userId,
+    vpnIpv4: normalizeVpnIpv4(String(profile.vpnIpv4)),
+    wireguardPublicKey: profile.wireguardPublicKey,
+    label: profile.label,
+    serverPeerEnabled: profile.serverPeerEnabled,
+    lastHandshakeAt: profile.lastHandshakeAt,
+    latestEndpoint: profile.latestEndpoint,
+    rxBytes: profile.rxBytes,
+    txBytes: profile.txBytes,
+    revokedAt: profile.revokedAt,
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt,
+  }
+}
+
+function requireActor(actor: ApiContext["actor"]) {
+  if (!actor) {
+    throw new TRPCError({ code: "UNAUTHORIZED" })
+  }
+
+  return actor
 }
 
 function decodePasswordRecord(
@@ -2576,15 +2640,78 @@ export const appRouter = createTRPCRouter({
           }
         }
 
+        const host = normalizeVpnIpv4(String(identity.vpnIpv4))
+        const actor = requireActor(ctx.actor)
+
+        const canLaunchNative =
+          input.connectionMethod === "native" &&
+          ((service.serviceType === "vnc" && Boolean(password)) ||
+            (service.serviceType === "ssh" && Boolean(sshCredential.username)))
+
+        if (canLaunchNative) {
+          let nativeUrl: string
+          try {
+            nativeUrl = buildNativeAppUrl({
+              serviceType: service.serviceType as "vnc" | "ssh",
+              hostname: host,
+              port: service.port,
+              password,
+              username: sshCredential.username,
+            })
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Could not build native launch link",
+            })
+          }
+
+          const [record] = await ctx.db
+            .insert(remoteSessions)
+            .values({
+              adminUserId: actor.id,
+              deviceId: device.id,
+              managementServiceId: input.serviceId,
+              status: "starting",
+              connectionMethod: "native",
+              auditMetadata: {
+                requestedBy: actor.email,
+                serviceType: service.serviceType,
+                nativeHost: host,
+                nativePort: service.port,
+              },
+            })
+            .returning()
+
+          return {
+            session: record,
+            url: null,
+            nativeUrl,
+            mode: "native" as const,
+          }
+        }
+
+        if (
+          input.connectionMethod !== "guacamole" &&
+          input.connectionMethod !== "native"
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Unsupported remote access provider",
+          })
+        }
+
         const launchId = randomUUID()
 
         const session = await guacamoleProvider.createSession({
           deviceId: device.id,
           serviceId: service.id,
           serviceType: service.serviceType,
-          adminUserId: ctx.actor?.id ?? "",
-          connectionMethod: input.connectionMethod,
-          hostname: String(identity.vpnIpv4),
+          adminUserId: actor.id,
+          connectionMethod: "guacamole",
+          hostname: host,
           port: service.port,
           password,
           username: sshCredential.username,
@@ -2603,16 +2730,17 @@ export const appRouter = createTRPCRouter({
         const [record] = await ctx.db
           .insert(remoteSessions)
           .values({
-            adminUserId: ctx.actor?.id ?? "",
+            adminUserId: actor.id,
             deviceId: device.id,
             managementServiceId: input.serviceId,
             status: "starting",
-            connectionMethod: input.connectionMethod,
+            connectionMethod: "guacamole",
             auditMetadata: {
-              requestedBy: ctx.actor?.email,
+              requestedBy: actor.email,
               serviceType: service.serviceType,
               guacamoleSessionId: session.sessionId,
               guacamoleLaunchId: launchId,
+              nativeRequested: input.connectionMethod === "native",
             },
           })
           .returning()
@@ -2620,7 +2748,301 @@ export const appRouter = createTRPCRouter({
         return {
           session: record,
           url: launchUrl.toString(),
+          nativeUrl: null,
+          mode: "guacamole" as const,
         }
+      }),
+  }),
+  adminVpn: createTRPCRouter({
+    list: permissionProcedure("vpn:admin_profile").query(async ({ ctx }) => {
+      const actor = requireActor(ctx.actor)
+      const organizationIds = actorOrganizationIds(actor)
+
+      if (organizationIds !== null && organizationIds.length === 0) {
+        return []
+      }
+
+      const rows = await ctx.db
+        .select({
+          profile: adminVpnProfiles,
+          organizationName: organizations.name,
+          userName: user.name,
+          userEmail: user.email,
+        })
+        .from(adminVpnProfiles)
+        .innerJoin(
+          organizations,
+          eq(organizations.id, adminVpnProfiles.organizationId)
+        )
+        .innerJoin(user, eq(user.id, adminVpnProfiles.userId))
+        .where(
+          organizationIds === null
+            ? undefined
+            : inArray(adminVpnProfiles.organizationId, organizationIds)
+        )
+        .orderBy(desc(adminVpnProfiles.createdAt))
+
+      return rows
+        .filter((row) => {
+          try {
+            assertAuthorized(actor, "vpn:admin_profile", {
+              kind: "organization",
+              organizationId: row.profile.organizationId,
+            })
+            return true
+          } catch {
+            return false
+          }
+        })
+        .map((row) => ({
+          ...serializeAdminVpnProfile(row.profile),
+          organizationName: row.organizationName,
+          userName: row.userName,
+          userEmail: row.userEmail,
+          isOwnProfile: row.profile.userId === actor.id,
+        }))
+    }),
+    create: permissionProcedure("vpn:admin_profile")
+      .input(
+        z.object({
+          organizationId: z.string().uuid(),
+          label: z.string().trim().min(1).max(120).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const actor = requireActor(ctx.actor)
+        assertAuthorized(actor, "vpn:admin_profile", {
+          kind: "organization",
+          organizationId: input.organizationId,
+        })
+
+        const [organization] = await ctx.db
+          .select()
+          .from(organizations)
+          .where(eq(organizations.id, input.organizationId))
+
+        if (!organization) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        const [existing] = await ctx.db
+          .select()
+          .from(adminVpnProfiles)
+          .where(
+            and(
+              eq(adminVpnProfiles.organizationId, input.organizationId),
+              eq(adminVpnProfiles.userId, actor.id)
+            )
+          )
+
+        if (existing && !existing.revokedAt && existing.serverPeerEnabled) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "An admin VPN profile already exists for this organization",
+          })
+        }
+
+        const vpnConfig = requireVpnServerConfig()
+        const keyPair = generateWireGuardKeyPair()
+        const now = new Date()
+
+        let profile: typeof adminVpnProfiles.$inferSelect
+        let vpnIpv4: string
+
+        if (existing) {
+          vpnIpv4 = String(existing.vpnIpv4)
+          const [updated] = await ctx.db
+            .update(adminVpnProfiles)
+            .set({
+              wireguardPublicKey: keyPair.publicKey,
+              label: input.label ?? existing.label,
+              serverPeerEnabled: true,
+              revokedAt: null,
+              updatedAt: now,
+            })
+            .where(eq(adminVpnProfiles.id, existing.id))
+            .returning()
+          profile = updated
+        } else {
+          const existingAdminIps = await ctx.db
+            .select({ vpnIpv4: adminVpnProfiles.vpnIpv4 })
+            .from(adminVpnProfiles)
+          vpnIpv4 = allocateVpnIpv4(
+            existingAdminIps.map((row) => String(row.vpnIpv4)),
+            { pool: "admin" }
+          )
+
+          const [created] = await ctx.db
+            .insert(adminVpnProfiles)
+            .values({
+              organizationId: input.organizationId,
+              userId: actor.id,
+              vpnIpv4,
+              wireguardPublicKey: keyPair.publicKey,
+              label: input.label ?? null,
+              serverPeerEnabled: true,
+              revokedAt: null,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning()
+          profile = created
+        }
+
+        await ctx.db.insert(auditEvents).values({
+          actorUserId: actor.id,
+          organizationId: input.organizationId,
+          eventType: existing ? "admin_vpn_reissued" : "admin_vpn_created",
+          eventData: {
+            profileId: profile.id,
+            vpnIpv4: normalizeVpnIpv4(vpnIpv4),
+          },
+        })
+
+        const config = buildAdminClientConfig({
+          privateKey: keyPair.privateKey,
+          vpnIp: vpnIpv4,
+          serverPublicKey: vpnConfig.serverPublicKey,
+          endpoint: vpnConfig.endpoint,
+        })
+
+        return {
+          profile: serializeAdminVpnProfile(profile),
+          config,
+          filename: adminVpnConfigFilename(organization.name, vpnIpv4),
+        }
+      }),
+    reissue: permissionProcedure("vpn:admin_profile")
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const actor = requireActor(ctx.actor)
+        const [profile] = await ctx.db
+          .select()
+          .from(adminVpnProfiles)
+          .where(eq(adminVpnProfiles.id, input.id))
+
+        if (!profile) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        assertAuthorized(actor, "vpn:admin_profile", {
+          kind: "organization",
+          organizationId: profile.organizationId,
+        })
+
+        if (
+          profile.userId !== actor.id &&
+          actor.platformRole !== "owner" &&
+          actor.platformRole !== "admin"
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only reissue your own admin VPN profile",
+          })
+        }
+
+        const [organization] = await ctx.db
+          .select()
+          .from(organizations)
+          .where(eq(organizations.id, profile.organizationId))
+
+        if (!organization) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        const vpnConfig = requireVpnServerConfig()
+        const keyPair = generateWireGuardKeyPair()
+        const now = new Date()
+
+        const [updated] = await ctx.db
+          .update(adminVpnProfiles)
+          .set({
+            wireguardPublicKey: keyPair.publicKey,
+            serverPeerEnabled: true,
+            revokedAt: null,
+            updatedAt: now,
+          })
+          .where(eq(adminVpnProfiles.id, profile.id))
+          .returning()
+
+        await ctx.db.insert(auditEvents).values({
+          actorUserId: actor.id,
+          organizationId: profile.organizationId,
+          eventType: "admin_vpn_reissued",
+          eventData: {
+            profileId: profile.id,
+            vpnIpv4: normalizeVpnIpv4(String(profile.vpnIpv4)),
+          },
+        })
+
+        const config = buildAdminClientConfig({
+          privateKey: keyPair.privateKey,
+          vpnIp: String(profile.vpnIpv4),
+          serverPublicKey: vpnConfig.serverPublicKey,
+          endpoint: vpnConfig.endpoint,
+        })
+
+        return {
+          profile: serializeAdminVpnProfile(updated),
+          config,
+          filename: adminVpnConfigFilename(
+            organization.name,
+            String(profile.vpnIpv4)
+          ),
+        }
+      }),
+    revoke: permissionProcedure("vpn:admin_profile")
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const actor = requireActor(ctx.actor)
+        const [profile] = await ctx.db
+          .select()
+          .from(adminVpnProfiles)
+          .where(eq(adminVpnProfiles.id, input.id))
+
+        if (!profile) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        assertAuthorized(actor, "vpn:admin_profile", {
+          kind: "organization",
+          organizationId: profile.organizationId,
+        })
+
+        if (
+          profile.userId !== actor.id &&
+          actor.platformRole !== "owner" &&
+          actor.platformRole !== "admin"
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only revoke your own admin VPN profile",
+          })
+        }
+
+        const now = new Date()
+        const [updated] = await ctx.db
+          .update(adminVpnProfiles)
+          .set({
+            serverPeerEnabled: false,
+            revokedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(adminVpnProfiles.id, profile.id))
+          .returning()
+
+        await ctx.db.insert(auditEvents).values({
+          actorUserId: actor.id,
+          organizationId: profile.organizationId,
+          eventType: "admin_vpn_revoked",
+          eventData: {
+            profileId: profile.id,
+            vpnIpv4: normalizeVpnIpv4(String(profile.vpnIpv4)),
+          },
+        })
+
+        return serializeAdminVpnProfile(updated)
       }),
   }),
 })

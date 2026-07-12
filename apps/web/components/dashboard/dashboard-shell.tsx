@@ -17,13 +17,16 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { getClientProductName, getProductInitials } from "@/lib/product-name"
+import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
 import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 
 const navItems = [
   { href: "/", label: "Overview" },
   { href: "/devices", label: "Devices" },
   { href: "/sites", label: "Sites" },
   { href: "/connections", label: "Connections" },
+  { href: "/admin-vpn", label: "Admin VPN" },
   { href: "/route-policies", label: "Route policies" },
   { href: "/enrollment-tokens", label: "Enrollment tokens" },
   { href: "/users", label: "Users" },
@@ -87,6 +90,8 @@ export function DashboardShell({
   const pathname = usePathname()
   const { data: session } = useSession()
   const accessQuery = trpc.access.me.useQuery()
+  const { connected: adminVpnConnected, checked: adminVpnChecked } =
+    useAdminVpnConnected()
   const productName = getClientProductName()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const userLabel = session?.user?.name ?? session?.user?.email ?? "—"
@@ -98,6 +103,12 @@ export function DashboardShell({
     return navItems
   }, [accessQuery.data?.canManageUsers])
 
+  const vpnBadge =
+    adminVpnChecked && adminVpnConnected ? (
+      <Badge variant="secondary" className="font-normal">
+        Admin VPN connected
+      </Badge>
+    ) : null
   return (
     <div className="min-h-svh bg-background">
       {hideHeader ? null : (
@@ -130,6 +141,7 @@ export function DashboardShell({
                     <p className="truncate text-sm text-muted-foreground">
                       {userLabel}
                     </p>
+                    {vpnBadge ? <div className="pt-1">{vpnBadge}</div> : null}
                   </SheetHeader>
                   <div className="flex-1 overflow-y-auto p-3">
                     <NavLinks
@@ -173,6 +185,7 @@ export function DashboardShell({
             </div>
 
             <div className="hidden items-center gap-3 lg:flex">
+              {vpnBadge}
               <p className="max-w-[14rem] truncate text-sm text-muted-foreground">
                 {userLabel}
               </p>

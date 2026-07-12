@@ -21,6 +21,18 @@ test("maps organization roles to scoped permissions", () => {
     permissionsForOrganizationRole("viewer").includes("device:update"),
     false
   )
+  assert.equal(
+    permissionsForOrganizationRole("owner").includes("vpn:admin_profile"),
+    true
+  )
+  assert.equal(
+    permissionsForOrganizationRole("admin").includes("vpn:admin_profile"),
+    false
+  )
+  assert.equal(
+    permissionsForOrganizationRole("operator").includes("vpn:admin_profile"),
+    false
+  )
 })
 
 test("maps site roles to scoped permissions", () => {
@@ -37,6 +49,66 @@ test("maps site roles to scoped permissions", () => {
 test("platform permissions stay separate from membership permissions", () => {
   assert.equal(permissionsForRole("admin").includes("organization:admin"), true)
   assert.equal(permissionsForRole("owner").includes("device:update"), true)
+  assert.equal(permissionsForRole("admin").includes("vpn:admin_profile"), true)
+  assert.equal(permissionsForRole("owner").includes("vpn:admin_profile"), true)
+})
+
+test("allows org owners to manage admin vpn profiles in their organization", () => {
+  const decision = authorize(
+    {
+      id: "user-1",
+      email: "owner@example.com",
+      name: null,
+      platformRole: "admin",
+      platformPermissions: [],
+      permissions: [],
+      organizationMemberships: [
+        {
+          id: "membership-1",
+          organizationId: "org-1",
+          role: "owner",
+          status: "active",
+        },
+      ],
+      siteMemberships: [],
+    },
+    "vpn:admin_profile",
+    {
+      kind: "organization",
+      organizationId: "org-1",
+    }
+  )
+
+  assert.equal(decision.allowed, true)
+})
+
+test("denies org admins from managing admin vpn profiles", () => {
+  const decision = authorize(
+    {
+      id: "user-2",
+      email: "admin@example.com",
+      name: null,
+      platformRole: "admin",
+      platformPermissions: [],
+      permissions: [],
+      organizationMemberships: [
+        {
+          id: "membership-2",
+          organizationId: "org-1",
+          role: "admin",
+          status: "active",
+        },
+      ],
+      siteMemberships: [],
+    },
+    "vpn:admin_profile",
+    {
+      kind: "organization",
+      organizationId: "org-1",
+    }
+  )
+
+  assert.equal(decision.allowed, false)
 })
 
 test("denies device access outside the user's organization", () => {

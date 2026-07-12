@@ -17,8 +17,11 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
+    "@nms/auth": "workspace:*",
+    "@nms/db": "workspace:*",
     "@nms/remote-access": "workspace:*",
     "@nms/shared": "workspace:*",
+    "@nms/vpn": "workspace:*",
     "@trpc/server": "^11.7.2",
     "drizzle-orm": "^0.44.7",
     "zod": "^4.1.13"

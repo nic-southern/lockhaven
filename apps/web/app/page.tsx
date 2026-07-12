@@ -39,6 +39,11 @@ import {
   buildWindowsInstallCommand,
 } from "@/lib/enrollment-commands"
 import { getClientProductName, getClientVpnBaseUrl } from "@/lib/product-name"
+import {
+  openRemoteLaunchResult,
+  preferredConnectionMethod,
+} from "@/lib/remote-launch"
+import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
 import { getApiBaseUrl, trpc } from "@/lib/trpc"
 
 type HealthResponse = {
@@ -64,6 +69,7 @@ function healthLabel(value: string | undefined, loading: boolean) {
 export default function Page() {
   const utils = trpc.useUtils()
   const productName = getClientProductName()
+  const { connected: adminVpnConnected } = useAdminVpnConnected()
   const [enrollmentOpen, setEnrollmentOpen] = React.useState(false)
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
   const [selectedRoutePolicyId, setSelectedRoutePolicyId] = React.useState("")
@@ -193,11 +199,7 @@ export default function Page() {
 
   const launchVncSession = trpc.sessions.create.useMutation({
     onSuccess(result) {
-      if (!result) {
-        return
-      }
-
-      window.open(result.url, "_blank", "noopener,noreferrer")
+      openRemoteLaunchResult(result)
     },
     onError() {
       toast.error("Couldn't start the session.")
@@ -206,11 +208,7 @@ export default function Page() {
 
   const launchSshSession = trpc.sessions.create.useMutation({
     onSuccess(result) {
-      if (!result) {
-        return
-      }
-
-      window.open(result.url, "_blank", "noopener,noreferrer")
+      openRemoteLaunchResult(result)
     },
     onError() {
       toast.error("Couldn't start the session.")
@@ -579,7 +577,10 @@ export default function Page() {
                                 serviceId: firstEnabledVncServiceByDeviceId.get(
                                   device.id
                                 )!.id,
-                                connectionMethod: "guacamole",
+                                connectionMethod: preferredConnectionMethod({
+                                  vpnConnected: adminVpnConnected,
+                                  serviceType: "vnc",
+                                }),
                               })
                             }}
                             disabled={launchVncSession.isPending}
@@ -598,7 +599,10 @@ export default function Page() {
                                 serviceId: firstEnabledSshServiceByDeviceId.get(
                                   device.id
                                 )!.id,
-                                connectionMethod: "guacamole",
+                                connectionMethod: preferredConnectionMethod({
+                                  vpnConnected: adminVpnConnected,
+                                  serviceType: "ssh",
+                                }),
                               })
                             }}
                             disabled={launchSshSession.isPending}
@@ -727,7 +731,12 @@ export default function Page() {
                                       firstEnabledVncServiceByDeviceId.get(
                                         device.id
                                       )!.id,
-                                    connectionMethod: "guacamole",
+                                    connectionMethod: preferredConnectionMethod(
+                                      {
+                                        vpnConnected: adminVpnConnected,
+                                        serviceType: "vnc",
+                                      }
+                                    ),
                                   })
                                 }}
                                 disabled={launchVncSession.isPending}
@@ -747,7 +756,12 @@ export default function Page() {
                                       firstEnabledSshServiceByDeviceId.get(
                                         device.id
                                       )!.id,
-                                    connectionMethod: "guacamole",
+                                    connectionMethod: preferredConnectionMethod(
+                                      {
+                                        vpnConnected: adminVpnConnected,
+                                        serviceType: "ssh",
+                                      }
+                                    ),
                                   })
                                 }}
                                 disabled={launchSshSession.isPending}

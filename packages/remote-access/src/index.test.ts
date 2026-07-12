@@ -5,6 +5,7 @@ import type { Pool } from "pg"
 
 import {
   buildGuacamoleClientUrl,
+  buildNativeAppUrl,
   decryptSecret,
   deriveOpenSshPublicKeyFromPrivateKey,
   encryptSecret,
@@ -17,6 +18,40 @@ test("encrypts and decrypts saved credentials", () => {
   const encrypted = encryptSecret("hunter2", secret)
 
   assert.equal(decryptSecret(encrypted, secret), "hunter2")
+})
+
+test("builds native VNC app urls with embedded passwords", () => {
+  assert.equal(
+    buildNativeAppUrl({
+      serviceType: "vnc",
+      hostname: "10.80.30.12/32",
+      port: 5900,
+      password: "9tt0dWHRjfEt0nM",
+    }),
+    "vnc://:9tt0dWHRjfEt0nM@10.80.30.12"
+  )
+
+  assert.equal(
+    buildNativeAppUrl({
+      serviceType: "vnc",
+      hostname: "10.80.30.12",
+      port: 5901,
+      password: "p@ss:word",
+    }),
+    "vnc://:p%40ss%3Aword@10.80.30.12:5901"
+  )
+})
+
+test("builds native SSH app urls", () => {
+  assert.equal(
+    buildNativeAppUrl({
+      serviceType: "ssh",
+      hostname: "10.80.20.11",
+      port: 22,
+      username: "admin",
+    }),
+    "ssh://admin@10.80.20.11"
+  )
 })
 
 test("generates an ed25519 site SSH keypair", () => {

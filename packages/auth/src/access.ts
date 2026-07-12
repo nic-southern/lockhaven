@@ -78,6 +78,7 @@ const platformOwnerPermissions: Permission[] = [
   "organization:admin",
   "site:admin",
   "audit:view",
+  "vpn:admin_profile",
 ]
 
 const platformAdminPermissions: Permission[] = [
@@ -92,6 +93,7 @@ const platformAdminPermissions: Permission[] = [
   "organization:admin",
   "site:admin",
   "audit:view",
+  "vpn:admin_profile",
 ]
 
 const organizationRolePermissions: Record<OrganizationRole, Permission[]> = {
@@ -107,6 +109,7 @@ const organizationRolePermissions: Record<OrganizationRole, Permission[]> = {
     "organization:admin",
     "site:admin",
     "audit:view",
+    "vpn:admin_profile",
   ],
   admin: [
     "device:view",

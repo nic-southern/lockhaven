@@ -27,6 +27,7 @@ export const permissions = [
   "organization:admin",
   "site:admin",
   "audit:view",
+  "vpn:admin_profile",
 ] as const
 
 export type Permission = (typeof permissions)[number]
@@ -193,7 +194,9 @@ export const checkInSchema = z.object({
 
 export const remoteSessionRequestSchema = z.object({
   serviceId: z.string().uuid(),
-  connectionMethod: z.enum(["guacamole", "custom-novnc"]).default("guacamole"),
+  connectionMethod: z
+    .enum(["guacamole", "custom-novnc", "native"])
+    .default("guacamole"),
 })
 
 export const permissionSetSchema = z.array(z.enum(permissions))

@@ -261,6 +261,42 @@ export const vpnIdentities = pgTable(
   })
 )
 
+export const adminVpnProfiles = pgTable(
+  "admin_vpn_profiles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    vpnIpv4: inet("vpn_ipv4").notNull().unique(),
+    wireguardPublicKey: text("wireguard_public_key").notNull().unique(),
+    label: text("label"),
+    serverPeerEnabled: boolean("server_peer_enabled").notNull().default(true),
+    lastHandshakeAt: timestamp("last_handshake_at", { withTimezone: true }),
+    latestEndpoint: text("latest_endpoint"),
+    rxBytes: integer("rx_bytes").notNull().default(0),
+    txBytes: integer("tx_bytes").notNull().default(0),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationUserIdx: uniqueIndex(
+      "admin_vpn_profiles_organization_user_idx"
+    ).on(table.organizationId, table.userId),
+    wireguardPublicKeyIdx: uniqueIndex(
+      "admin_vpn_profiles_wireguard_public_key_idx"
+    ).on(table.wireguardPublicKey),
+  })
+)
+
 export const managementServices = pgTable("management_services", {
   id: uuid("id").primaryKey().defaultRandom(),
   deviceId: uuid("device_id")
@@ -415,6 +451,7 @@ export type AuthUser = typeof user.$inferSelect
 export type Device = typeof devices.$inferSelect
 export type RoutePolicy = typeof routePolicies.$inferSelect
 export type VpnIdentity = typeof vpnIdentities.$inferSelect
+export type AdminVpnProfile = typeof adminVpnProfiles.$inferSelect
 export type ManagementService = typeof managementServices.$inferSelect
 export type ManagementServiceCredential =
   typeof managementServiceCredentials.$inferSelect

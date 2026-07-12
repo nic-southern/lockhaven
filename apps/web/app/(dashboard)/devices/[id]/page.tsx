@@ -36,6 +36,11 @@ import {
   buildWindowsUninstallCommand,
 } from "@/lib/enrollment-commands"
 import { getClientVpnBaseUrl } from "@/lib/product-name"
+import {
+  openRemoteLaunchResult,
+  preferredConnectionMethod,
+} from "@/lib/remote-launch"
+import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
 import { trpc } from "@/lib/trpc"
 import { serviceDefaults, type ServiceType } from "@nms/shared"
 
@@ -61,6 +66,7 @@ export default function DeviceConfigPage() {
   const router = useRouter()
   const deviceId = params.id
   const utils = trpc.useUtils()
+  const { connected: adminVpnConnected } = useAdminVpnConnected()
   const [deleteOpen, setDeleteOpen] = React.useState(false)
 
   const deviceQuery = trpc.devices.byId.useQuery(
@@ -190,11 +196,7 @@ export default function DeviceConfigPage() {
   })
   const launchSession = trpc.sessions.create.useMutation({
     onSuccess(result) {
-      if (!result) {
-        return
-      }
-
-      window.open(result.url, "_blank", "noopener,noreferrer")
+      openRemoteLaunchResult(result)
     },
     onError() {
       toast.error("Couldn't start the session.")
@@ -626,7 +628,12 @@ export default function DeviceConfigPage() {
                                   void launchSession.mutateAsync({
                                     deviceId: device.id,
                                     serviceId: service.id,
-                                    connectionMethod: "guacamole",
+                                    connectionMethod: preferredConnectionMethod(
+                                      {
+                                        vpnConnected: adminVpnConnected,
+                                        serviceType,
+                                      }
+                                    ),
                                   })
                                 }}
                                 disabled={launchSession.isPending}
@@ -725,7 +732,11 @@ export default function DeviceConfigPage() {
                                     void launchSession.mutateAsync({
                                       deviceId: device.id,
                                       serviceId: service.id,
-                                      connectionMethod: "guacamole",
+                                      connectionMethod:
+                                        preferredConnectionMethod({
+                                          vpnConnected: adminVpnConnected,
+                                          serviceType: "ssh",
+                                        }),
                                     })
                                   }}
                                   disabled={launchSession.isPending}

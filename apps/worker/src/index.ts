@@ -8,9 +8,12 @@ import { Queue, Worker } from "bullmq"
 import Redis from "ioredis"
 
 import {
+  adminVpnProfiles,
   auditEvents,
   devices,
   eq,
+  isNull,
+  and,
   managementServices,
   routePolicies,
   vpnIdentities,
@@ -24,12 +27,14 @@ import {
   deriveDeviceStatus,
   parseWgDump,
   normalizeVpnIpv4,
+  type AdminForwardRule,
 } from "@nms/vpn"
 
 const execFileAsync = promisify(execFile)
 
 const redisUrl = process.env.REDIS_URL ?? "redis://127.0.0.1:6379/0"
 const vpnctlPath = process.env.VPNCTL_PATH ?? "/usr/local/sbin/vpnctl"
+const vpnServerIp = process.env.VPN_SERVER_IP ?? "10.80.0.1"
 
 const connection = new Redis(redisUrl, {
   maxRetriesPerRequest: null,
@@ -89,10 +94,15 @@ async function reconcileVpnPeers() {
     })
     .from(vpnIdentities)
     .leftJoin(routePolicies, eq(routePolicies.id, vpnIdentities.routePolicyId))
+
+  const adminProfiles = await db.select().from(adminVpnProfiles)
+
   const peerByPublicKey = new Map(peers.map((peer) => [peer.publicKey, peer]))
   const routeSet = new Set<string>()
+  const knownPublicKeys = new Set<string>()
 
   for (const identity of identities) {
+    knownPublicKeys.add(identity.wireguardPublicKey)
     const peer = peerByPublicKey.get(identity.wireguardPublicKey)
     const allowedIps = buildServerPeerAllowedIps({
       vpnIp: identity.vpnIpv4,
@@ -145,9 +155,91 @@ async function reconcileVpnPeers() {
       .where(eq(vpnIdentities.id, identity.id))
   }
 
-  const knownPublicKeys = new Set(
-    identities.map((identity) => identity.wireguardPublicKey)
-  )
+  const deviceIpsByOrganization = new Map<string, string[]>()
+  const deviceRows = await db
+    .select({
+      organizationId: devices.organizationId,
+      vpnIpv4: vpnIdentities.vpnIpv4,
+      revokedAt: vpnIdentities.revokedAt,
+      serverPeerEnabled: vpnIdentities.serverPeerEnabled,
+    })
+    .from(devices)
+    .innerJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+    .where(
+      and(
+        eq(vpnIdentities.serverPeerEnabled, true),
+        isNull(vpnIdentities.revokedAt)
+      )
+    )
+
+  for (const row of deviceRows) {
+    const list = deviceIpsByOrganization.get(row.organizationId) ?? []
+    list.push(ensureHostRoute(String(row.vpnIpv4)))
+    deviceIpsByOrganization.set(row.organizationId, list)
+  }
+
+  const adminForwards: AdminForwardRule[] = []
+
+  for (const profile of adminProfiles) {
+    knownPublicKeys.add(profile.wireguardPublicKey)
+    const peer = peerByPublicKey.get(profile.wireguardPublicKey)
+    const allowedIps = buildServerPeerAllowedIps({
+      vpnIp: profile.vpnIpv4,
+    })
+
+    if (!profile.serverPeerEnabled || profile.revokedAt) {
+      await invokeVpnctl(
+        buildRemovePeerCommand({ publicKey: profile.wireguardPublicKey })
+      )
+      await db
+        .update(adminVpnProfiles)
+        .set({
+          lastHandshakeAt: peer?.latestHandshakeAt ?? profile.lastHandshakeAt,
+          rxBytes: peer?.rxBytes ?? profile.rxBytes,
+          txBytes: peer?.txBytes ?? profile.txBytes,
+          updatedAt: new Date(),
+        })
+        .where(eq(adminVpnProfiles.id, profile.id))
+      continue
+    }
+
+    await invokeVpnctl(
+      buildAddPeerCommand({
+        publicKey: profile.wireguardPublicKey,
+        allowedIps,
+      })
+    )
+
+    const destinations =
+      deviceIpsByOrganization.get(profile.organizationId) ?? []
+    if (destinations.length > 0) {
+      adminForwards.push({
+        sourceIp: String(profile.vpnIpv4),
+        destinationIps: destinations,
+      })
+    }
+
+    if (!peer) {
+      await db.insert(auditEvents).values({
+        actorUserId: profile.userId,
+        organizationId: profile.organizationId,
+        eventType: "admin_vpn_peer_added",
+        eventData: { vpnIpv4: profile.vpnIpv4, profileId: profile.id },
+      })
+      continue
+    }
+
+    await db
+      .update(adminVpnProfiles)
+      .set({
+        lastHandshakeAt: peer.latestHandshakeAt,
+        latestEndpoint: peer.endpoint,
+        rxBytes: peer.rxBytes,
+        txBytes: peer.txBytes,
+        updatedAt: new Date(),
+      })
+      .where(eq(adminVpnProfiles.id, profile.id))
+  }
 
   for (const peer of peers) {
     if (knownPublicKeys.has(peer.publicKey)) {
@@ -160,8 +252,15 @@ async function reconcileVpnPeers() {
   await invokeVpnctl(
     buildSyncFirewallCommand({
       allowedRoutes: [...routeSet],
+      adminForwards,
+      snatTo: vpnServerIp,
     })
   )
+}
+
+function ensureHostRoute(value: string) {
+  const ip = normalizeVpnIpv4(value)
+  return value.includes("/") ? value.trim() : `${ip}/32`
 }
 
 async function refreshServiceHealth() {

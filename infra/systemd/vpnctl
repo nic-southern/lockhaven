@@ -34,10 +34,21 @@ case "$cmd" in
     ;;
   sync-firewall)
     allowed_routes=""
+    snat_to=""
+    admin_forwards=""
     shift
     while [ "${1:-}" != "" ]; do
       case "$1" in
         --allowed-routes) allowed_routes="${2:-}"; shift 2 ;;
+        --snat-to) snat_to="${2:-}"; shift 2 ;;
+        --admin-forward)
+          if [ -n "$admin_forwards" ]; then
+            admin_forwards="${admin_forwards} ${2:-}"
+          else
+            admin_forwards="${2:-}"
+          fi
+          shift 2
+          ;;
         *) echo "unsupported argument" >&2; exit 1 ;;
       esac
     done
@@ -46,6 +57,14 @@ case "$cmd" in
     {
       cat <<'EOF'
 delete table inet lockhaven_filter
+EOF
+    } >"$tmp_file"
+
+    nft -f "$tmp_file" 2>/dev/null || true
+
+    {
+      cat <<'EOF'
+delete table ip lockhaven_nat
 EOF
     } >"$tmp_file"
 
@@ -72,9 +91,20 @@ table inet lockhaven_filter {
   chain forward {
     type filter hook forward priority 0;
     policy accept;
+
+    ct state established,related accept
 EOF
       if [ -n "$allowed_routes" ]; then
         printf '    iifname "wg0" ip daddr { %s } accept\n' "$allowed_routes"
+      fi
+      if [ -n "$admin_forwards" ]; then
+        for forward in $admin_forwards; do
+          source_ip="${forward%%=*}"
+          destinations="${forward#*=}"
+          if [ -n "$source_ip" ] && [ -n "$destinations" ] && [ "$source_ip" != "$forward" ]; then
+            printf '    iifname "wg0" ip saddr %s ip daddr { %s } accept\n' "$source_ip" "$destinations"
+          fi
+        done
       fi
       printf '    iifname "wg0" drop\n'
       cat <<'EOF'
@@ -89,6 +119,23 @@ EOF
     } >"$tmp_file"
 
     nft -f "$tmp_file"
+
+    if [ -n "$snat_to" ]; then
+      {
+        cat <<EOF
+table ip lockhaven_nat {
+  chain postrouting {
+    type nat hook postrouting priority 100;
+    policy accept;
+
+    oifname "wg0" ip saddr 10.80.100.0/24 snat to ${snat_to}
+  }
+}
+EOF
+      } >"$tmp_file"
+      nft -f "$tmp_file"
+    fi
+
     rm -f "$tmp_file"
     ;;
   *)
