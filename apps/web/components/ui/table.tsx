@@ -1,13 +1,24 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+function Table({
+  className,
+  containerClassName,
+  ...props
+}: React.ComponentProps<"table"> & {
+  containerClassName?: string
+}) {
   return (
-    <table
-      data-slot="table"
-      className={cn("w-full caption-bottom text-sm", className)}
-      {...props}
-    />
+    <div
+      data-slot="table-container"
+      className={cn("relative w-full overflow-x-auto", containerClassName)}
+    >
+      <table
+        data-slot="table"
+        className={cn("w-full min-w-max caption-bottom text-sm", className)}
+        {...props}
+      />
+    </div>
   )
 }
 
@@ -49,7 +60,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-12 px-4 text-left align-middle font-medium text-muted-foreground",
+        "h-11 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground sm:h-12 sm:px-4",
         className
       )}
       {...props}
@@ -61,7 +72,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
     <td
       data-slot="table-cell"
-      className={cn("p-4 align-middle", className)}
+      className={cn("px-3 py-3 align-middle sm:p-4", className)}
       {...props}
     />
   )

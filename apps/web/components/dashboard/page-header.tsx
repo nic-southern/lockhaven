@@ -17,17 +17,17 @@ export function PageHeader({
   return (
     <section
       className={cn(
-        "flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between",
+        "flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4",
         className
       )}
     >
-      <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 flex-col gap-1.5 sm:gap-2">
         {badge ? (
           <Badge variant="outline" className="w-fit">
             {badge}
           </Badge>
         ) : null}
-        <h1 className="text-3xl font-semibold tracking-tight text-balance">
+        <h1 className="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">
           {title}
         </h1>
         {description ? (
@@ -37,7 +37,7 @@ export function PageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto">
           {actions}
         </div>
       ) : null}

@@ -288,10 +288,13 @@ export default function Page() {
           description="Track enrolled devices, review connectivity, and start remote sessions without exposing management services."
           actions={
             <>
-              <Button onClick={() => setEnrollmentOpen((open) => !open)}>
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => setEnrollmentOpen((open) => !open)}
+              >
                 {enrollmentOpen ? "Hide enrollment" : "New enrollment token"}
               </Button>
-              <Button variant="outline" asChild>
+              <Button variant="outline" className="w-full sm:w-auto" asChild>
                 <Link href="/enrollment-tokens">Manage tokens</Link>
               </Button>
             </>
@@ -367,7 +370,7 @@ export default function Page() {
                   </p>
                 ) : null}
                 <Button
-                  className="w-fit"
+                  className="w-full sm:w-fit"
                   onClick={() => {
                     void handleCreateEnrollmentToken()
                   }}
@@ -481,7 +484,137 @@ export default function Page() {
               Live inventory and status from enrolled devices.
             </p>
           </div>
-          <div className="overflow-hidden rounded-xl border border-border/80 bg-card">
+          {devicesQuery.isLoading ? (
+            <div className="flex flex-col gap-3 md:hidden">
+              <Skeleton className="h-28 w-full rounded-xl" />
+              <Skeleton className="h-28 w-full rounded-xl" />
+              <Skeleton className="h-28 w-full rounded-xl" />
+            </div>
+          ) : devices.length === 0 ? (
+            <div className="md:hidden">
+              <EmptyState
+                title="No devices yet"
+                description="Create an enrollment token to add the first device."
+                bordered
+                action={
+                  <Button
+                    className="w-full sm:w-auto"
+                    onClick={() => setEnrollmentOpen(true)}
+                  >
+                    New enrollment token
+                  </Button>
+                }
+              />
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3 md:hidden">
+              {devices.map((device) => {
+                const siteName =
+                  device.siteName ??
+                  (device.siteId
+                    ? (siteNameById.get(device.siteId) ?? "—")
+                    : "—")
+                const vpnStatus = device.vpnRevokedAt
+                  ? "revoked"
+                  : device.vpnLastHandshakeAt
+                    ? "vpn_online"
+                    : "pending"
+                const hasVnc = firstEnabledVncServiceByDeviceId.has(device.id)
+                const hasSsh = firstEnabledSshServiceByDeviceId.has(device.id)
+
+                return (
+                  <div
+                    key={device.id}
+                    role="link"
+                    tabIndex={0}
+                    className="flex w-full cursor-pointer flex-col gap-3 rounded-xl border border-border/80 bg-card p-4 text-left transition-colors hover:bg-muted/40"
+                    onClick={() => {
+                      router.push(`/devices/${device.id}`)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        router.push(`/devices/${device.id}`)
+                      }
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <span className="font-medium">
+                          {device.displayName}
+                        </span>
+                        {device.hostname ? (
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {device.hostname}
+                          </span>
+                        ) : null}
+                        <span className="text-sm text-muted-foreground">
+                          {siteName}
+                        </span>
+                      </div>
+                      <Badge
+                        variant={statusVariant[device.status] ?? "secondary"}
+                      >
+                        {statusLabel(device.status)}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs">
+                        {device.vpnIpv4 ?? "—"}
+                      </span>
+                      <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
+                        {statusLabel(vpnStatus)}
+                      </Badge>
+                    </div>
+                    {hasVnc || hasSsh ? (
+                      <div className="flex flex-wrap gap-2">
+                        {hasVnc ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void launchVncSession.mutateAsync({
+                                deviceId: device.id,
+                                serviceId: firstEnabledVncServiceByDeviceId.get(
+                                  device.id
+                                )!.id,
+                                connectionMethod: "guacamole",
+                              })
+                            }}
+                            disabled={launchVncSession.isPending}
+                          >
+                            VNC
+                          </Button>
+                        ) : null}
+                        {hasSsh ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void launchSshSession.mutateAsync({
+                                deviceId: device.id,
+                                serviceId: firstEnabledSshServiceByDeviceId.get(
+                                  device.id
+                                )!.id,
+                                connectionMethod: "guacamole",
+                              })
+                            }}
+                            disabled={launchSshSession.isPending}
+                          >
+                            SSH
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="hidden overflow-hidden rounded-xl border border-border/80 bg-card md:block">
             <Table>
               <TableHeader>
                 <TableRow>

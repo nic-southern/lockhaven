@@ -25,9 +25,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { DetailSheet } from "@/components/dashboard/detail-sheet"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { SectionCard } from "@/components/dashboard/section-card"
 import { statusLabel } from "@/lib/dashboard"
 import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
@@ -42,6 +44,7 @@ export default function UsersPage() {
   const sitesQuery = trpc.sites.list.useQuery()
   const [selectedOrganizationId, setSelectedOrganizationId] = React.useState("")
   const [selectedMemberId, setSelectedMemberId] = React.useState("")
+  const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)
 
   const [createName, setCreateName] = React.useState("")
   const [createEmail, setCreateEmail] = React.useState("")
@@ -161,152 +164,147 @@ export default function UsersPage() {
         description="Create users for an organization, adjust roles, and grant access to specific sites."
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>New user</CardTitle>
-          <CardDescription>
-            Create a user with a temporary password and an initial organization
-            role.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <FormField label="Organization" htmlFor="user-create-organization">
-            <NativeSelect
-              id="user-create-organization"
-              value={selectedOrganizationId}
-              onChange={(event) =>
-                setSelectedOrganizationId(event.target.value)
-              }
-            >
-              <option value="">Choose an organization</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              ))}
-            </NativeSelect>
-          </FormField>
-          <FormField label="Organization role" htmlFor="user-create-org-role">
-            <NativeSelect
-              id="user-create-org-role"
-              value={createOrganizationRole}
-              onChange={(event) =>
-                setCreateOrganizationRole(
-                  event.target.value as (typeof organizationRoles)[number]
-                )
-              }
-            >
-              {organizationRoles.map((role) => (
-                <option key={role} value={role}>
-                  {statusLabel(role)}
-                </option>
-              ))}
-            </NativeSelect>
-          </FormField>
-          <FormField label="Name" htmlFor="user-create-name">
-            <Input
-              id="user-create-name"
-              value={createName}
-              onChange={(event) => setCreateName(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Email" htmlFor="user-create-email">
-            <Input
-              id="user-create-email"
-              type="email"
-              value={createEmail}
-              onChange={(event) => setCreateEmail(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Temporary password" htmlFor="user-create-password">
-            <Input
-              id="user-create-password"
-              type="password"
-              value={createPassword}
-              onChange={(event) => setCreatePassword(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Initial site role" htmlFor="user-create-site-role">
-            <NativeSelect
-              id="user-create-site-role"
-              value={createSiteRole}
-              onChange={(event) =>
-                setCreateSiteRole(
-                  event.target.value as (typeof siteRoles)[number]
-                )
-              }
-            >
-              {siteRoles.map((role) => (
-                <option key={role} value={role}>
-                  {statusLabel(role)}
-                </option>
-              ))}
-            </NativeSelect>
-          </FormField>
-          <div className="flex flex-col gap-3 md:col-span-2">
-            <p className="text-sm font-medium">Initial site grants</p>
-            {organizationSites.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No sites in this organization yet.
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-4">
-                {organizationSites.map((site) => {
-                  const checked = createSiteIds.includes(site.id)
+      <SectionCard
+        title="New user"
+        description="Create a user with a temporary password and an initial organization role."
+        collapsibleOnMobile
+        contentClassName="grid gap-4 md:grid-cols-2"
+      >
+        <FormField label="Organization" htmlFor="user-create-organization">
+          <NativeSelect
+            id="user-create-organization"
+            value={selectedOrganizationId}
+            onChange={(event) => setSelectedOrganizationId(event.target.value)}
+          >
+            <option value="">Choose an organization</option>
+            {organizations.map((organization) => (
+              <option key={organization.id} value={organization.id}>
+                {organization.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </FormField>
+        <FormField label="Organization role" htmlFor="user-create-org-role">
+          <NativeSelect
+            id="user-create-org-role"
+            value={createOrganizationRole}
+            onChange={(event) =>
+              setCreateOrganizationRole(
+                event.target.value as (typeof organizationRoles)[number]
+              )
+            }
+          >
+            {organizationRoles.map((role) => (
+              <option key={role} value={role}>
+                {statusLabel(role)}
+              </option>
+            ))}
+          </NativeSelect>
+        </FormField>
+        <FormField label="Name" htmlFor="user-create-name">
+          <Input
+            id="user-create-name"
+            value={createName}
+            onChange={(event) => setCreateName(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Email" htmlFor="user-create-email">
+          <Input
+            id="user-create-email"
+            type="email"
+            value={createEmail}
+            onChange={(event) => setCreateEmail(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Temporary password" htmlFor="user-create-password">
+          <Input
+            id="user-create-password"
+            type="password"
+            value={createPassword}
+            onChange={(event) => setCreatePassword(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Initial site role" htmlFor="user-create-site-role">
+          <NativeSelect
+            id="user-create-site-role"
+            value={createSiteRole}
+            onChange={(event) =>
+              setCreateSiteRole(
+                event.target.value as (typeof siteRoles)[number]
+              )
+            }
+          >
+            {siteRoles.map((role) => (
+              <option key={role} value={role}>
+                {statusLabel(role)}
+              </option>
+            ))}
+          </NativeSelect>
+        </FormField>
+        <div className="flex flex-col gap-3 md:col-span-2">
+          <p className="text-sm font-medium">Initial site grants</p>
+          {organizationSites.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No sites in this organization yet.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-4">
+              {organizationSites.map((site) => {
+                const checked = createSiteIds.includes(site.id)
 
-                  return (
-                    <div key={site.id} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`user-create-site-${site.id}`}
-                        checked={checked}
-                        onCheckedChange={(value) => {
-                          setCreateSiteIds((current) =>
-                            value === true
-                              ? [...current, site.id]
-                              : current.filter((id) => id !== site.id)
-                          )
-                        }}
-                      />
-                      <Label
-                        htmlFor={`user-create-site-${site.id}`}
-                        className="text-sm font-normal"
-                      >
-                        {site.name}
-                      </Label>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-          <div className="md:col-span-2">
-            <Button
-              onClick={() => {
-                void createUser.mutateAsync({
-                  organizationId: selectedOrganizationId,
-                  name: createName,
-                  email: createEmail,
-                  password: createPassword,
-                  organizationRole: createOrganizationRole,
-                  siteIds: createSiteIds,
-                  siteRole: createSiteRole,
-                })
-              }}
-              disabled={
-                !selectedOrganizationId ||
-                !createName ||
-                !createEmail ||
-                !createPassword ||
-                createUser.isPending
-              }
-            >
-              Create user
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+                return (
+                  <div key={site.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`user-create-site-${site.id}`}
+                      checked={checked}
+                      onCheckedChange={(value) => {
+                        setCreateSiteIds((current) =>
+                          value === true
+                            ? [...current, site.id]
+                            : current.filter((id) => id !== site.id)
+                        )
+                      }}
+                    />
+                    <Label
+                      htmlFor={`user-create-site-${site.id}`}
+                      className="text-sm font-normal"
+                    >
+                      {site.name}
+                    </Label>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+        <div className="md:col-span-2">
+          <Button
+            className="w-full sm:w-fit"
+            onClick={() => {
+              void createUser.mutateAsync({
+                organizationId: selectedOrganizationId,
+                name: createName,
+                email: createEmail,
+                password: createPassword,
+                organizationRole: createOrganizationRole,
+                siteIds: createSiteIds,
+                siteRole: createSiteRole,
+              })
+            }}
+            disabled={
+              !selectedOrganizationId ||
+              !createName ||
+              !createEmail ||
+              !createPassword ||
+              createUser.isPending
+            }
+          >
+            Create user
+          </Button>
+        </div>
+      </SectionCard>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
         <Card>
           <CardHeader>
             <CardTitle>Members</CardTitle>
@@ -350,7 +348,10 @@ export default function UsersPage() {
                           "cursor-pointer",
                           selectedMemberId === member.id && "bg-muted/60"
                         )}
-                        onClick={() => setSelectedMemberId(member.id)}
+                        onClick={() => {
+                          setSelectedMemberId(member.id)
+                          setMobileDetailOpen(true)
+                        }}
                       >
                         <TableCell className="font-medium">
                           <div className="flex flex-col gap-1">
@@ -394,148 +395,142 @@ export default function UsersPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Selected member</CardTitle>
-            <CardDescription>
-              Change the organization role or grant access to a site.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            {selectedMember ? (
-              <>
-                <div className="rounded-lg border bg-muted/20 p-4 text-sm">
-                  <p className="font-medium">{selectedMember.name}</p>
-                  <p className="text-muted-foreground">
-                    {selectedMember.email}
-                  </p>
-                </div>
+        <DetailSheet
+          open={mobileDetailOpen}
+          onOpenChange={setMobileDetailOpen}
+          title="Selected member"
+          description="Change the organization role or grant access to a site."
+        >
+          {selectedMember ? (
+            <>
+              <div className="rounded-lg border bg-muted/20 p-4 text-sm">
+                <p className="font-medium">{selectedMember.name}</p>
+                <p className="text-muted-foreground">{selectedMember.email}</p>
+              </div>
 
-                <FormField
-                  label="Organization role"
-                  htmlFor={`member-org-role-${selectedMember.id}`}
+              <FormField
+                label="Organization role"
+                htmlFor={`member-org-role-${selectedMember.id}`}
+              >
+                <NativeSelect
+                  id={`member-org-role-${selectedMember.id}`}
+                  value={editOrganizationRole}
+                  onChange={(event) =>
+                    setEditOrganizationRole(
+                      event.target.value as (typeof organizationRoles)[number]
+                    )
+                  }
                 >
-                  <NativeSelect
-                    id={`member-org-role-${selectedMember.id}`}
-                    value={editOrganizationRole}
-                    onChange={(event) =>
-                      setEditOrganizationRole(
-                        event.target.value as (typeof organizationRoles)[number]
-                      )
-                    }
+                  {organizationRoles.map((role) => (
+                    <option key={role} value={role}>
+                      {statusLabel(role)}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </FormField>
+
+              <FormField
+                label="Status"
+                htmlFor={`member-status-${selectedMember.id}`}
+              >
+                <NativeSelect
+                  id={`member-status-${selectedMember.id}`}
+                  value={editStatus}
+                  onChange={(event) =>
+                    setEditStatus(
+                      event.target.value as (typeof membershipStatuses)[number]
+                    )
+                  }
+                >
+                  {membershipStatuses.map((status) => (
+                    <option key={status} value={status}>
+                      {statusLabel(status)}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </FormField>
+
+              <Button
+                className="w-full sm:w-fit"
+                onClick={() => {
+                  void updateOrganizationMembership.mutateAsync({
+                    organizationId: selectedOrganizationId,
+                    userId: selectedMember.id,
+                    role: editOrganizationRole,
+                    status: editStatus,
+                  })
+                }}
+                disabled={updateOrganizationMembership.isPending}
+              >
+                Save role
+              </Button>
+
+              <div className="flex flex-col gap-3 border-t pt-4">
+                <p className="text-sm font-medium">Site grant</p>
+                <div className="flex flex-col gap-3">
+                  <FormField
+                    label="Site"
+                    htmlFor={`member-site-${selectedMember.id}`}
                   >
-                    {organizationRoles.map((role) => (
-                      <option key={role} value={role}>
-                        {statusLabel(role)}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </FormField>
-
-                <FormField
-                  label="Status"
-                  htmlFor={`member-status-${selectedMember.id}`}
-                >
-                  <NativeSelect
-                    id={`member-status-${selectedMember.id}`}
-                    value={editStatus}
-                    onChange={(event) =>
-                      setEditStatus(
-                        event.target
-                          .value as (typeof membershipStatuses)[number]
-                      )
-                    }
+                    <NativeSelect
+                      id={`member-site-${selectedMember.id}`}
+                      value={grantSiteId}
+                      onChange={(event) => setGrantSiteId(event.target.value)}
+                    >
+                      <option value="">Choose a site</option>
+                      {organizationSites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </FormField>
+                  <FormField
+                    label="Role"
+                    htmlFor={`member-site-role-${selectedMember.id}`}
                   >
-                    {membershipStatuses.map((status) => (
-                      <option key={status} value={status}>
-                        {statusLabel(status)}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </FormField>
-
-                <Button
-                  className="w-fit"
-                  onClick={() => {
-                    void updateOrganizationMembership.mutateAsync({
-                      organizationId: selectedOrganizationId,
-                      userId: selectedMember.id,
-                      role: editOrganizationRole,
-                      status: editStatus,
-                    })
-                  }}
-                  disabled={updateOrganizationMembership.isPending}
-                >
-                  Save role
-                </Button>
-
-                <div className="flex flex-col gap-3 border-t pt-4">
-                  <p className="text-sm font-medium">Site grant</p>
-                  <div className="flex flex-col gap-3">
-                    <FormField
-                      label="Site"
-                      htmlFor={`member-site-${selectedMember.id}`}
+                    <NativeSelect
+                      id={`member-site-role-${selectedMember.id}`}
+                      value={grantSiteRole}
+                      onChange={(event) =>
+                        setGrantSiteRole(
+                          event.target.value as (typeof siteRoles)[number]
+                        )
+                      }
                     >
-                      <NativeSelect
-                        id={`member-site-${selectedMember.id}`}
-                        value={grantSiteId}
-                        onChange={(event) => setGrantSiteId(event.target.value)}
-                      >
-                        <option value="">Choose a site</option>
-                        {organizationSites.map((site) => (
-                          <option key={site.id} value={site.id}>
-                            {site.name}
-                          </option>
-                        ))}
-                      </NativeSelect>
-                    </FormField>
-                    <FormField
-                      label="Role"
-                      htmlFor={`member-site-role-${selectedMember.id}`}
-                    >
-                      <NativeSelect
-                        id={`member-site-role-${selectedMember.id}`}
-                        value={grantSiteRole}
-                        onChange={(event) =>
-                          setGrantSiteRole(
-                            event.target.value as (typeof siteRoles)[number]
-                          )
-                        }
-                      >
-                        {siteRoles.map((role) => (
-                          <option key={role} value={role}>
-                            {statusLabel(role)}
-                          </option>
-                        ))}
-                      </NativeSelect>
-                    </FormField>
-                    <Button
-                      variant="outline"
-                      className="w-fit"
-                      onClick={() => {
-                        if (!grantSiteId) return
+                      {siteRoles.map((role) => (
+                        <option key={role} value={role}>
+                          {statusLabel(role)}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </FormField>
+                  <Button
+                    variant="outline"
+                    className="w-full sm:w-fit"
+                    onClick={() => {
+                      if (!grantSiteId) return
 
-                        void updateSiteMembership.mutateAsync({
-                          siteId: grantSiteId,
-                          userId: selectedMember.id,
-                          role: grantSiteRole,
-                          status: "active",
-                        })
-                      }}
-                      disabled={updateSiteMembership.isPending || !grantSiteId}
-                    >
-                      Save site grant
-                    </Button>
-                  </div>
+                      void updateSiteMembership.mutateAsync({
+                        siteId: grantSiteId,
+                        userId: selectedMember.id,
+                        role: grantSiteRole,
+                        status: "active",
+                      })
+                    }}
+                    disabled={updateSiteMembership.isPending || !grantSiteId}
+                  >
+                    Save site grant
+                  </Button>
                 </div>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Select a member to edit it.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Select a member to edit it.
+            </p>
+          )}
+        </DetailSheet>
       </div>
     </div>
   )

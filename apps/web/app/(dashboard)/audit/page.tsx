@@ -183,7 +183,7 @@ export default function AuditPage() {
             Limit the list to a specific organization or device.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
+        <CardContent className="grid gap-4 sm:grid-cols-2">
           <FormField label="Organization" htmlFor="audit-filter-organization">
             <NativeSelect
               id="audit-filter-organization"

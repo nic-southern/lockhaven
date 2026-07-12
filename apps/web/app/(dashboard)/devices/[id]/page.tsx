@@ -3,7 +3,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { CodeBlock } from "@/components/dashboard/code-block"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { VpnStatusStrip } from "@/components/dashboard/stat-strip"
@@ -57,8 +58,10 @@ const serviceDescriptions: Record<(typeof quickServiceTypes)[number], string> =
 
 export default function DeviceConfigPage() {
   const params = useParams<{ id: string }>()
+  const router = useRouter()
   const deviceId = params.id
   const utils = trpc.useUtils()
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
 
   const deviceQuery = trpc.devices.byId.useQuery(
     { id: deviceId },
@@ -99,6 +102,16 @@ export default function DeviceConfigPage() {
     },
     onError() {
       toast.error("We couldn't revoke VPN access.")
+    },
+  })
+  const deleteDevice = trpc.devices.delete.useMutation({
+    async onSuccess() {
+      await utils.devices.list.invalidate()
+      toast.success("Device removed")
+      router.push("/devices")
+    },
+    onError() {
+      toast.error("We couldn't remove the device.")
     },
   })
   const createService = trpc.managementServices.create.useMutation({
@@ -407,12 +420,23 @@ export default function DeviceConfigPage() {
               <CardTitle>Uninstall</CardTitle>
               <CardDescription>
                 Run this on the device to remove the tunnel and local files.
-                Revoke VPN here afterward if the device should leave inventory.
+                After uninstall, revoke VPN access or remove the device from
+                inventory.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <CodeBlock label="Linux" value={linuxUninstallCommand} />
               <CodeBlock label="Windows" value={windowsUninstallCommand} />
+              <div className="border-t pt-4">
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => setDeleteOpen(true)}
+                  disabled={deleteDevice.isPending}
+                >
+                  Remove from inventory
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -765,12 +789,12 @@ export default function DeviceConfigPage() {
                         </Button>
                       </div>
                       {isPasswordService && service.enabled ? (
-                        <div className="flex flex-wrap gap-2 md:col-span-5">
+                        <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap md:col-span-5">
                           <Input
                             name={`password-${service.id}`}
                             type="password"
                             placeholder="Set password"
-                            className="min-w-64"
+                            className="w-full sm:min-w-64"
                             onKeyDown={(event) => {
                               if (event.key === "Enter") {
                                 event.preventDefault()
@@ -780,6 +804,7 @@ export default function DeviceConfigPage() {
                           <Button
                             type="button"
                             size="sm"
+                            className="w-full sm:w-auto"
                             onClick={(event) => {
                               const form = event.currentTarget.parentElement
                               const passwordInput = form?.querySelector(
@@ -898,6 +923,24 @@ export default function DeviceConfigPage() {
           </Card>
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Remove device"
+        description={
+          device
+            ? `Remove ${device.displayName} from inventory? Related access entries will be cleared. Uninstall the tunnel on the device first if it is still installed.`
+            : "Remove this device from inventory?"
+        }
+        confirmLabel="Remove device"
+        destructive
+        pending={deleteDevice.isPending}
+        onConfirm={() => {
+          if (!device) return
+          void deleteDevice.mutateAsync({ id: device.id })
+        }}
+      />
     </div>
   )
 }

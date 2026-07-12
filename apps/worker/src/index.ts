@@ -145,6 +145,18 @@ async function reconcileVpnPeers() {
       .where(eq(vpnIdentities.id, identity.id))
   }
 
+  const knownPublicKeys = new Set(
+    identities.map((identity) => identity.wireguardPublicKey)
+  )
+
+  for (const peer of peers) {
+    if (knownPublicKeys.has(peer.publicKey)) {
+      continue
+    }
+
+    await invokeVpnctl(buildRemovePeerCommand({ publicKey: peer.publicKey }))
+  }
+
   await invokeVpnctl(
     buildSyncFirewallCommand({
       allowedRoutes: [...routeSet],

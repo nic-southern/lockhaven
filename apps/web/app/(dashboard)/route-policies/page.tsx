@@ -24,9 +24,11 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { DetailSheet } from "@/components/dashboard/detail-sheet"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { SectionCard } from "@/components/dashboard/section-card"
 import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
 
@@ -35,6 +37,7 @@ export default function RoutePoliciesPage() {
   const organizationsQuery = trpc.organizations.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
   const [selectedPolicyId, setSelectedPolicyId] = React.useState("")
+  const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
   const [deleteOpen, setDeleteOpen] = React.useState(false)
 
@@ -126,85 +129,78 @@ export default function RoutePoliciesPage() {
         description="Define the networks a device can reach once it joins the VPN."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>New policy</CardTitle>
-            <CardDescription>
-              Create a named route set for enrollment tokens and devices.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <FormField
-              label="Organization"
-              htmlFor="policy-create-organization"
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+        <SectionCard
+          className="order-2 lg:order-1"
+          title="New policy"
+          description="Create a named route set for enrollment tokens and devices."
+          collapsibleOnMobile
+          contentClassName="flex flex-col gap-4"
+        >
+          <FormField label="Organization" htmlFor="policy-create-organization">
+            <NativeSelect
+              id="policy-create-organization"
+              value={createOrganizationId}
+              onChange={(event) => setCreateOrganizationId(event.target.value)}
             >
-              <NativeSelect
-                id="policy-create-organization"
-                value={createOrganizationId}
-                onChange={(event) =>
-                  setCreateOrganizationId(event.target.value)
-                }
-              >
-                <option value="">Choose an organization</option>
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </NativeSelect>
-            </FormField>
-            <FormField label="Name" htmlFor="policy-create-name">
-              <Input
-                id="policy-create-name"
-                value={createName}
-                onChange={(event) => setCreateName(event.target.value)}
-              />
-            </FormField>
-            <FormField
-              label="Routes"
-              htmlFor="policy-create-routes"
-              description="One CIDR per line."
-            >
-              <Textarea
-                id="policy-create-routes"
-                className="min-h-32 font-mono text-xs"
-                value={createRoutes}
-                onChange={(event) => setCreateRoutes(event.target.value)}
-              />
-            </FormField>
-            <FormField label="Description" htmlFor="policy-create-description">
-              <Textarea
-                id="policy-create-description"
-                value={createDescription}
-                onChange={(event) => setCreateDescription(event.target.value)}
-              />
-            </FormField>
-            <Button
-              className="w-fit"
-              onClick={() => {
-                void createRoutePolicy.mutateAsync({
-                  organizationId: createOrganizationId,
-                  name: createName,
-                  routes: createRoutes
-                    .split("\n")
-                    .map((route) => route.trim())
-                    .filter(Boolean),
-                  description: createDescription || null,
-                })
-              }}
-              disabled={
-                !createOrganizationId ||
-                !createName ||
-                createRoutePolicy.isPending
-              }
-            >
-              Create policy
-            </Button>
-          </CardContent>
-        </Card>
+              <option value="">Choose an organization</option>
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </FormField>
+          <FormField label="Name" htmlFor="policy-create-name">
+            <Input
+              id="policy-create-name"
+              value={createName}
+              onChange={(event) => setCreateName(event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Routes"
+            htmlFor="policy-create-routes"
+            description="One CIDR per line."
+          >
+            <Textarea
+              id="policy-create-routes"
+              className="min-h-32 font-mono text-xs"
+              value={createRoutes}
+              onChange={(event) => setCreateRoutes(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Description" htmlFor="policy-create-description">
+            <Textarea
+              id="policy-create-description"
+              value={createDescription}
+              onChange={(event) => setCreateDescription(event.target.value)}
+            />
+          </FormField>
+          <Button
+            className="w-full sm:w-fit"
+            onClick={() => {
+              void createRoutePolicy.mutateAsync({
+                organizationId: createOrganizationId,
+                name: createName,
+                routes: createRoutes
+                  .split("\n")
+                  .map((route) => route.trim())
+                  .filter(Boolean),
+                description: createDescription || null,
+              })
+            }}
+            disabled={
+              !createOrganizationId ||
+              !createName ||
+              createRoutePolicy.isPending
+            }
+          >
+            Create policy
+          </Button>
+        </SectionCard>
 
-        <Card>
+        <Card className="order-1 lg:order-2">
           <CardHeader>
             <CardTitle>Policies</CardTitle>
             <CardDescription>
@@ -246,7 +242,10 @@ export default function RoutePoliciesPage() {
                           "cursor-pointer",
                           selectedPolicyId === policy.id && "bg-muted/60"
                         )}
-                        onClick={() => setSelectedPolicyId(policy.id)}
+                        onClick={() => {
+                          setSelectedPolicyId(policy.id)
+                          setMobileDetailOpen(true)
+                        }}
                       >
                         <TableCell className="font-medium">
                           {policy.name}
@@ -266,14 +265,14 @@ export default function RoutePoliciesPage() {
       </div>
 
       {selectedPolicy ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Edit policy</CardTitle>
-            <CardDescription>
-              Adjust the selected route set or remove it.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
+        <DetailSheet
+          open={mobileDetailOpen}
+          onOpenChange={setMobileDetailOpen}
+          title="Edit policy"
+          description="Adjust the selected route set or remove it."
+          contentClassName="gap-6"
+        >
+          <div className="grid gap-4 md:grid-cols-2">
             <FormField label="Name" htmlFor="policy-edit-name">
               <Input
                 id="policy-edit-name"
@@ -303,6 +302,7 @@ export default function RoutePoliciesPage() {
             </FormField>
             <div className="flex flex-wrap gap-3 md:col-span-2">
               <Button
+                className="w-full sm:w-auto"
                 onClick={() => {
                   void updateRoutePolicy.mutateAsync({
                     id: selectedPolicy.id,
@@ -322,14 +322,15 @@ export default function RoutePoliciesPage() {
               </Button>
               <Button
                 variant="outline"
+                className="w-full sm:w-auto"
                 onClick={() => setDeleteOpen(true)}
                 disabled={deleteRoutePolicy.isPending}
               >
                 Remove policy
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </DetailSheet>
       ) : null}
 
       <ConfirmDialog

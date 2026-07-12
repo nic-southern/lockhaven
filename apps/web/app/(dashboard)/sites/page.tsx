@@ -25,9 +25,11 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { CodeBlock } from "@/components/dashboard/code-block"
+import { DetailSheet } from "@/components/dashboard/detail-sheet"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { SectionCard } from "@/components/dashboard/section-card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
@@ -38,6 +40,7 @@ export default function SitesPage() {
   const sitesQuery = trpc.sites.list.useQuery()
   const devicesQuery = trpc.devices.list.useQuery()
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
+  const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
 
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
@@ -144,73 +147,68 @@ export default function SitesPage() {
         description="Create and update sites, then assign devices to the right location."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>New site</CardTitle>
-            <CardDescription>
-              Add a location for devices to live under. An SSH key is created
-              automatically.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <FormField label="Organization" htmlFor="site-create-organization">
-              <NativeSelect
-                id="site-create-organization"
-                value={createOrganizationId}
-                onChange={(event) =>
-                  setCreateOrganizationId(event.target.value)
-                }
-              >
-                <option value="">Choose an organization</option>
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </NativeSelect>
-            </FormField>
-            <FormField label="Name" htmlFor="site-create-name">
-              <Input
-                id="site-create-name"
-                value={createName}
-                onChange={(event) => setCreateName(event.target.value)}
-              />
-            </FormField>
-            <FormField label="Timezone" htmlFor="site-create-timezone">
-              <Input
-                id="site-create-timezone"
-                value={createTimezone}
-                onChange={(event) => setCreateTimezone(event.target.value)}
-              />
-            </FormField>
-            <FormField label="Notes" htmlFor="site-create-notes">
-              <Textarea
-                id="site-create-notes"
-                value={createNotes}
-                onChange={(event) => setCreateNotes(event.target.value)}
-              />
-            </FormField>
-            <Button
-              className="w-fit"
-              onClick={() => {
-                void createSite.mutateAsync({
-                  organizationId: createOrganizationId,
-                  name: createName,
-                  timezone: createTimezone || null,
-                  notes: createNotes || null,
-                })
-              }}
-              disabled={
-                !createOrganizationId || !createName || createSite.isPending
-              }
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+        <SectionCard
+          className="order-2 lg:order-1"
+          title="New site"
+          description="Add a location for devices to live under. An SSH key is created automatically."
+          collapsibleOnMobile
+          contentClassName="flex flex-col gap-4"
+        >
+          <FormField label="Organization" htmlFor="site-create-organization">
+            <NativeSelect
+              id="site-create-organization"
+              value={createOrganizationId}
+              onChange={(event) => setCreateOrganizationId(event.target.value)}
             >
-              Create site
-            </Button>
-          </CardContent>
-        </Card>
+              <option value="">Choose an organization</option>
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </FormField>
+          <FormField label="Name" htmlFor="site-create-name">
+            <Input
+              id="site-create-name"
+              value={createName}
+              onChange={(event) => setCreateName(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Timezone" htmlFor="site-create-timezone">
+            <Input
+              id="site-create-timezone"
+              value={createTimezone}
+              onChange={(event) => setCreateTimezone(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Notes" htmlFor="site-create-notes">
+            <Textarea
+              id="site-create-notes"
+              value={createNotes}
+              onChange={(event) => setCreateNotes(event.target.value)}
+            />
+          </FormField>
+          <Button
+            className="w-full sm:w-fit"
+            onClick={() => {
+              void createSite.mutateAsync({
+                organizationId: createOrganizationId,
+                name: createName,
+                timezone: createTimezone || null,
+                notes: createNotes || null,
+              })
+            }}
+            disabled={
+              !createOrganizationId || !createName || createSite.isPending
+            }
+          >
+            Create site
+          </Button>
+        </SectionCard>
 
-        <Card>
+        <Card className="order-1 lg:order-2">
           <CardHeader>
             <CardTitle>Sites</CardTitle>
             <CardDescription>Choose a site to edit it inline.</CardDescription>
@@ -258,7 +256,10 @@ export default function SitesPage() {
                             "cursor-pointer",
                             selectedSiteId === site.id && "bg-muted/60"
                           )}
-                          onClick={() => setSelectedSiteId(site.id)}
+                          onClick={() => {
+                            setSelectedSiteId(site.id)
+                            setMobileDetailOpen(true)
+                          }}
                         >
                           <TableCell className="font-medium">
                             {site.name}
@@ -285,93 +286,91 @@ export default function SitesPage() {
       </div>
 
       {selectedSite ? (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Edit site</CardTitle>
-              <CardDescription>
-                Update the selected location or remove it.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <FormField label="Name" htmlFor="site-edit-name">
-                <Input
-                  id="site-edit-name"
-                  value={editName}
-                  onChange={(event) => setEditName(event.target.value)}
-                />
-              </FormField>
-              <FormField label="Timezone" htmlFor="site-edit-timezone">
-                <Input
-                  id="site-edit-timezone"
-                  value={editTimezone}
-                  onChange={(event) => setEditTimezone(event.target.value)}
-                />
-              </FormField>
-              <FormField
-                label="Notes"
-                htmlFor="site-edit-notes"
-                className="md:col-span-2"
+        <DetailSheet
+          open={mobileDetailOpen}
+          onOpenChange={setMobileDetailOpen}
+          title="Edit site"
+          description="Update the selected location or remove it."
+          contentClassName="gap-6"
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField label="Name" htmlFor="site-edit-name">
+              <Input
+                id="site-edit-name"
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Timezone" htmlFor="site-edit-timezone">
+              <Input
+                id="site-edit-timezone"
+                value={editTimezone}
+                onChange={(event) => setEditTimezone(event.target.value)}
+              />
+            </FormField>
+            <FormField
+              label="Notes"
+              htmlFor="site-edit-notes"
+              className="md:col-span-2"
+            >
+              <Textarea
+                id="site-edit-notes"
+                value={editNotes}
+                onChange={(event) => setEditNotes(event.target.value)}
+              />
+            </FormField>
+            <div className="flex flex-wrap gap-3 md:col-span-2">
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  void updateSite.mutateAsync({
+                    id: selectedSite.id,
+                    name: editName,
+                    timezone: editTimezone || null,
+                    notes: editNotes || null,
+                  })
+                }}
+                disabled={!editName || updateSite.isPending}
               >
-                <Textarea
-                  id="site-edit-notes"
-                  value={editNotes}
-                  onChange={(event) => setEditNotes(event.target.value)}
-                />
-              </FormField>
-              <div className="flex flex-wrap gap-3 md:col-span-2">
-                <Button
-                  onClick={() => {
-                    void updateSite.mutateAsync({
-                      id: selectedSite.id,
-                      name: editName,
-                      timezone: editTimezone || null,
-                      notes: editNotes || null,
-                    })
-                  }}
-                  disabled={!editName || updateSite.isPending}
-                >
-                  Save changes
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setDeleteOpen(true)}
-                  disabled={deleteSite.isPending}
-                >
-                  Remove site
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                Save changes
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setDeleteOpen(true)}
+                disabled={deleteSite.isPending}
+              >
+                Remove site
+              </Button>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>SSH access</CardTitle>
-              <CardDescription>
+          <div className="flex flex-col gap-3 border-t pt-6">
+            <div>
+              <p className="text-sm font-medium">SSH access</p>
+              <p className="text-sm text-muted-foreground">
                 A key is created with the site. Enrollment installs it on
                 devices automatically.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              {selectedSite.hasSshCredential && selectedSite.sshPublicKey ? (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Username: {selectedSite.sshUsername ?? "root"}
-                  </p>
-                  <CodeBlock
-                    label="Public key"
-                    value={selectedSite.sshPublicKey}
-                  />
-                </>
-              ) : (
-                <EmptyState
-                  title="SSH key pending"
-                  description="This location does not have an SSH key yet. Create a new site to provision one automatically."
+              </p>
+            </div>
+            {selectedSite.hasSshCredential && selectedSite.sshPublicKey ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Username: {selectedSite.sshUsername ?? "root"}
+                </p>
+                <CodeBlock
+                  label="Public key"
+                  value={selectedSite.sshPublicKey}
                 />
-              )}
-            </CardContent>
-          </Card>
-        </>
+              </>
+            ) : (
+              <EmptyState
+                title="SSH key pending"
+                description="This location does not have an SSH key yet. Create a new site to provision one automatically."
+              />
+            )}
+          </div>
+        </DetailSheet>
       ) : null}
 
       <ConfirmDialog

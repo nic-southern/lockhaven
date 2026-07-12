@@ -27,9 +27,11 @@ import {
 } from "@/components/ui/table"
 import { CodeBlock } from "@/components/dashboard/code-block"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { DetailSheet } from "@/components/dashboard/detail-sheet"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { SectionCard } from "@/components/dashboard/section-card"
 import { formatDate, statusLabel } from "@/lib/dashboard"
 import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
@@ -95,6 +97,7 @@ export default function EnrollmentTokensPage() {
   const tokens = React.useMemo(() => tokensQuery.data ?? [], [tokensQuery.data])
 
   const [selectedTokenId, setSelectedTokenId] = React.useState("")
+  const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
   const [createSiteId, setCreateSiteId] = React.useState("")
   const [createRoutePolicyId, setCreateRoutePolicyId] = React.useState("")
@@ -209,155 +212,150 @@ export default function EnrollmentTokensPage() {
         description="Create, edit, and revoke enrollment tokens from one place."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>New token</CardTitle>
-            <CardDescription>
-              Set the organization, optional site, policy, and use limit. Leave
-              site empty for imaging tokens that never expire until revoked.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <FormField label="Organization" htmlFor="token-create-organization">
-              <NativeSelect
-                id="token-create-organization"
-                value={createOrganizationId}
-                onChange={(event) => {
-                  setCreateOrganizationId(event.target.value)
-                  setCreateSiteId("")
-                }}
-              >
-                <option value="">Choose an organization</option>
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </NativeSelect>
-            </FormField>
-            <FormField
-              label="Site"
-              htmlFor="token-create-site"
-              description="Optional. Use no site for mass imaging, then assign the location after install."
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+        <SectionCard
+          className="order-2 lg:order-1"
+          title="New token"
+          description="Set the organization, optional site, policy, and use limit. Leave site empty for imaging tokens that never expire until revoked."
+          collapsibleOnMobile
+          contentClassName="flex flex-col gap-4"
+        >
+          <FormField label="Organization" htmlFor="token-create-organization">
+            <NativeSelect
+              id="token-create-organization"
+              value={createOrganizationId}
+              onChange={(event) => {
+                setCreateOrganizationId(event.target.value)
+                setCreateSiteId("")
+              }}
             >
-              <NativeSelect
-                id="token-create-site"
-                value={createSiteId}
-                onChange={(event) => setCreateSiteId(event.target.value)}
-              >
-                <option value="">No site (imaging)</option>
-                {createSites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-              </NativeSelect>
-            </FormField>
-            <FormField label="Route policy" htmlFor="token-create-policy">
-              <NativeSelect
-                id="token-create-policy"
-                value={createRoutePolicyId}
-                onChange={(event) => setCreateRoutePolicyId(event.target.value)}
-              >
-                <option value="">No policy</option>
-                {routePolicies.map((policy) => (
-                  <option key={policy.id} value={policy.id}>
-                    {policy.name}
-                  </option>
-                ))}
-              </NativeSelect>
-            </FormField>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="token-create-site-wide"
-                checked={createSiteWide}
-                onCheckedChange={(checked) =>
-                  setCreateSiteWide(checked === true)
-                }
-              />
-              <Label
-                htmlFor="token-create-site-wide"
-                className="text-sm font-normal"
-              >
-                Reusable shared token
-              </Label>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {createSiteId ? (
-                <FormField label="Expires" htmlFor="token-create-expires">
-                  <Input
-                    id="token-create-expires"
-                    type="datetime-local"
-                    value={createExpiresAt}
-                    onChange={(event) => setCreateExpiresAt(event.target.value)}
-                  />
-                </FormField>
-              ) : (
-                <p className="text-sm text-muted-foreground sm:col-span-2">
-                  Imaging tokens do not expire. Revoke them when they should
-                  stop working.
-                </p>
-              )}
-              <FormField label="Max uses" htmlFor="token-create-max-uses">
+              <option value="">Choose an organization</option>
+              {organizations.map((organization) => (
+                <option key={organization.id} value={organization.id}>
+                  {organization.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </FormField>
+          <FormField
+            label="Site"
+            htmlFor="token-create-site"
+            description="Optional. Use no site for mass imaging, then assign the location after install."
+          >
+            <NativeSelect
+              id="token-create-site"
+              value={createSiteId}
+              onChange={(event) => setCreateSiteId(event.target.value)}
+            >
+              <option value="">No site (imaging)</option>
+              {createSites.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </FormField>
+          <FormField label="Route policy" htmlFor="token-create-policy">
+            <NativeSelect
+              id="token-create-policy"
+              value={createRoutePolicyId}
+              onChange={(event) => setCreateRoutePolicyId(event.target.value)}
+            >
+              <option value="">No policy</option>
+              {routePolicies.map((policy) => (
+                <option key={policy.id} value={policy.id}>
+                  {policy.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </FormField>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="token-create-site-wide"
+              checked={createSiteWide}
+              onCheckedChange={(checked) => setCreateSiteWide(checked === true)}
+            />
+            <Label
+              htmlFor="token-create-site-wide"
+              className="text-sm font-normal"
+            >
+              Reusable shared token
+            </Label>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {createSiteId ? (
+              <FormField label="Expires" htmlFor="token-create-expires">
                 <Input
-                  id="token-create-max-uses"
-                  type="number"
-                  min={1}
-                  value={createMaxUses}
-                  onChange={(event) => setCreateMaxUses(event.target.value)}
-                  disabled={createSiteWide}
+                  id="token-create-expires"
+                  type="datetime-local"
+                  value={createExpiresAt}
+                  onChange={(event) => setCreateExpiresAt(event.target.value)}
                 />
               </FormField>
-            </div>
-            {createSiteWide ? (
-              <p className="text-sm text-muted-foreground">
-                {createSiteId
-                  ? "Shared for this site until it expires or is revoked."
-                  : "Shared imaging token for this organization until it is revoked. All Linux hosts get the same SSH key so you can reach every imaged device."}
+            ) : (
+              <p className="text-sm text-muted-foreground sm:col-span-2">
+                Imaging tokens do not expire. Revoke them when they should stop
+                working.
               </p>
-            ) : null}
-            {!createSiteId && createOrganizationId && !createSiteWide ? (
-              <p className="text-sm text-muted-foreground">
-                Imaging enrollments still use the organization SSH key so every
-                Linux host can be reached after install.
-              </p>
-            ) : null}
-            {!createSiteId && imagingSshQuery.data?.sshPublicKey ? (
-              <CodeBlock
-                label="Imaging SSH public key"
-                value={imagingSshQuery.data.sshPublicKey}
+            )}
+            <FormField label="Max uses" htmlFor="token-create-max-uses">
+              <Input
+                id="token-create-max-uses"
+                type="number"
+                min={1}
+                value={createMaxUses}
+                onChange={(event) => setCreateMaxUses(event.target.value)}
+                disabled={createSiteWide}
               />
-            ) : null}
-            <Button
-              className="w-fit"
-              onClick={() => {
-                void createToken.mutateAsync({
-                  organizationId: createOrganizationId,
-                  siteId: createSiteId || null,
-                  siteWide: createSiteWide,
-                  routePolicyId: createRoutePolicyId || null,
-                  expiresAt: createSiteId
-                    ? fromDatetimeLocal(createExpiresAt)
-                    : null,
-                  maxUses: createSiteWide ? 1 : Number(createMaxUses),
-                })
-              }}
-              disabled={
-                !createOrganizationId ||
-                (!!createSiteId && !createExpiresAt) ||
-                createToken.isPending
-              }
-            >
-              Create token
-            </Button>
-            {createdToken ? (
-              <CodeBlock label="Enrollment token" value={createdToken} />
-            ) : null}
-          </CardContent>
-        </Card>
+            </FormField>
+          </div>
+          {createSiteWide ? (
+            <p className="text-sm text-muted-foreground">
+              {createSiteId
+                ? "Shared for this site until it expires or is revoked."
+                : "Shared imaging token for this organization until it is revoked. All Linux hosts get the same SSH key so you can reach every imaged device."}
+            </p>
+          ) : null}
+          {!createSiteId && createOrganizationId && !createSiteWide ? (
+            <p className="text-sm text-muted-foreground">
+              Imaging enrollments still use the organization SSH key so every
+              Linux host can be reached after install.
+            </p>
+          ) : null}
+          {!createSiteId && imagingSshQuery.data?.sshPublicKey ? (
+            <CodeBlock
+              label="Imaging SSH public key"
+              value={imagingSshQuery.data.sshPublicKey}
+            />
+          ) : null}
+          <Button
+            className="w-full sm:w-fit"
+            onClick={() => {
+              void createToken.mutateAsync({
+                organizationId: createOrganizationId,
+                siteId: createSiteId || null,
+                siteWide: createSiteWide,
+                routePolicyId: createRoutePolicyId || null,
+                expiresAt: createSiteId
+                  ? fromDatetimeLocal(createExpiresAt)
+                  : null,
+                maxUses: createSiteWide ? 1 : Number(createMaxUses),
+              })
+            }}
+            disabled={
+              !createOrganizationId ||
+              (!!createSiteId && !createExpiresAt) ||
+              createToken.isPending
+            }
+          >
+            Create token
+          </Button>
+          {createdToken ? (
+            <CodeBlock label="Enrollment token" value={createdToken} />
+          ) : null}
+        </SectionCard>
 
-        <Card>
+        <Card className="order-1 lg:order-2">
           <CardHeader>
             <CardTitle>Tokens</CardTitle>
             <CardDescription>
@@ -410,7 +408,10 @@ export default function EnrollmentTokensPage() {
                             "cursor-pointer",
                             selectedTokenId === token.id && "bg-muted/60"
                           )}
-                          onClick={() => setSelectedTokenId(token.id)}
+                          onClick={() => {
+                            setSelectedTokenId(token.id)
+                            setMobileDetailOpen(true)
+                          }}
                         >
                           <TableCell className="font-medium">
                             {token.organizationName ?? "—"}
@@ -449,15 +450,14 @@ export default function EnrollmentTokensPage() {
       </div>
 
       {selectedToken ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Edit token</CardTitle>
-            <CardDescription>
-              Update the token settings or revoke it when it should no longer
-              work.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
+        <DetailSheet
+          open={mobileDetailOpen}
+          onOpenChange={setMobileDetailOpen}
+          title="Edit token"
+          description="Update the token settings or revoke it when it should no longer work."
+          contentClassName="gap-6"
+        >
+          <div className="grid gap-4 md:grid-cols-2">
             <FormField label="Organization" htmlFor="token-edit-organization">
               <NativeSelect
                 id="token-edit-organization"
@@ -581,6 +581,7 @@ export default function EnrollmentTokensPage() {
             </div>
             <div className="flex flex-wrap gap-3 md:col-span-2">
               <Button
+                className="w-full sm:w-auto"
                 onClick={() => {
                   void updateToken.mutateAsync({
                     id: selectedToken.id,
@@ -604,14 +605,15 @@ export default function EnrollmentTokensPage() {
               </Button>
               <Button
                 variant="outline"
+                className="w-full sm:w-auto"
                 onClick={() => setRevokeOpen(true)}
                 disabled={revokeToken.isPending}
               >
                 Revoke token
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </DetailSheet>
       ) : null}
 
       <ConfirmDialog

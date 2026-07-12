@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { MenuIcon } from "lucide-react"
+import { LogOutIcon, MenuIcon } from "lucide-react"
 
 import { signOut, useSession } from "@/lib/auth-client"
 import { trpc } from "@/lib/trpc"
@@ -53,7 +53,7 @@ function NavLinks({
             href={item.href}
             onClick={onNavigate}
             className={cn(
-              "rounded-lg px-3 py-2 text-sm transition-colors",
+              "inline-flex min-h-11 items-center rounded-lg px-3 py-2.5 text-sm transition-colors lg:min-h-0 lg:py-2",
               active
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -65,6 +65,16 @@ function NavLinks({
       })}
     </nav>
   )
+}
+
+function handleSignOut() {
+  void signOut({
+    fetchOptions: {
+      onSuccess() {
+        window.location.assign("/sign-in")
+      },
+    },
+  })
 }
 
 export function DashboardShell({
@@ -79,6 +89,7 @@ export function DashboardShell({
   const accessQuery = trpc.access.me.useQuery()
   const productName = getClientProductName()
   const [mobileOpen, setMobileOpen] = React.useState(false)
+  const userLabel = session?.user?.name ?? session?.user?.email ?? "—"
   const visibleNavItems = React.useMemo(() => {
     if (accessQuery.data?.canManageUsers === false) {
       return navItems.filter((item) => item.href !== "/users")
@@ -90,42 +101,64 @@ export function DashboardShell({
   return (
     <div className="min-h-svh bg-background">
       {hideHeader ? null : (
-        <header className="sticky top-0 z-40 border-b border-border/80 bg-background/85 backdrop-blur-md">
-          <div className="flex h-14 w-full items-center justify-between gap-4 px-4 sm:px-6">
-            <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-40 border-b border-border/80 bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+          <div className="flex h-14 w-full items-center justify-between gap-3 px-4 sm:gap-4 sm:px-6">
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
               <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
                 <SheetTrigger asChild>
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="lg:hidden"
+                    className="shrink-0 lg:hidden"
                     aria-label="Open navigation"
                   >
                     <MenuIcon />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="left" className="w-72 p-0">
+                <SheetContent
+                  side="left"
+                  className="flex w-[min(20rem,100%)] flex-col gap-0 p-0"
+                >
                   <SheetHeader className="border-b px-4 py-4 text-left">
                     <SheetTitle className="flex items-center gap-3">
                       <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground">
                         {getProductInitials(productName)}
                       </span>
-                      <span>{productName}</span>
+                      <span className="truncate">{productName}</span>
                     </SheetTitle>
+                    <p className="truncate text-sm text-muted-foreground">
+                      {userLabel}
+                    </p>
                   </SheetHeader>
-                  <div className="p-3">
+                  <div className="flex-1 overflow-y-auto p-3">
                     <NavLinks
                       items={visibleNavItems}
                       pathname={pathname}
                       onNavigate={() => setMobileOpen(false)}
                     />
                   </div>
+                  <div className="mt-auto flex flex-col gap-2 border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                    <div className="flex items-center justify-between gap-2 px-1">
+                      <span className="text-sm text-muted-foreground">
+                        Appearance
+                      </span>
+                      <ThemeToggle />
+                    </div>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start gap-2"
+                      onClick={handleSignOut}
+                    >
+                      <LogOutIcon className="size-4" />
+                      Sign out
+                    </Button>
+                  </div>
                 </SheetContent>
               </Sheet>
 
-              <div className="flex items-center gap-3">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-xs font-semibold tracking-wide text-primary-foreground">
+              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-semibold tracking-wide text-primary-foreground">
                   {getProductInitials(productName)}
                 </div>
                 <div className="min-w-0">
@@ -139,24 +172,12 @@ export function DashboardShell({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 sm:gap-3">
-              <p className="hidden max-w-[14rem] truncate text-sm text-muted-foreground md:block">
-                {session?.user?.name ?? session?.user?.email ?? "—"}
+            <div className="hidden items-center gap-3 lg:flex">
+              <p className="max-w-[14rem] truncate text-sm text-muted-foreground">
+                {userLabel}
               </p>
               <ThemeToggle />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void signOut({
-                    fetchOptions: {
-                      onSuccess() {
-                        window.location.assign("/sign-in")
-                      },
-                    },
-                  })
-                }}
-              >
+              <Button variant="outline" size="sm" onClick={handleSignOut}>
                 Sign out
               </Button>
             </div>
@@ -164,7 +185,7 @@ export function DashboardShell({
         </header>
       )}
 
-      <div className="flex w-full gap-6 px-4 py-6 sm:px-6 sm:py-8">
+      <div className="flex w-full gap-6 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
         <aside className="hidden w-52 shrink-0 lg:block xl:w-56">
           <div className="sticky top-20 rounded-xl border border-border/80 bg-card/60 p-2">
             <NavLinks items={visibleNavItems} pathname={pathname} />

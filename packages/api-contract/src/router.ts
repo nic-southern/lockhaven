@@ -1463,6 +1463,42 @@ export const appRouter = createTRPCRouter({
 
         return record
       }),
+    delete: permissionProcedure("device:update")
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const [existing] = await ctx.db
+          .select()
+          .from(devices)
+          .where(eq(devices.id, input.id))
+
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        assertAuthorized(ctx.actor, "device:update", {
+          kind: "device",
+          organizationId: existing.organizationId,
+          siteId: existing.siteId,
+        })
+
+        const [record] = await ctx.db
+          .delete(devices)
+          .where(eq(devices.id, input.id))
+          .returning()
+
+        await ctx.db.insert(auditEvents).values({
+          actorUserId: ctx.actor?.id,
+          organizationId: existing.organizationId,
+          eventType: "device_deleted",
+          eventData: {
+            deviceId: existing.id,
+            displayName: existing.displayName,
+            hostname: existing.hostname,
+          },
+        })
+
+        return record ?? existing
+      }),
     services: permissionProcedure("device:view")
       .input(z.object({ deviceId: z.string().uuid() }))
       .query(async ({ ctx, input }) => {

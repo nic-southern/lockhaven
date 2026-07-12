@@ -21,6 +21,7 @@ const statusLabels: Record<string, string> = {
   enrolled: "Enrolled",
   pending: "Pending",
   revoked: "Revoked",
+  device_deleted: "Device removed",
   ok: "Healthy",
   Down: "Down",
   winrm_https: "WinRM",

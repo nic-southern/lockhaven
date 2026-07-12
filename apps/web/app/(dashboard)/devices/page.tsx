@@ -24,6 +24,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { DetailSheet } from "@/components/dashboard/detail-sheet"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -46,6 +48,8 @@ export default function DevicesPage() {
     [devicesQuery.data]
   )
   const [selectedDeviceId, setSelectedDeviceId] = React.useState("")
+  const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
   const sitesQuery = trpc.sites.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
 
@@ -88,6 +92,20 @@ export default function DevicesPage() {
     },
     onError() {
       toast.error("We couldn't revoke VPN access.")
+    },
+  })
+  const deleteDevice = trpc.devices.delete.useMutation({
+    async onSuccess() {
+      setDeleteOpen(false)
+      setMobileDetailOpen(false)
+      await Promise.all([
+        utils.devices.list.invalidate(),
+        utils.devices.byId.invalidate(),
+      ])
+      toast.success("Device removed")
+    },
+    onError() {
+      toast.error("We couldn't remove the device.")
     },
   })
   const createService = trpc.managementServices.create.useMutation({
@@ -181,7 +199,7 @@ export default function DevicesPage() {
         description="Review device state, change the assigned site, update the VPN route policy, and manage service entries from one place."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
         <Card>
           <CardHeader>
             <CardTitle>Devices</CardTitle>
@@ -220,10 +238,13 @@ export default function DevicesPage() {
                         key={device.id}
                         className={
                           selectedDeviceId === device.id
-                            ? "bg-muted/60"
-                            : undefined
+                            ? "cursor-pointer bg-muted/60"
+                            : "cursor-pointer"
                         }
-                        onClick={() => setSelectedDeviceId(device.id)}
+                        onClick={() => {
+                          setSelectedDeviceId(device.id)
+                          setMobileDetailOpen(true)
+                        }}
                       >
                         <TableCell className="font-medium">
                           <div className="flex flex-col gap-1">
@@ -251,326 +272,344 @@ export default function DevicesPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Device details</CardTitle>
-            <CardDescription>
-              Edit the selected device and the services attached to it.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-6">
-            {selectedDevice ? (
-              <>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FormField label="Display name" htmlFor="device-name">
-                    <Input
-                      id="device-name"
-                      value={deviceName}
-                      onChange={(event) => setDeviceName(event.target.value)}
-                    />
-                  </FormField>
-                  <FormField label="Host name" htmlFor="device-hostname">
-                    <Input
-                      id="device-hostname"
-                      value={deviceHostname}
-                      onChange={(event) =>
-                        setDeviceHostname(event.target.value)
-                      }
-                    />
-                  </FormField>
-                  <FormField label="Site" htmlFor="device-site">
-                    <NativeSelect
-                      id="device-site"
-                      value={deviceSiteId}
-                      onChange={(event) => setDeviceSiteId(event.target.value)}
-                    >
-                      <option value="">No site</option>
-                      {sites.map((site) => (
-                        <option key={site.id} value={site.id}>
-                          {site.name}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </FormField>
-                  <FormField label="Route policy" htmlFor="device-route-policy">
-                    <NativeSelect
-                      id="device-route-policy"
-                      value={deviceRoutePolicyId}
-                      onChange={(event) =>
-                        setDeviceRoutePolicyId(event.target.value)
-                      }
-                    >
-                      <option value="">No policy</option>
-                      {routePolicies.map((policy) => (
-                        <option key={policy.id} value={policy.id}>
-                          {policy.name}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </FormField>
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    onClick={() => {
-                      void updateDevice.mutateAsync({
-                        id: selectedDevice.id,
-                        displayName: deviceName,
-                        hostname: deviceHostname || null,
-                        siteId: deviceSiteId || null,
-                      })
-                    }}
-                    disabled={!deviceName || updateDevice.isPending}
+        <DetailSheet
+          open={mobileDetailOpen}
+          onOpenChange={setMobileDetailOpen}
+          title="Device details"
+          description="Edit the selected device and the services attached to it."
+        >
+          {selectedDevice ? (
+            <>
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField label="Display name" htmlFor="device-name">
+                  <Input
+                    id="device-name"
+                    value={deviceName}
+                    onChange={(event) => setDeviceName(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="Host name" htmlFor="device-hostname">
+                  <Input
+                    id="device-hostname"
+                    value={deviceHostname}
+                    onChange={(event) => setDeviceHostname(event.target.value)}
+                  />
+                </FormField>
+                <FormField label="Site" htmlFor="device-site">
+                  <NativeSelect
+                    id="device-site"
+                    value={deviceSiteId}
+                    onChange={(event) => setDeviceSiteId(event.target.value)}
                   >
-                    Save device
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      void assignRoutePolicy.mutateAsync({
-                        id: selectedDevice.id,
-                        routePolicyId: deviceRoutePolicyId || null,
-                      })
-                    }}
-                    disabled={assignRoutePolicy.isPending}
-                  >
-                    Save route policy
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      void revokeVpn.mutateAsync({ id: selectedDevice.id })
-                    }}
-                    disabled={
-                      revokeVpn.isPending ||
-                      Boolean(selectedDevice.vpnIdentity?.revokedAt)
+                    <option value="">No site</option>
+                    {sites.map((site) => (
+                      <option key={site.id} value={site.id}>
+                        {site.name}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </FormField>
+                <FormField label="Route policy" htmlFor="device-route-policy">
+                  <NativeSelect
+                    id="device-route-policy"
+                    value={deviceRoutePolicyId}
+                    onChange={(event) =>
+                      setDeviceRoutePolicyId(event.target.value)
                     }
                   >
-                    Revoke VPN
-                  </Button>
-                </div>
+                    <option value="">No policy</option>
+                    {routePolicies.map((policy) => (
+                      <option key={policy.id} value={policy.id}>
+                        {policy.name}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </FormField>
+              </div>
 
-                <VpnStatusStrip
-                  items={[
-                    {
-                      label: "VPN",
-                      value: (
-                        <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
-                          {statusLabel(vpnStatus)}
-                        </Badge>
-                      ),
-                    },
-                    {
-                      label: "Last connected",
-                      value: formatDate(
-                        selectedDevice.vpnIdentity?.lastHandshakeAt
-                      ),
-                    },
-                    {
-                      label: "Endpoint",
-                      value: selectedDevice.vpnIdentity?.latestEndpoint ?? "—",
-                    },
-                    {
-                      label: "Traffic",
-                      value: `${formatBytes(selectedDevice.vpnIdentity?.rxBytes)} in / ${formatBytes(selectedDevice.vpnIdentity?.txBytes)} out`,
-                    },
-                  ]}
-                />
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={() => {
+                    void updateDevice.mutateAsync({
+                      id: selectedDevice.id,
+                      displayName: deviceName,
+                      hostname: deviceHostname || null,
+                      siteId: deviceSiteId || null,
+                    })
+                  }}
+                  disabled={!deviceName || updateDevice.isPending}
+                >
+                  Save device
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void assignRoutePolicy.mutateAsync({
+                      id: selectedDevice.id,
+                      routePolicyId: deviceRoutePolicyId || null,
+                    })
+                  }}
+                  disabled={assignRoutePolicy.isPending}
+                >
+                  Save route policy
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    void revokeVpn.mutateAsync({ id: selectedDevice.id })
+                  }}
+                  disabled={
+                    revokeVpn.isPending ||
+                    Boolean(selectedDevice.vpnIdentity?.revokedAt)
+                  }
+                >
+                  Revoke VPN
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteOpen(true)}
+                  disabled={deleteDevice.isPending}
+                >
+                  Remove device
+                </Button>
+              </div>
 
-                <div className="flex flex-col gap-3">
-                  <div>
-                    <p className="text-sm font-medium">Services</p>
-                    <p className="text-sm text-muted-foreground">
-                      Edit the connection details for this device.
-                    </p>
-                  </div>
-
-                  {(selectedDevice.services ?? []).length === 0 ? (
-                    <EmptyState title="No services yet" bordered />
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      {(selectedDevice.services ?? []).map((service) => (
-                        <form
-                          key={service.id}
-                          className="grid gap-3 rounded-lg border p-3 md:grid-cols-5 md:items-end"
-                          onSubmit={(event) => {
-                            event.preventDefault()
-                            const form = new FormData(event.currentTarget)
-
-                            void updateService.mutateAsync({
-                              id: service.id,
-                              serviceType: String(
-                                form.get("serviceType")
-                              ) as (typeof serviceTypes)[number],
-                              protocol: String(form.get("protocol")),
-                              port: Number(form.get("port")),
-                              enabled: form.get("enabled") === "on",
-                            })
-                          }}
-                        >
-                          <FormField
-                            label="Type"
-                            htmlFor={`service-type-${service.id}`}
-                          >
-                            <NativeSelect
-                              id={`service-type-${service.id}`}
-                              name="serviceType"
-                              defaultValue={service.serviceType}
-                            >
-                              {serviceTypes.map((type) => (
-                                <option key={type} value={type}>
-                                  {type}
-                                </option>
-                              ))}
-                            </NativeSelect>
-                          </FormField>
-                          <FormField
-                            label="Protocol"
-                            htmlFor={`service-protocol-${service.id}`}
-                          >
-                            <Input
-                              id={`service-protocol-${service.id}`}
-                              name="protocol"
-                              defaultValue={service.protocol}
-                            />
-                          </FormField>
-                          <FormField
-                            label="Port"
-                            htmlFor={`service-port-${service.id}`}
-                          >
-                            <Input
-                              id={`service-port-${service.id}`}
-                              name="port"
-                              type="number"
-                              defaultValue={service.port}
-                            />
-                          </FormField>
-                          <label className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              name="enabled"
-                              defaultChecked={service.enabled}
-                            />
-                            Enabled
-                          </label>
-                          <div className="flex gap-2 md:justify-end">
-                            <Button
-                              type="submit"
-                              size="sm"
-                              disabled={updateService.isPending}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                void deleteService.mutateAsync({
-                                  id: service.id,
-                                })
-                              }}
-                              disabled={deleteService.isPending}
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                        </form>
-                      ))}
-                    </div>
-                  )}
-
-                  <form
-                    className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-5 md:items-end"
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      void createService.mutateAsync({
-                        deviceId: newServiceDeviceId,
-                        serviceType: newServiceType,
-                        protocol: newServiceProtocol,
-                        port: Number(newServicePort),
-                        enabled: true,
-                      })
-                    }}
-                  >
-                    <FormField label="Type" htmlFor="new-service-type">
-                      <NativeSelect
-                        id="new-service-type"
-                        value={newServiceType}
-                        onChange={(event) =>
-                          setNewServiceType(
-                            event.target.value as (typeof serviceTypes)[number]
-                          )
-                        }
-                      >
-                        {serviceTypes.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </NativeSelect>
-                    </FormField>
-                    <FormField label="Protocol" htmlFor="new-service-protocol">
-                      <Input
-                        id="new-service-protocol"
-                        value={newServiceProtocol}
-                        onChange={(event) =>
-                          setNewServiceProtocol(event.target.value)
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Port" htmlFor="new-service-port">
-                      <Input
-                        id="new-service-port"
-                        type="number"
-                        value={newServicePort}
-                        onChange={(event) =>
-                          setNewServicePort(event.target.value)
-                        }
-                      />
-                    </FormField>
-                    <FormField
-                      label="Device"
-                      htmlFor="new-service-device"
-                      className="md:col-span-2"
-                    >
-                      <NativeSelect
-                        id="new-service-device"
-                        value={newServiceDeviceId}
-                        onChange={(event) =>
-                          setNewServiceDeviceId(event.target.value)
-                        }
-                      >
-                        {deviceIds.map((device) => (
-                          <option key={device.id} value={device.id}>
-                            {device.displayName}
-                          </option>
-                        ))}
-                      </NativeSelect>
-                    </FormField>
-                    <div className="md:col-span-5">
-                      <Button
-                        type="submit"
-                        size="sm"
-                        disabled={
-                          createService.isPending || !newServiceDeviceId
-                        }
-                      >
-                        Add service
-                      </Button>
-                    </div>
-                  </form>
-                </div>
-              </>
-            ) : (
-              <EmptyState
-                title="No device selected"
-                description="Choose a device from the list to edit it."
-                bordered={false}
+              <VpnStatusStrip
+                items={[
+                  {
+                    label: "VPN",
+                    value: (
+                      <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
+                        {statusLabel(vpnStatus)}
+                      </Badge>
+                    ),
+                  },
+                  {
+                    label: "Last connected",
+                    value: formatDate(
+                      selectedDevice.vpnIdentity?.lastHandshakeAt
+                    ),
+                  },
+                  {
+                    label: "Endpoint",
+                    value: selectedDevice.vpnIdentity?.latestEndpoint ?? "—",
+                  },
+                  {
+                    label: "Traffic",
+                    value: `${formatBytes(selectedDevice.vpnIdentity?.rxBytes)} in / ${formatBytes(selectedDevice.vpnIdentity?.txBytes)} out`,
+                  },
+                ]}
               />
-            )}
-          </CardContent>
-        </Card>
+
+              <div className="flex flex-col gap-3">
+                <div>
+                  <p className="text-sm font-medium">Services</p>
+                  <p className="text-sm text-muted-foreground">
+                    Edit the connection details for this device.
+                  </p>
+                </div>
+
+                {(selectedDevice.services ?? []).length === 0 ? (
+                  <EmptyState title="No services yet" bordered />
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {(selectedDevice.services ?? []).map((service) => (
+                      <form
+                        key={service.id}
+                        className="grid gap-3 rounded-lg border p-3 md:grid-cols-5 md:items-end"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          const form = new FormData(event.currentTarget)
+
+                          void updateService.mutateAsync({
+                            id: service.id,
+                            serviceType: String(
+                              form.get("serviceType")
+                            ) as (typeof serviceTypes)[number],
+                            protocol: String(form.get("protocol")),
+                            port: Number(form.get("port")),
+                            enabled: form.get("enabled") === "on",
+                          })
+                        }}
+                      >
+                        <FormField
+                          label="Type"
+                          htmlFor={`service-type-${service.id}`}
+                        >
+                          <NativeSelect
+                            id={`service-type-${service.id}`}
+                            name="serviceType"
+                            defaultValue={service.serviceType}
+                          >
+                            {serviceTypes.map((type) => (
+                              <option key={type} value={type}>
+                                {type}
+                              </option>
+                            ))}
+                          </NativeSelect>
+                        </FormField>
+                        <FormField
+                          label="Protocol"
+                          htmlFor={`service-protocol-${service.id}`}
+                        >
+                          <Input
+                            id={`service-protocol-${service.id}`}
+                            name="protocol"
+                            defaultValue={service.protocol}
+                          />
+                        </FormField>
+                        <FormField
+                          label="Port"
+                          htmlFor={`service-port-${service.id}`}
+                        >
+                          <Input
+                            id={`service-port-${service.id}`}
+                            name="port"
+                            type="number"
+                            defaultValue={service.port}
+                          />
+                        </FormField>
+                        <label className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            name="enabled"
+                            defaultChecked={service.enabled}
+                          />
+                          Enabled
+                        </label>
+                        <div className="flex gap-2 md:justify-end">
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={updateService.isPending}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              void deleteService.mutateAsync({
+                                id: service.id,
+                              })
+                            }}
+                            disabled={deleteService.isPending}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      </form>
+                    ))}
+                  </div>
+                )}
+
+                <form
+                  className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-5 md:items-end"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void createService.mutateAsync({
+                      deviceId: newServiceDeviceId,
+                      serviceType: newServiceType,
+                      protocol: newServiceProtocol,
+                      port: Number(newServicePort),
+                      enabled: true,
+                    })
+                  }}
+                >
+                  <FormField label="Type" htmlFor="new-service-type">
+                    <NativeSelect
+                      id="new-service-type"
+                      value={newServiceType}
+                      onChange={(event) =>
+                        setNewServiceType(
+                          event.target.value as (typeof serviceTypes)[number]
+                        )
+                      }
+                    >
+                      {serviceTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </FormField>
+                  <FormField label="Protocol" htmlFor="new-service-protocol">
+                    <Input
+                      id="new-service-protocol"
+                      value={newServiceProtocol}
+                      onChange={(event) =>
+                        setNewServiceProtocol(event.target.value)
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Port" htmlFor="new-service-port">
+                    <Input
+                      id="new-service-port"
+                      type="number"
+                      value={newServicePort}
+                      onChange={(event) =>
+                        setNewServicePort(event.target.value)
+                      }
+                    />
+                  </FormField>
+                  <FormField
+                    label="Device"
+                    htmlFor="new-service-device"
+                    className="md:col-span-2"
+                  >
+                    <NativeSelect
+                      id="new-service-device"
+                      value={newServiceDeviceId}
+                      onChange={(event) =>
+                        setNewServiceDeviceId(event.target.value)
+                      }
+                    >
+                      {deviceIds.map((device) => (
+                        <option key={device.id} value={device.id}>
+                          {device.displayName}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </FormField>
+                  <div className="md:col-span-5">
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={createService.isPending || !newServiceDeviceId}
+                    >
+                      Add service
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </>
+          ) : (
+            <EmptyState
+              title="No device selected"
+              description="Choose a device from the list to edit it."
+              bordered={false}
+            />
+          )}
+        </DetailSheet>
       </div>
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Remove device"
+        description={
+          selectedDevice
+            ? `Remove ${selectedDevice.displayName} from inventory? Related access entries will be cleared. Uninstall the tunnel on the device first if it is still installed.`
+            : "Remove this device from inventory?"
+        }
+        confirmLabel="Remove device"
+        destructive
+        pending={deleteDevice.isPending}
+        onConfirm={() => {
+          if (!selectedDevice) return
+          void deleteDevice.mutateAsync({ id: selectedDevice.id })
+        }}
+      />
     </div>
   )
 }

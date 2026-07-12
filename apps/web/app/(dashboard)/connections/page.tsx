@@ -537,12 +537,12 @@ export default function ConnectionsPage() {
                     </Button>
                   </div>
                   {isVnc ? (
-                    <div className="flex flex-wrap gap-2 md:col-span-5">
+                    <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap md:col-span-5">
                       <Input
                         name={`password-${service.id}`}
                         type="password"
                         placeholder="Set password"
-                        className="min-w-64"
+                        className="w-full sm:min-w-64"
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault()
@@ -552,6 +552,7 @@ export default function ConnectionsPage() {
                       <Button
                         type="button"
                         size="sm"
+                        className="w-full sm:w-auto"
                         onClick={(event) => {
                           const form = event.currentTarget.parentElement
                           const passwordInput = form?.querySelector(
