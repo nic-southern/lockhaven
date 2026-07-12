@@ -12,3 +12,16 @@
 For Windows devices, the enrollment script can generate the keypair, call the
 API over your app hostname, install WireGuard if needed, import the tunnel,
 and start it.
+
+## Imaging tokens (no site)
+
+Tokens can omit a site. Use a reusable shared token with no site when mass
+imaging systems before you know their final location. Enrollment still creates
+the device, allocates a VPN address, and authenticates the tunnel. Assign the
+device to a site later from the Console.
+
+Imaging tokens do not expire. Revoke them when they should stop working. Site
+tokens still require an expiration date.
+
+Only one active shared imaging token is allowed per organization at a time.
+Shared site tokens are still limited to one active token per site.

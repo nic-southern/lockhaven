@@ -2,8 +2,12 @@ import {
   createCipheriv,
   createDecipheriv,
   createHash,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
   randomBytes,
   randomUUID,
+  type KeyObject,
 } from "node:crypto"
 
 import { Pool } from "pg"
@@ -88,6 +92,52 @@ export function decryptSecret(payload: EncryptedSecret, secret: string) {
     decipher.update(Buffer.from(payload.ciphertext, "base64")),
     decipher.final(),
   ]).toString("utf8")
+}
+
+function writeSshString(value: Buffer | string) {
+  const payload = typeof value === "string" ? Buffer.from(value) : value
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(payload.length)
+  return Buffer.concat([length, payload])
+}
+
+export function exportOpenSshEd25519PublicKey(
+  publicKey: KeyObject,
+  comment = "lockhaven"
+) {
+  const der = publicKey.export({ type: "spki", format: "der" })
+  const keyBytes = der.subarray(der.length - 32)
+  const body = Buffer.concat([
+    writeSshString("ssh-ed25519"),
+    writeSshString(keyBytes),
+  ])
+
+  return `ssh-ed25519 ${body.toString("base64")} ${comment}`
+}
+
+export function deriveOpenSshPublicKeyFromPrivateKey(
+  privateKeyPem: string,
+  comment = "lockhaven"
+) {
+  const privateKey = createPrivateKey(privateKeyPem)
+  const publicKey = createPublicKey(privateKey)
+
+  if (publicKey.asymmetricKeyType !== "ed25519") {
+    // Fall back to SPKI PEM for non-ed25519 keys so Guacamole hosts can still
+    // be documented; OpenSSH one-liner is preferred for ed25519.
+    return publicKey.export({ type: "spki", format: "pem" }).toString()
+  }
+
+  return exportOpenSshEd25519PublicKey(publicKey, comment)
+}
+
+export function generateSiteSshKeyPair(comment = "lockhaven") {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519")
+
+  return {
+    privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+    publicKey: exportOpenSshEd25519PublicKey(publicKey, comment),
+  }
 }
 
 export function encodeGuacamoleConnectionReference(connectionId: number) {

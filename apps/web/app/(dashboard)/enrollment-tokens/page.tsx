@@ -55,6 +55,14 @@ function toDatetimeLocal(value: string | Date | null | undefined) {
   ].join("")
 }
 
+function isEnrollmentTokenExpired(expiresAt: string | Date | null | undefined) {
+  if (!expiresAt) {
+    return false
+  }
+
+  return new Date(expiresAt).getTime() <= Date.now()
+}
+
 function fromDatetimeLocal(value: string) {
   return new Date(value)
 }
@@ -87,7 +95,6 @@ export default function EnrollmentTokensPage() {
   const tokens = React.useMemo(() => tokensQuery.data ?? [], [tokensQuery.data])
 
   const [selectedTokenId, setSelectedTokenId] = React.useState("")
-  const [now] = React.useState(() => Date.now())
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
   const [createSiteId, setCreateSiteId] = React.useState("")
   const [createRoutePolicyId, setCreateRoutePolicyId] = React.useState("")
@@ -172,7 +179,7 @@ export default function EnrollmentTokensPage() {
   )
 
   const selectedTokenStatus = selectedToken
-    ? new Date(selectedToken.expiresAt).getTime() <= now
+    ? isEnrollmentTokenExpired(selectedToken.expiresAt)
       ? "expired"
       : !selectedToken.siteWide && selectedToken.uses >= selectedToken.maxUses
         ? "exhausted"
@@ -192,7 +199,8 @@ export default function EnrollmentTokensPage() {
           <CardHeader>
             <CardTitle>New token</CardTitle>
             <CardDescription>
-              Set the organization, site, policy, expiry, and use limit.
+              Set the organization, optional site, policy, and use limit. Leave
+              site empty for imaging tokens that never expire until revoked.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
@@ -213,13 +221,17 @@ export default function EnrollmentTokensPage() {
                 ))}
               </NativeSelect>
             </FormField>
-            <FormField label="Site" htmlFor="token-create-site">
+            <FormField
+              label="Site"
+              htmlFor="token-create-site"
+              description="Optional. Use no site for mass imaging, then assign the location after install."
+            >
               <NativeSelect
                 id="token-create-site"
                 value={createSiteId}
                 onChange={(event) => setCreateSiteId(event.target.value)}
               >
-                <option value="">No site</option>
+                <option value="">No site (imaging)</option>
                 {createSites.map((site) => (
                   <option key={site.id} value={site.id}>
                     {site.name}
@@ -253,18 +265,25 @@ export default function EnrollmentTokensPage() {
                 htmlFor="token-create-site-wide"
                 className="text-sm font-normal"
               >
-                Site-wide reusable token
+                Reusable shared token
               </Label>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Expires" htmlFor="token-create-expires">
-                <Input
-                  id="token-create-expires"
-                  type="datetime-local"
-                  value={createExpiresAt}
-                  onChange={(event) => setCreateExpiresAt(event.target.value)}
-                />
-              </FormField>
+              {createSiteId ? (
+                <FormField label="Expires" htmlFor="token-create-expires">
+                  <Input
+                    id="token-create-expires"
+                    type="datetime-local"
+                    value={createExpiresAt}
+                    onChange={(event) => setCreateExpiresAt(event.target.value)}
+                  />
+                </FormField>
+              ) : (
+                <p className="text-sm text-muted-foreground sm:col-span-2">
+                  Imaging tokens do not expire. Revoke them when they should
+                  stop working.
+                </p>
+              )}
               <FormField label="Max uses" htmlFor="token-create-max-uses">
                 <Input
                   id="token-create-max-uses"
@@ -278,7 +297,9 @@ export default function EnrollmentTokensPage() {
             </div>
             {createSiteWide ? (
               <p className="text-sm text-muted-foreground">
-                Shared tokens can be reused until they expire or are revoked.
+                {createSiteId
+                  ? "Shared for this site until it expires or is revoked."
+                  : "Shared imaging token for this organization until it is revoked. Devices enroll without a site; assign location later."}
               </p>
             ) : null}
             <Button
@@ -289,14 +310,15 @@ export default function EnrollmentTokensPage() {
                   siteId: createSiteId || null,
                   siteWide: createSiteWide,
                   routePolicyId: createRoutePolicyId || null,
-                  expiresAt: fromDatetimeLocal(createExpiresAt),
+                  expiresAt: createSiteId
+                    ? fromDatetimeLocal(createExpiresAt)
+                    : null,
                   maxUses: createSiteWide ? 1 : Number(createMaxUses),
                 })
               }}
               disabled={
                 !createOrganizationId ||
-                !createExpiresAt ||
-                (createSiteWide && !createSiteId) ||
+                (!!createSiteId && !createExpiresAt) ||
                 createToken.isPending
               }
             >
@@ -346,12 +368,13 @@ export default function EnrollmentTokensPage() {
                     </TableRow>
                   ) : (
                     tokens.map((token) => {
-                      const tokenStatus =
-                        new Date(token.expiresAt).getTime() <= now
-                          ? "expired"
-                          : !token.siteWide && token.uses >= token.maxUses
-                            ? "exhausted"
-                            : "active"
+                      const tokenStatus = isEnrollmentTokenExpired(
+                        token.expiresAt
+                      )
+                        ? "expired"
+                        : !token.siteWide && token.uses >= token.maxUses
+                          ? "exhausted"
+                          : "active"
 
                       return (
                         <TableRow
@@ -365,12 +388,16 @@ export default function EnrollmentTokensPage() {
                           <TableCell className="font-medium">
                             {token.organizationName ?? "—"}
                           </TableCell>
-                          <TableCell>{token.siteName ?? "—"}</TableCell>
+                          <TableCell>{token.siteName ?? "Imaging"}</TableCell>
                           <TableCell>
                             <Badge
                               variant={token.siteWide ? "secondary" : "outline"}
                             >
-                              {token.siteWide ? "Shared" : "Standard"}
+                              {token.siteWide
+                                ? token.siteId
+                                  ? "Shared site"
+                                  : "Shared imaging"
+                                : "Standard"}
                             </Badge>
                           </TableCell>
                           <TableCell>{token.routePolicyName ?? "—"}</TableCell>
@@ -420,13 +447,17 @@ export default function EnrollmentTokensPage() {
                 ))}
               </NativeSelect>
             </FormField>
-            <FormField label="Site" htmlFor="token-edit-site">
+            <FormField
+              label="Site"
+              htmlFor="token-edit-site"
+              description="Optional. Leave empty for imaging tokens assigned later."
+            >
               <NativeSelect
                 id="token-edit-site"
                 value={editSiteId}
                 onChange={(event) => setEditSiteId(event.target.value)}
               >
-                <option value="">No site</option>
+                <option value="">No site (imaging)</option>
                 {editSites.map((site) => (
                   <option key={site.id} value={site.id}>
                     {site.name}
@@ -458,17 +489,24 @@ export default function EnrollmentTokensPage() {
                 htmlFor="token-edit-site-wide"
                 className="text-sm font-normal"
               >
-                Site-wide reusable token
+                Reusable shared token
               </Label>
             </div>
-            <FormField label="Expires" htmlFor="token-edit-expires">
-              <Input
-                id="token-edit-expires"
-                type="datetime-local"
-                value={editExpiresAt}
-                onChange={(event) => setEditExpiresAt(event.target.value)}
-              />
-            </FormField>
+            {editSiteId ? (
+              <FormField label="Expires" htmlFor="token-edit-expires">
+                <Input
+                  id="token-edit-expires"
+                  type="datetime-local"
+                  value={editExpiresAt}
+                  onChange={(event) => setEditExpiresAt(event.target.value)}
+                />
+              </FormField>
+            ) : (
+              <p className="text-sm text-muted-foreground md:col-span-2">
+                Imaging tokens do not expire. Revoke them when they should stop
+                working.
+              </p>
+            )}
             <FormField label="Max uses" htmlFor="token-edit-max-uses">
               <Input
                 id="token-edit-max-uses"
@@ -481,7 +519,9 @@ export default function EnrollmentTokensPage() {
             </FormField>
             {editSiteWide ? (
               <p className="text-sm text-muted-foreground md:col-span-2">
-                Shared tokens can be reused until they expire or are revoked.
+                {editSiteId
+                  ? "Shared for this site until it expires or is revoked."
+                  : "Shared imaging token for this organization until it is revoked."}
               </p>
             ) : null}
             <div className="rounded-lg border bg-muted/20 p-4 text-sm md:col-span-2">
@@ -521,14 +561,15 @@ export default function EnrollmentTokensPage() {
                     siteId: editSiteId || null,
                     siteWide: editSiteWide,
                     routePolicyId: editRoutePolicyId || null,
-                    expiresAt: fromDatetimeLocal(editExpiresAt),
+                    expiresAt: editSiteId
+                      ? fromDatetimeLocal(editExpiresAt)
+                      : null,
                     maxUses: editSiteWide ? 1 : Number(editMaxUses),
                   })
                 }}
                 disabled={
                   !editOrganizationId ||
-                  !editExpiresAt ||
-                  (editSiteWide && !editSiteId) ||
+                  (!!editSiteId && !editExpiresAt) ||
                   updateToken.isPending
                 }
               >

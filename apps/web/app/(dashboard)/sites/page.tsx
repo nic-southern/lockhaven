@@ -24,9 +24,11 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { CodeBlock } from "@/components/dashboard/code-block"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
 
@@ -37,6 +39,7 @@ export default function SitesPage() {
   const devicesQuery = trpc.devices.list.useQuery()
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
   const [deleteOpen, setDeleteOpen] = React.useState(false)
+  const [clearSshOpen, setClearSshOpen] = React.useState(false)
 
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
   const [createName, setCreateName] = React.useState("")
@@ -45,6 +48,9 @@ export default function SitesPage() {
   const [editName, setEditName] = React.useState("")
   const [editTimezone, setEditTimezone] = React.useState("")
   const [editNotes, setEditNotes] = React.useState("")
+  const [sshUsername, setSshUsername] = React.useState("root")
+  const [sshPrivateKey, setSshPrivateKey] = React.useState("")
+  const [showPasteForm, setShowPasteForm] = React.useState(false)
 
   const createSite = trpc.sites.create.useMutation({
     async onSuccess() {
@@ -86,6 +92,42 @@ export default function SitesPage() {
     },
     onError() {
       toast.error("We couldn't remove the site.")
+    },
+  })
+
+  const generateSshCredential = trpc.sites.generateSshCredential.useMutation({
+    async onSuccess() {
+      await utils.sites.list.invalidate()
+      setSshPrivateKey("")
+      setShowPasteForm(false)
+      toast.success("SSH key generated")
+    },
+    onError() {
+      toast.error("We couldn't generate an SSH key.")
+    },
+  })
+
+  const setSshCredential = trpc.sites.setSshCredential.useMutation({
+    async onSuccess() {
+      await utils.sites.list.invalidate()
+      setSshPrivateKey("")
+      setShowPasteForm(false)
+      toast.success("SSH key saved")
+    },
+    onError() {
+      toast.error("We couldn't save that SSH key.")
+    },
+  })
+
+  const clearSshCredential = trpc.sites.clearSshCredential.useMutation({
+    async onSuccess() {
+      await utils.sites.list.invalidate()
+      setClearSshOpen(false)
+      setSshPrivateKey("")
+      toast.success("SSH key removed")
+    },
+    onError() {
+      toast.error("We couldn't remove the SSH key.")
     },
   })
 
@@ -131,6 +173,9 @@ export default function SitesPage() {
       setEditName(selectedSite.name)
       setEditTimezone(selectedSite.timezone ?? "")
       setEditNotes(selectedSite.notes ?? "")
+      setSshUsername(selectedSite.sshUsername ?? "root")
+      setSshPrivateKey("")
+      setShowPasteForm(false)
     }
   }, [selectedSite])
 
@@ -147,7 +192,8 @@ export default function SitesPage() {
           <CardHeader>
             <CardTitle>New site</CardTitle>
             <CardDescription>
-              Add a location for devices to live under.
+              Add a location for devices to live under. An SSH key is created
+              automatically.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
@@ -220,19 +266,20 @@ export default function SitesPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Org</TableHead>
                     <TableHead>Devices</TableHead>
+                    <TableHead>SSH</TableHead>
                     <TableHead>Timezone</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {sitesQuery.isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="py-10">
+                      <TableCell colSpan={5} className="py-10">
                         <Skeleton className="h-5 w-40" />
                       </TableCell>
                     </TableRow>
                   ) : sites.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="p-0">
+                      <TableCell colSpan={5} className="p-0">
                         <EmptyState
                           title="No sites yet"
                           description="Create a site to start assigning devices to a location."
@@ -261,6 +308,13 @@ export default function SitesPage() {
                           </TableCell>
                           <TableCell>{organization?.name ?? "—"}</TableCell>
                           <TableCell>{deviceCount}</TableCell>
+                          <TableCell>
+                            {site.hasSshCredential ? (
+                              <Badge variant="secondary">Ready</Badge>
+                            ) : (
+                              <Badge variant="outline">None</Badge>
+                            )}
+                          </TableCell>
                           <TableCell>{site.timezone ?? "—"}</TableCell>
                         </TableRow>
                       )
@@ -274,63 +328,168 @@ export default function SitesPage() {
       </div>
 
       {selectedSite ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Edit site</CardTitle>
-            <CardDescription>
-              Update the selected location or remove it.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <FormField label="Name" htmlFor="site-edit-name">
-              <Input
-                id="site-edit-name"
-                value={editName}
-                onChange={(event) => setEditName(event.target.value)}
-              />
-            </FormField>
-            <FormField label="Timezone" htmlFor="site-edit-timezone">
-              <Input
-                id="site-edit-timezone"
-                value={editTimezone}
-                onChange={(event) => setEditTimezone(event.target.value)}
-              />
-            </FormField>
-            <FormField
-              label="Notes"
-              htmlFor="site-edit-notes"
-              className="md:col-span-2"
-            >
-              <Textarea
-                id="site-edit-notes"
-                value={editNotes}
-                onChange={(event) => setEditNotes(event.target.value)}
-              />
-            </FormField>
-            <div className="flex flex-wrap gap-3 md:col-span-2">
-              <Button
-                onClick={() => {
-                  void updateSite.mutateAsync({
-                    id: selectedSite.id,
-                    name: editName,
-                    timezone: editTimezone || null,
-                    notes: editNotes || null,
-                  })
-                }}
-                disabled={!editName || updateSite.isPending}
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Edit site</CardTitle>
+              <CardDescription>
+                Update the selected location or remove it.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2">
+              <FormField label="Name" htmlFor="site-edit-name">
+                <Input
+                  id="site-edit-name"
+                  value={editName}
+                  onChange={(event) => setEditName(event.target.value)}
+                />
+              </FormField>
+              <FormField label="Timezone" htmlFor="site-edit-timezone">
+                <Input
+                  id="site-edit-timezone"
+                  value={editTimezone}
+                  onChange={(event) => setEditTimezone(event.target.value)}
+                />
+              </FormField>
+              <FormField
+                label="Notes"
+                htmlFor="site-edit-notes"
+                className="md:col-span-2"
               >
-                Save changes
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setDeleteOpen(true)}
-                disabled={deleteSite.isPending}
-              >
-                Remove site
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                <Textarea
+                  id="site-edit-notes"
+                  value={editNotes}
+                  onChange={(event) => setEditNotes(event.target.value)}
+                />
+              </FormField>
+              <div className="flex flex-wrap gap-3 md:col-span-2">
+                <Button
+                  onClick={() => {
+                    void updateSite.mutateAsync({
+                      id: selectedSite.id,
+                      name: editName,
+                      timezone: editTimezone || null,
+                      notes: editNotes || null,
+                    })
+                  }}
+                  disabled={!editName || updateSite.isPending}
+                >
+                  Save changes
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteOpen(true)}
+                  disabled={deleteSite.isPending}
+                >
+                  Remove site
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>SSH access</CardTitle>
+              <CardDescription>
+                Install this public key on hosts at this location. New SSH
+                services pick up the matching private key automatically.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <FormField label="Username" htmlFor="site-ssh-username">
+                <Input
+                  id="site-ssh-username"
+                  value={sshUsername}
+                  onChange={(event) => setSshUsername(event.target.value)}
+                />
+              </FormField>
+
+              {selectedSite.hasSshCredential && selectedSite.sshPublicKey ? (
+                <CodeBlock
+                  label="Public key"
+                  value={selectedSite.sshPublicKey}
+                />
+              ) : (
+                <EmptyState
+                  title="No SSH key yet"
+                  description="Generate a key for this location, or paste an existing private key."
+                />
+              )}
+
+              {showPasteForm ? (
+                <div className="flex flex-col gap-4 rounded-lg border p-4">
+                  <FormField label="Private key" htmlFor="site-ssh-private-key">
+                    <Textarea
+                      id="site-ssh-private-key"
+                      className="min-h-32 font-mono text-xs"
+                      value={sshPrivateKey}
+                      onChange={(event) => setSshPrivateKey(event.target.value)}
+                      placeholder="Paste the private key"
+                    />
+                  </FormField>
+                  <div className="flex flex-wrap gap-3">
+                    <Button
+                      onClick={() => {
+                        void setSshCredential.mutateAsync({
+                          siteId: selectedSite.id,
+                          username: sshUsername,
+                          privateKey: sshPrivateKey,
+                        })
+                      }}
+                      disabled={
+                        !sshUsername ||
+                        !sshPrivateKey ||
+                        setSshCredential.isPending
+                      }
+                    >
+                      Save key
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setShowPasteForm(false)
+                        setSshPrivateKey("")
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  onClick={() => {
+                    void generateSshCredential.mutateAsync({
+                      siteId: selectedSite.id,
+                      username: sshUsername || "root",
+                    })
+                  }}
+                  disabled={!sshUsername || generateSshCredential.isPending}
+                >
+                  {selectedSite.hasSshCredential
+                    ? "Generate new key"
+                    : "Generate key"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowPasteForm(true)}
+                >
+                  Paste private key
+                </Button>
+                {selectedSite.hasSshCredential ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => setClearSshOpen(true)}
+                    disabled={clearSshCredential.isPending}
+                  >
+                    Clear key
+                  </Button>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+        </>
       ) : null}
 
       <ConfirmDialog
@@ -348,6 +507,24 @@ export default function SitesPage() {
         onConfirm={() => {
           if (!selectedSite) return
           void deleteSite.mutateAsync({ id: selectedSite.id })
+        }}
+      />
+
+      <ConfirmDialog
+        open={clearSshOpen}
+        onOpenChange={setClearSshOpen}
+        title="Clear SSH key"
+        description={
+          selectedSite
+            ? `Remove the SSH key for ${selectedSite.name}? Devices will no longer inherit it.`
+            : "Remove this SSH key?"
+        }
+        confirmLabel="Clear key"
+        destructive
+        pending={clearSshCredential.isPending}
+        onConfirm={() => {
+          if (!selectedSite) return
+          void clearSshCredential.mutateAsync({ siteId: selectedSite.id })
         }}
       />
     </div>

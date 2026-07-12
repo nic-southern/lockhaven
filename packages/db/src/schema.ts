@@ -300,6 +300,25 @@ export const managementServiceCredentials = pgTable(
   }
 )
 
+export const siteSshCredentials = pgTable("site_ssh_credentials", {
+  siteId: uuid("site_id")
+    .primaryKey()
+    .references(() => sites.id, { onDelete: "cascade" }),
+  passwordCiphertext: text("password_ciphertext").notNull(),
+  passwordIv: text("password_iv").notNull(),
+  passwordAuthTag: text("password_auth_tag").notNull(),
+  usernameCiphertext: text("username_ciphertext").notNull(),
+  usernameIv: text("username_iv").notNull(),
+  usernameAuthTag: text("username_auth_tag").notNull(),
+  publicKey: text("public_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
 export const enrollmentTokens = pgTable("enrollment_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id")
@@ -311,7 +330,7 @@ export const enrollmentTokens = pgTable("enrollment_tokens", {
   routePolicyId: uuid("route_policy_id").references(() => routePolicies.id, {
     onDelete: "set null",
   }),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   maxUses: integer("max_uses").notNull().default(1),
   uses: integer("uses").notNull().default(0),
   createdByUserId: text("created_by_user_id").references(() => user.id, {
@@ -377,6 +396,7 @@ export type VpnIdentity = typeof vpnIdentities.$inferSelect
 export type ManagementService = typeof managementServices.$inferSelect
 export type ManagementServiceCredential =
   typeof managementServiceCredentials.$inferSelect
+export type SiteSshCredential = typeof siteSshCredentials.$inferSelect
 export type EnrollmentToken = typeof enrollmentTokens.$inferSelect
 export type RemoteSession = typeof remoteSessions.$inferSelect
 export type AuditEvent = typeof auditEvents.$inferSelect

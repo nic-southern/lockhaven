@@ -110,14 +110,24 @@ export const serviceDefaults = {
 
 export const vncServiceDefaults = serviceDefaults.vnc
 
-export const enrollmentTokenCreateSchema = z.object({
-  organizationId: z.string().uuid(),
-  siteId: z.string().uuid().optional().nullable(),
-  routePolicyId: z.string().uuid().optional().nullable(),
-  siteWide: z.boolean().default(false),
-  expiresAt: z.coerce.date(),
-  maxUses: z.number().int().positive().default(1),
-})
+export const enrollmentTokenCreateSchema = z
+  .object({
+    organizationId: z.string().uuid(),
+    siteId: z.string().uuid().optional().nullable(),
+    routePolicyId: z.string().uuid().optional().nullable(),
+    siteWide: z.boolean().default(false),
+    expiresAt: z.coerce.date().nullable().optional(),
+    maxUses: z.number().int().positive().default(1),
+  })
+  .superRefine((value, ctx) => {
+    if (value.siteId && !value.expiresAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expiresAt"],
+        message: "Site tokens require an expiration date.",
+      })
+    }
+  })
 
 export const enrollmentTokenUpdateSchema = enrollmentTokenCreateSchema.extend({
   id: z.string().uuid(),

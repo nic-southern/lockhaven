@@ -6,7 +6,9 @@ import type { Pool } from "pg"
 import {
   buildGuacamoleClientUrl,
   decryptSecret,
+  deriveOpenSshPublicKeyFromPrivateKey,
   encryptSecret,
+  generateSiteSshKeyPair,
   GuacamoleRemoteAccessProvider,
 } from "./index"
 
@@ -15,6 +17,17 @@ test("encrypts and decrypts saved credentials", () => {
   const encrypted = encryptSecret("hunter2", secret)
 
   assert.equal(decryptSecret(encrypted, secret), "hunter2")
+})
+
+test("generates an ed25519 site SSH keypair", () => {
+  const pair = generateSiteSshKeyPair("site-test")
+  assert.match(pair.privateKey, /BEGIN PRIVATE KEY/)
+  assert.match(pair.publicKey, /^ssh-ed25519 /)
+  assert.match(pair.publicKey, /site-test$/)
+  assert.equal(
+    deriveOpenSshPublicKeyFromPrivateKey(pair.privateKey, "site-test"),
+    pair.publicKey
+  )
 })
 
 test("builds the direct Guacamole client url", () => {

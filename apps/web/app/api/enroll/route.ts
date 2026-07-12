@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     if (
       !token ||
       (!token.siteWide && token.uses >= token.maxUses) ||
-      token.expiresAt.getTime() <= Date.now()
+      (token.expiresAt !== null && token.expiresAt.getTime() <= Date.now())
     ) {
       return null
     }

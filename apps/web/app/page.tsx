@@ -16,6 +16,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -65,6 +67,7 @@ export default function Page() {
   const [enrollmentOpen, setEnrollmentOpen] = React.useState(false)
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
   const [selectedRoutePolicyId, setSelectedRoutePolicyId] = React.useState("")
+  const [enrollmentReusable, setEnrollmentReusable] = React.useState(false)
   const [enrollmentToken, setEnrollmentToken] = React.useState("")
   const [installBaseUrl, setInstallBaseUrl] =
     React.useState(getClientVpnBaseUrl)
@@ -249,8 +252,9 @@ export default function Page() {
       const result = await createEnrollmentToken.mutateAsync({
         organizationId,
         siteId: selectedSiteId || null,
+        siteWide: enrollmentReusable,
         routePolicyId: selectedRoutePolicyId || null,
-        expiresAt: getEnrollmentTokenExpiration(),
+        expiresAt: selectedSiteId ? getEnrollmentTokenExpiration() : null,
         maxUses: 1,
       })
 
@@ -299,19 +303,25 @@ export default function Page() {
             <CardHeader>
               <CardTitle>Enroll a device</CardTitle>
               <CardDescription>
-                Choose where the device belongs, then run the installer.
+                Leave site empty for imaging tokens, then assign the location
+                after install. Imaging tokens do not expire until revoked. The
+                tunnel is set up during enrollment either way.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-6 lg:grid-cols-2">
               <div className="flex flex-col gap-4">
-                <FormField label="Site" htmlFor="site">
+                <FormField
+                  label="Site"
+                  htmlFor="site"
+                  description="Optional for mass imaging."
+                >
                   <NativeSelect
                     id="site"
                     value={selectedSiteId}
                     onChange={(event) => setSelectedSiteId(event.target.value)}
                     disabled={sites.length === 0}
                   >
-                    <option value="">No site</option>
+                    <option value="">No site (imaging)</option>
                     {sites.map((site) => (
                       <option key={site.id} value={site.id}>
                         {site.name}
@@ -335,6 +345,27 @@ export default function Page() {
                     ))}
                   </NativeSelect>
                 </FormField>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="enrollment-reusable"
+                    checked={enrollmentReusable}
+                    onCheckedChange={(checked) =>
+                      setEnrollmentReusable(checked === true)
+                    }
+                  />
+                  <Label
+                    htmlFor="enrollment-reusable"
+                    className="text-sm font-normal"
+                  >
+                    Reusable shared token
+                  </Label>
+                </div>
+                {enrollmentReusable ? (
+                  <p className="text-sm text-muted-foreground">
+                    Use the same token across many imaged devices until it
+                    expires or is revoked.
+                  </p>
+                ) : null}
                 <Button
                   className="w-fit"
                   onClick={() => {
