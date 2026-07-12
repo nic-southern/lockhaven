@@ -2,6 +2,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import { toast } from "sonner"
+
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,6 +13,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -20,12 +24,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { buildSocWindowsInstallCommand } from "@/lib/enrollment-commands"
-import { formatBytes, formatDate, statusVariant } from "@/lib/dashboard"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { VpnStatusStrip } from "@/components/dashboard/stat-strip"
 import {
-  getClientSocEnrollmentPassword,
-  getClientSocBaseUrl,
-} from "@/lib/product-name"
+  formatBytes,
+  formatDate,
+  statusLabel,
+  statusVariant,
+} from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
 
 const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
@@ -52,6 +60,10 @@ export default function DevicesPage() {
         utils.devices.list.invalidate(),
         utils.devices.byId.invalidate(),
       ])
+      toast.success("Device updated")
+    },
+    onError() {
+      toast.error("We couldn't update the device.")
     },
   })
   const assignRoutePolicy = trpc.devices.assignRoutePolicy.useMutation({
@@ -60,6 +72,10 @@ export default function DevicesPage() {
         utils.devices.list.invalidate(),
         utils.devices.byId.invalidate(),
       ])
+      toast.success("Route policy updated")
+    },
+    onError() {
+      toast.error("We couldn't update the route policy.")
     },
   })
   const revokeVpn = trpc.devices.revokeVpn.useMutation({
@@ -68,6 +84,10 @@ export default function DevicesPage() {
         utils.devices.list.invalidate(),
         utils.devices.byId.invalidate(),
       ])
+      toast.success("VPN access revoked")
+    },
+    onError() {
+      toast.error("We couldn't revoke VPN access.")
     },
   })
   const createService = trpc.managementServices.create.useMutation({
@@ -76,6 +96,10 @@ export default function DevicesPage() {
         utils.devices.byId.invalidate(),
         utils.managementServices.list.invalidate(),
       ])
+      toast.success("Service added")
+    },
+    onError() {
+      toast.error("We couldn't add the service.")
     },
   })
   const updateService = trpc.managementServices.update.useMutation({
@@ -84,6 +108,10 @@ export default function DevicesPage() {
         utils.devices.byId.invalidate(),
         utils.managementServices.list.invalidate(),
       ])
+      toast.success("Service updated")
+    },
+    onError() {
+      toast.error("We couldn't update the service.")
     },
   })
   const deleteService = trpc.managementServices.delete.useMutation({
@@ -92,6 +120,10 @@ export default function DevicesPage() {
         utils.devices.byId.invalidate(),
         utils.managementServices.list.invalidate(),
       ])
+      toast.success("Service removed")
+    },
+    onError() {
+      toast.error("We couldn't remove the service.")
     },
   })
 
@@ -104,16 +136,7 @@ export default function DevicesPage() {
     React.useState<(typeof serviceTypes)[number]>("ssh")
   const [newServiceProtocol, setNewServiceProtocol] = React.useState("tcp")
   const [newServicePort, setNewServicePort] = React.useState("22")
-  const [socBaseUrl, setSocBaseUrl] = React.useState(getClientSocBaseUrl)
-  const [socEnrollmentPassword, setSocEnrollmentPassword] = React.useState(
-    getClientSocEnrollmentPassword
-  )
   const selectedDevice = deviceQuery.data
-
-  React.useEffect(() => {
-    setSocBaseUrl(getClientSocBaseUrl())
-    setSocEnrollmentPassword(getClientSocEnrollmentPassword())
-  }, [])
 
   React.useEffect(() => {
     if (deviceIds.length === 0) {
@@ -149,33 +172,14 @@ export default function DevicesPage() {
         ? "vpn_online"
         : "pending"
     : "pending"
-  const selectedDeviceSiteName = selectedDevice?.siteId
-    ? (sites.find((site) => site.id === selectedDevice.siteId)?.name ?? "")
-    : ""
-  const selectedDeviceSocCommand =
-    socBaseUrl && socEnrollmentPassword && selectedDeviceSiteName
-      ? buildSocWindowsInstallCommand({
-          baseUrl: socBaseUrl,
-          siteName: selectedDeviceSiteName,
-          enrollmentPassword: socEnrollmentPassword,
-        })
-      : ""
-  const selectedDeviceSocFallback = !selectedDeviceSiteName
-    ? "Assign a site to create this command."
-    : "Add an enrollment password to create this command."
 
   return (
-    <div className="space-y-6">
-      <section className="flex flex-col gap-2">
-        <Badge variant="outline" className="w-fit">
-          Devices
-        </Badge>
-        <h1 className="text-3xl font-semibold tracking-tight">Inventory</h1>
-        <p className="text-sm text-muted-foreground">
-          Review device state, change the assigned site, update the VPN route
-          policy, and manage service entries from one place.
-        </p>
-      </section>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        badge="Devices"
+        title="Inventory"
+        description="Review device state, change the assigned site, update the VPN route policy, and manage service entries from one place."
+      />
 
       <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card>
@@ -206,11 +210,8 @@ export default function DevicesPage() {
                     </TableRow>
                   ) : deviceIds.length === 0 ? (
                     <TableRow>
-                      <TableCell
-                        colSpan={2}
-                        className="py-8 text-center text-muted-foreground"
-                      >
-                        No devices yet
+                      <TableCell colSpan={2} className="p-0">
+                        <EmptyState title="No devices yet" bordered={false} />
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -238,7 +239,7 @@ export default function DevicesPage() {
                               statusVariant[device.status] ?? "secondary"
                             }
                           >
-                            {device.status.replaceAll("_", " ")}
+                            {statusLabel(device.status)}
                           </Badge>
                         </TableCell>
                       </TableRow>
@@ -257,32 +258,29 @@ export default function DevicesPage() {
               Edit the selected device and the services attached to it.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="flex flex-col gap-6">
             {selectedDevice ? (
               <>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">Display name</span>
-                    <input
-                      className="h-10 rounded-md border bg-background px-3"
+                  <FormField label="Display name" htmlFor="device-name">
+                    <Input
+                      id="device-name"
                       value={deviceName}
                       onChange={(event) => setDeviceName(event.target.value)}
                     />
-                  </label>
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">Host name</span>
-                    <input
-                      className="h-10 rounded-md border bg-background px-3"
+                  </FormField>
+                  <FormField label="Host name" htmlFor="device-hostname">
+                    <Input
+                      id="device-hostname"
                       value={deviceHostname}
                       onChange={(event) =>
                         setDeviceHostname(event.target.value)
                       }
                     />
-                  </label>
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">Site</span>
-                    <select
-                      className="h-10 rounded-md border bg-background px-3"
+                  </FormField>
+                  <FormField label="Site" htmlFor="device-site">
+                    <NativeSelect
+                      id="device-site"
                       value={deviceSiteId}
                       onChange={(event) => setDeviceSiteId(event.target.value)}
                     >
@@ -292,12 +290,11 @@ export default function DevicesPage() {
                           {site.name}
                         </option>
                       ))}
-                    </select>
-                  </label>
-                  <label className="grid gap-2 text-sm">
-                    <span className="font-medium">Route policy</span>
-                    <select
-                      className="h-10 rounded-md border bg-background px-3"
+                    </NativeSelect>
+                  </FormField>
+                  <FormField label="Route policy" htmlFor="device-route-policy">
+                    <NativeSelect
+                      id="device-route-policy"
                       value={deviceRoutePolicyId}
                       onChange={(event) =>
                         setDeviceRoutePolicyId(event.target.value)
@@ -309,8 +306,8 @@ export default function DevicesPage() {
                           {policy.name}
                         </option>
                       ))}
-                    </select>
-                  </label>
+                    </NativeSelect>
+                  </FormField>
                 </div>
 
                 <div className="flex flex-wrap gap-3">
@@ -353,147 +350,134 @@ export default function DevicesPage() {
                   </Button>
                 </div>
 
-                <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 text-sm md:grid-cols-4">
-                  <div>
-                    <p className="text-muted-foreground">VPN</p>
-                    <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
-                      {vpnStatus.replaceAll("_", " ")}
-                    </Badge>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Last connected</p>
-                    <p className="font-medium">
-                      {formatDate(selectedDevice.vpnIdentity?.lastHandshakeAt)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Endpoint</p>
-                    <p className="font-medium">
-                      {selectedDevice.vpnIdentity?.latestEndpoint ?? "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Traffic</p>
-                    <p className="font-medium">
-                      {formatBytes(selectedDevice.vpnIdentity?.rxBytes)} in /{" "}
-                      {formatBytes(selectedDevice.vpnIdentity?.txBytes)} out
-                    </p>
-                  </div>
-                </div>
+                <VpnStatusStrip
+                  items={[
+                    {
+                      label: "VPN",
+                      value: (
+                        <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
+                          {statusLabel(vpnStatus)}
+                        </Badge>
+                      ),
+                    },
+                    {
+                      label: "Last connected",
+                      value: formatDate(
+                        selectedDevice.vpnIdentity?.lastHandshakeAt
+                      ),
+                    },
+                    {
+                      label: "Endpoint",
+                      value: selectedDevice.vpnIdentity?.latestEndpoint ?? "—",
+                    },
+                    {
+                      label: "Traffic",
+                      value: `${formatBytes(selectedDevice.vpnIdentity?.rxBytes)} in / ${formatBytes(selectedDevice.vpnIdentity?.txBytes)} out`,
+                    },
+                  ]}
+                />
 
-                {socBaseUrl ? (
-                  <div className="rounded-lg border bg-muted/20 p-4 text-sm">
-                    <div className="mb-3">
-                      <p className="font-medium">Lockhaven SOC Host</p>
-                      <p className="text-muted-foreground">
-                        Run this command to add monitoring for this device.
-                      </p>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Services</p>
+                    <p className="text-sm text-muted-foreground">
+                      Edit the connection details for this device.
+                    </p>
+                  </div>
+
+                  {(selectedDevice.services ?? []).length === 0 ? (
+                    <EmptyState title="No services yet" bordered />
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {(selectedDevice.services ?? []).map((service) => (
+                        <form
+                          key={service.id}
+                          className="grid gap-3 rounded-lg border p-3 md:grid-cols-5 md:items-end"
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            const form = new FormData(event.currentTarget)
+
+                            void updateService.mutateAsync({
+                              id: service.id,
+                              serviceType: String(
+                                form.get("serviceType")
+                              ) as (typeof serviceTypes)[number],
+                              protocol: String(form.get("protocol")),
+                              port: Number(form.get("port")),
+                              enabled: form.get("enabled") === "on",
+                            })
+                          }}
+                        >
+                          <FormField
+                            label="Type"
+                            htmlFor={`service-type-${service.id}`}
+                          >
+                            <NativeSelect
+                              id={`service-type-${service.id}`}
+                              name="serviceType"
+                              defaultValue={service.serviceType}
+                            >
+                              {serviceTypes.map((type) => (
+                                <option key={type} value={type}>
+                                  {type}
+                                </option>
+                              ))}
+                            </NativeSelect>
+                          </FormField>
+                          <FormField
+                            label="Protocol"
+                            htmlFor={`service-protocol-${service.id}`}
+                          >
+                            <Input
+                              id={`service-protocol-${service.id}`}
+                              name="protocol"
+                              defaultValue={service.protocol}
+                            />
+                          </FormField>
+                          <FormField
+                            label="Port"
+                            htmlFor={`service-port-${service.id}`}
+                          >
+                            <Input
+                              id={`service-port-${service.id}`}
+                              name="port"
+                              type="number"
+                              defaultValue={service.port}
+                            />
+                          </FormField>
+                          <label className="flex items-center gap-2 text-sm">
+                            <Checkbox
+                              name="enabled"
+                              defaultChecked={service.enabled}
+                            />
+                            Enabled
+                          </label>
+                          <div className="flex gap-2 md:justify-end">
+                            <Button
+                              type="submit"
+                              size="sm"
+                              disabled={updateService.isPending}
+                            >
+                              Save
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                void deleteService.mutateAsync({
+                                  id: service.id,
+                                })
+                              }}
+                              disabled={deleteService.isPending}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </form>
+                      ))}
                     </div>
-                    {selectedDeviceSocCommand ? (
-                      <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
-                        {selectedDeviceSocCommand}
-                      </pre>
-                    ) : (
-                      <p className="text-muted-foreground">
-                        {selectedDeviceSocFallback}
-                      </p>
-                    )}
-                  </div>
-                ) : null}
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">Services</p>
-                      <p className="text-sm text-muted-foreground">
-                        Edit the connection details for this device.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    {(selectedDevice.services ?? []).map((service) => (
-                      <form
-                        key={service.id}
-                        className="grid gap-3 rounded-lg border p-3 md:grid-cols-5 md:items-end"
-                        onSubmit={(event) => {
-                          event.preventDefault()
-                          const form = new FormData(event.currentTarget)
-
-                          void updateService.mutateAsync({
-                            id: service.id,
-                            serviceType: String(
-                              form.get("serviceType")
-                            ) as (typeof serviceTypes)[number],
-                            protocol: String(form.get("protocol")),
-                            port: Number(form.get("port")),
-                            enabled: form.get("enabled") === "on",
-                          })
-                        }}
-                      >
-                        <label className="grid gap-2 text-sm">
-                          <span className="font-medium">Type</span>
-                          <select
-                            name="serviceType"
-                            defaultValue={service.serviceType}
-                            className="h-10 rounded-md border bg-background px-3"
-                          >
-                            {serviceTypes.map((type) => (
-                              <option key={type} value={type}>
-                                {type}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="grid gap-2 text-sm">
-                          <span className="font-medium">Protocol</span>
-                          <input
-                            name="protocol"
-                            defaultValue={service.protocol}
-                            className="h-10 rounded-md border bg-background px-3"
-                          />
-                        </label>
-                        <label className="grid gap-2 text-sm">
-                          <span className="font-medium">Port</span>
-                          <input
-                            name="port"
-                            type="number"
-                            defaultValue={service.port}
-                            className="h-10 rounded-md border bg-background px-3"
-                          />
-                        </label>
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            name="enabled"
-                            type="checkbox"
-                            defaultChecked={service.enabled}
-                            className="size-4 rounded border"
-                          />
-                          Enabled
-                        </label>
-                        <div className="flex gap-2 md:justify-end">
-                          <Button
-                            type="submit"
-                            size="sm"
-                            disabled={updateService.isPending}
-                          >
-                            Save
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              void deleteService.mutateAsync({ id: service.id })
-                            }}
-                            disabled={deleteService.isPending}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      </form>
-                    ))}
-                  </div>
+                  )}
 
                   <form
                     className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-5 md:items-end"
@@ -508,61 +492,61 @@ export default function DevicesPage() {
                       })
                     }}
                   >
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Type</span>
-                      <select
+                    <FormField label="Type" htmlFor="new-service-type">
+                      <NativeSelect
+                        id="new-service-type"
                         value={newServiceType}
                         onChange={(event) =>
                           setNewServiceType(
                             event.target.value as (typeof serviceTypes)[number]
                           )
                         }
-                        className="h-10 rounded-md border bg-background px-3"
                       >
                         {serviceTypes.map((type) => (
                           <option key={type} value={type}>
                             {type}
                           </option>
                         ))}
-                      </select>
-                    </label>
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Protocol</span>
-                      <input
+                      </NativeSelect>
+                    </FormField>
+                    <FormField label="Protocol" htmlFor="new-service-protocol">
+                      <Input
+                        id="new-service-protocol"
                         value={newServiceProtocol}
                         onChange={(event) =>
                           setNewServiceProtocol(event.target.value)
                         }
-                        className="h-10 rounded-md border bg-background px-3"
                       />
-                    </label>
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Port</span>
-                      <input
+                    </FormField>
+                    <FormField label="Port" htmlFor="new-service-port">
+                      <Input
+                        id="new-service-port"
                         type="number"
                         value={newServicePort}
                         onChange={(event) =>
                           setNewServicePort(event.target.value)
                         }
-                        className="h-10 rounded-md border bg-background px-3"
                       />
-                    </label>
-                    <label className="grid gap-2 text-sm md:col-span-2">
-                      <span className="font-medium">Device</span>
-                      <select
+                    </FormField>
+                    <FormField
+                      label="Device"
+                      htmlFor="new-service-device"
+                      className="md:col-span-2"
+                    >
+                      <NativeSelect
+                        id="new-service-device"
                         value={newServiceDeviceId}
                         onChange={(event) =>
                           setNewServiceDeviceId(event.target.value)
                         }
-                        className="h-10 rounded-md border bg-background px-3"
                       >
                         {deviceIds.map((device) => (
                           <option key={device.id} value={device.id}>
                             {device.displayName}
                           </option>
                         ))}
-                      </select>
-                    </label>
+                      </NativeSelect>
+                    </FormField>
                     <div className="md:col-span-5">
                       <Button
                         type="submit"
@@ -578,9 +562,11 @@ export default function DevicesPage() {
                 </div>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Choose a device to edit it.
-              </p>
+              <EmptyState
+                title="No device selected"
+                description="Choose a device from the list to edit it."
+                bordered={false}
+              />
             )}
           </CardContent>
         </Card>

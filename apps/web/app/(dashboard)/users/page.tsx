@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,6 +13,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -21,10 +25,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { statusLabel } from "@/lib/dashboard"
+import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
 
 const organizationRoles = ["owner", "admin", "operator", "viewer"] as const
 const siteRoles = ["operator", "viewer"] as const
+const membershipStatuses = ["active", "suspended"] as const
 
 export default function UsersPage() {
   const utils = trpc.useUtils()
@@ -42,6 +52,14 @@ export default function UsersPage() {
     React.useState<(typeof siteRoles)[number]>("viewer")
   const [createSiteIds, setCreateSiteIds] = React.useState<string[]>([])
 
+  const [editOrganizationRole, setEditOrganizationRole] =
+    React.useState<(typeof organizationRoles)[number]>("viewer")
+  const [editStatus, setEditStatus] =
+    React.useState<(typeof membershipStatuses)[number]>("active")
+  const [grantSiteId, setGrantSiteId] = React.useState("")
+  const [grantSiteRole, setGrantSiteRole] =
+    React.useState<(typeof siteRoles)[number]>("viewer")
+
   const membersQuery = trpc.access.organizationMembers.useQuery(
     { organizationId: selectedOrganizationId },
     { enabled: Boolean(selectedOrganizationId) }
@@ -50,6 +68,14 @@ export default function UsersPage() {
   const createUser = trpc.access.createUser.useMutation({
     async onSuccess() {
       await utils.access.organizationMembers.invalidate()
+      setCreateName("")
+      setCreateEmail("")
+      setCreatePassword("")
+      setCreateSiteIds([])
+      toast.success("User created")
+    },
+    onError() {
+      toast.error("We couldn't create the user.")
     },
   })
 
@@ -57,12 +83,20 @@ export default function UsersPage() {
     trpc.access.updateOrganizationMembership.useMutation({
       async onSuccess() {
         await utils.access.organizationMembers.invalidate()
+        toast.success("Membership updated")
+      },
+      onError() {
+        toast.error("We couldn't update the membership.")
       },
     })
 
   const updateSiteMembership = trpc.access.updateSiteMembership.useMutation({
     async onSuccess() {
       await utils.access.organizationMembers.invalidate()
+      toast.success("Site access updated")
+    },
+    onError() {
+      toast.error("We couldn't update site access.")
     },
   })
 
@@ -103,20 +137,29 @@ export default function UsersPage() {
     [members, selectedMemberId]
   )
 
+  React.useEffect(() => {
+    if (selectedMember) {
+      setEditOrganizationRole(
+        selectedMember.membership.role as (typeof organizationRoles)[number]
+      )
+      setEditStatus(
+        selectedMember.membership.status as (typeof membershipStatuses)[number]
+      )
+      setGrantSiteRole("viewer")
+    }
+  }, [selectedMember])
+
+  React.useEffect(() => {
+    setGrantSiteId(organizationSites[0]?.id ?? "")
+  }, [organizationSites])
+
   return (
-    <div className="space-y-6">
-      <section className="flex flex-col gap-2">
-        <Badge variant="outline" className="w-fit">
-          Users
-        </Badge>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Access and memberships
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Create users for an organization, adjust roles, and grant access to
-          specific sites.
-        </p>
-      </section>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        badge="Users"
+        title="Access and memberships"
+        description="Create users for an organization, adjust roles, and grant access to specific sites."
+      />
 
       <Card>
         <CardHeader>
@@ -127,10 +170,9 @@ export default function UsersPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Organization</span>
-            <select
-              className="h-10 rounded-md border bg-background px-3"
+          <FormField label="Organization" htmlFor="user-create-organization">
+            <NativeSelect
+              id="user-create-organization"
               value={selectedOrganizationId}
               onChange={(event) =>
                 setSelectedOrganizationId(event.target.value)
@@ -142,12 +184,11 @@ export default function UsersPage() {
                   {organization.name}
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Organization role</span>
-            <select
-              className="h-10 rounded-md border bg-background px-3"
+            </NativeSelect>
+          </FormField>
+          <FormField label="Organization role" htmlFor="user-create-org-role">
+            <NativeSelect
+              id="user-create-org-role"
               value={createOrganizationRole}
               onChange={(event) =>
                 setCreateOrganizationRole(
@@ -157,41 +198,37 @@ export default function UsersPage() {
             >
               {organizationRoles.map((role) => (
                 <option key={role} value={role}>
-                  {role}
+                  {statusLabel(role)}
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Name</span>
-            <input
-              className="h-10 rounded-md border bg-background px-3"
+            </NativeSelect>
+          </FormField>
+          <FormField label="Name" htmlFor="user-create-name">
+            <Input
+              id="user-create-name"
               value={createName}
               onChange={(event) => setCreateName(event.target.value)}
             />
-          </label>
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Email</span>
-            <input
-              className="h-10 rounded-md border bg-background px-3"
+          </FormField>
+          <FormField label="Email" htmlFor="user-create-email">
+            <Input
+              id="user-create-email"
               type="email"
               value={createEmail}
               onChange={(event) => setCreateEmail(event.target.value)}
             />
-          </label>
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Temporary password</span>
-            <input
-              className="h-10 rounded-md border bg-background px-3"
+          </FormField>
+          <FormField label="Temporary password" htmlFor="user-create-password">
+            <Input
+              id="user-create-password"
               type="password"
               value={createPassword}
               onChange={(event) => setCreatePassword(event.target.value)}
             />
-          </label>
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Initial site role</span>
-            <select
-              className="h-10 rounded-md border bg-background px-3"
+          </FormField>
+          <FormField label="Initial site role" htmlFor="user-create-site-role">
+            <NativeSelect
+              id="user-create-site-role"
               value={createSiteRole}
               onChange={(event) =>
                 setCreateSiteRole(
@@ -201,44 +238,46 @@ export default function UsersPage() {
             >
               {siteRoles.map((role) => (
                 <option key={role} value={role}>
-                  {role}
+                  {statusLabel(role)}
                 </option>
               ))}
-            </select>
-          </label>
-          <div className="grid gap-3 md:col-span-2">
+            </NativeSelect>
+          </FormField>
+          <div className="flex flex-col gap-3 md:col-span-2">
             <p className="text-sm font-medium">Initial site grants</p>
-            <div className="flex flex-wrap gap-3">
-              {organizationSites.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No sites in this organization yet.
-                </p>
-              ) : (
-                organizationSites.map((site) => {
+            {organizationSites.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No sites in this organization yet.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-4">
+                {organizationSites.map((site) => {
                   const checked = createSiteIds.includes(site.id)
 
                   return (
-                    <label
-                      key={site.id}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <input
-                        type="checkbox"
+                    <div key={site.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`user-create-site-${site.id}`}
                         checked={checked}
-                        onChange={(event) => {
+                        onCheckedChange={(value) => {
                           setCreateSiteIds((current) =>
-                            event.target.checked
+                            value === true
                               ? [...current, site.id]
                               : current.filter((id) => id !== site.id)
                           )
                         }}
                       />
-                      {site.name}
-                    </label>
+                      <Label
+                        htmlFor={`user-create-site-${site.id}`}
+                        className="text-sm font-normal"
+                      >
+                        {site.name}
+                      </Label>
+                    </div>
                   )
-                })
-              )}
-            </div>
+                })}
+              </div>
+            )}
           </div>
           <div className="md:col-span-2">
             <Button
@@ -252,10 +291,6 @@ export default function UsersPage() {
                   siteIds: createSiteIds,
                   siteRole: createSiteRole,
                 })
-                setCreateName("")
-                setCreateEmail("")
-                setCreatePassword("")
-                setCreateSiteIds([])
               }}
               disabled={
                 !selectedOrganizationId ||
@@ -293,28 +328,28 @@ export default function UsersPage() {
                 <TableBody>
                   {membersQuery.isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={4} className="py-8 text-center">
+                      <TableCell colSpan={4} className="py-10">
                         <Skeleton className="h-5 w-40" />
                       </TableCell>
                     </TableRow>
                   ) : members.length === 0 ? (
                     <TableRow>
-                      <TableCell
-                        colSpan={4}
-                        className="py-8 text-center text-muted-foreground"
-                      >
-                        No members yet
+                      <TableCell colSpan={4} className="p-0">
+                        <EmptyState
+                          title="No members yet"
+                          description="Create a user above to add the first member."
+                          bordered={false}
+                        />
                       </TableCell>
                     </TableRow>
                   ) : (
                     members.map((member) => (
                       <TableRow
                         key={member.id}
-                        className={
-                          selectedMemberId === member.id
-                            ? "bg-muted/60"
-                            : undefined
-                        }
+                        className={cn(
+                          "cursor-pointer",
+                          selectedMemberId === member.id && "bg-muted/60"
+                        )}
                         onClick={() => setSelectedMemberId(member.id)}
                       >
                         <TableCell className="font-medium">
@@ -325,8 +360,22 @@ export default function UsersPage() {
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell>{member.membership.role}</TableCell>
-                        <TableCell>{member.membership.status}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {statusLabel(member.membership.role)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              member.membership.status === "active"
+                                ? "secondary"
+                                : "outline"
+                            }
+                          >
+                            {statusLabel(member.membership.status)}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {member.siteMemberships.length > 0
                             ? member.siteMemberships
@@ -352,7 +401,7 @@ export default function UsersPage() {
               Change the organization role or grant access to a site.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="flex flex-col gap-4">
             {selectedMember ? (
               <>
                 <div className="rounded-lg border bg-muted/20 p-4 text-sm">
@@ -362,55 +411,57 @@ export default function UsersPage() {
                   </p>
                 </div>
 
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Organization role</span>
-                  <select
-                    className="h-10 rounded-md border bg-background px-3"
-                    defaultValue={selectedMember.membership.role}
-                    id={`organization-role-${selectedMember.id}`}
+                <FormField
+                  label="Organization role"
+                  htmlFor={`member-org-role-${selectedMember.id}`}
+                >
+                  <NativeSelect
+                    id={`member-org-role-${selectedMember.id}`}
+                    value={editOrganizationRole}
+                    onChange={(event) =>
+                      setEditOrganizationRole(
+                        event.target.value as (typeof organizationRoles)[number]
+                      )
+                    }
                   >
                     {organizationRoles.map((role) => (
                       <option key={role} value={role}>
-                        {role}
+                        {statusLabel(role)}
                       </option>
                     ))}
-                  </select>
-                </label>
+                  </NativeSelect>
+                </FormField>
 
-                <label className="grid gap-2 text-sm">
-                  <span className="font-medium">Status</span>
-                  <select
-                    className="h-10 rounded-md border bg-background px-3"
-                    defaultValue={selectedMember.membership.status}
-                    id={`organization-status-${selectedMember.id}`}
+                <FormField
+                  label="Status"
+                  htmlFor={`member-status-${selectedMember.id}`}
+                >
+                  <NativeSelect
+                    id={`member-status-${selectedMember.id}`}
+                    value={editStatus}
+                    onChange={(event) =>
+                      setEditStatus(
+                        event.target
+                          .value as (typeof membershipStatuses)[number]
+                      )
+                    }
                   >
-                    <option value="active">active</option>
-                    <option value="suspended">suspended</option>
-                  </select>
-                </label>
+                    {membershipStatuses.map((status) => (
+                      <option key={status} value={status}>
+                        {statusLabel(status)}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </FormField>
 
                 <Button
+                  className="w-fit"
                   onClick={() => {
-                    const role = (
-                      document.getElementById(
-                        `organization-role-${selectedMember.id}`
-                      ) as HTMLSelectElement | null
-                    )?.value as (typeof organizationRoles)[number]
-                    const status = (
-                      document.getElementById(
-                        `organization-status-${selectedMember.id}`
-                      ) as HTMLSelectElement | null
-                    )?.value as "active" | "suspended"
-
-                    if (!role || !status) {
-                      return
-                    }
-
                     void updateOrganizationMembership.mutateAsync({
                       organizationId: selectedOrganizationId,
                       userId: selectedMember.id,
-                      role,
-                      status,
+                      role: editOrganizationRole,
+                      status: editStatus,
                     })
                   }}
                   disabled={updateOrganizationMembership.isPending}
@@ -418,15 +469,17 @@ export default function UsersPage() {
                   Save role
                 </Button>
 
-                <div className="space-y-3 border-t pt-4">
+                <div className="flex flex-col gap-3 border-t pt-4">
                   <p className="text-sm font-medium">Site grant</p>
-                  <div className="grid gap-3">
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Site</span>
-                      <select
-                        className="h-10 rounded-md border bg-background px-3"
-                        id={`site-id-${selectedMember.id}`}
-                        defaultValue={organizationSites[0]?.id ?? ""}
+                  <div className="flex flex-col gap-3">
+                    <FormField
+                      label="Site"
+                      htmlFor={`member-site-${selectedMember.id}`}
+                    >
+                      <NativeSelect
+                        id={`member-site-${selectedMember.id}`}
+                        value={grantSiteId}
+                        onChange={(event) => setGrantSiteId(event.target.value)}
                       >
                         <option value="">Choose a site</option>
                         {organizationSites.map((site) => (
@@ -434,48 +487,42 @@ export default function UsersPage() {
                             {site.name}
                           </option>
                         ))}
-                      </select>
-                    </label>
-                    <label className="grid gap-2 text-sm">
-                      <span className="font-medium">Role</span>
-                      <select
-                        className="h-10 rounded-md border bg-background px-3"
-                        id={`site-role-${selectedMember.id}`}
-                        defaultValue="viewer"
+                      </NativeSelect>
+                    </FormField>
+                    <FormField
+                      label="Role"
+                      htmlFor={`member-site-role-${selectedMember.id}`}
+                    >
+                      <NativeSelect
+                        id={`member-site-role-${selectedMember.id}`}
+                        value={grantSiteRole}
+                        onChange={(event) =>
+                          setGrantSiteRole(
+                            event.target.value as (typeof siteRoles)[number]
+                          )
+                        }
                       >
                         {siteRoles.map((role) => (
                           <option key={role} value={role}>
-                            {role}
+                            {statusLabel(role)}
                           </option>
                         ))}
-                      </select>
-                    </label>
+                      </NativeSelect>
+                    </FormField>
                     <Button
                       variant="outline"
+                      className="w-fit"
                       onClick={() => {
-                        const siteId = (
-                          document.getElementById(
-                            `site-id-${selectedMember.id}`
-                          ) as HTMLSelectElement | null
-                        )?.value
-                        const role = (
-                          document.getElementById(
-                            `site-role-${selectedMember.id}`
-                          ) as HTMLSelectElement | null
-                        )?.value as (typeof siteRoles)[number]
-
-                        if (!siteId || !role) {
-                          return
-                        }
+                        if (!grantSiteId) return
 
                         void updateSiteMembership.mutateAsync({
-                          siteId,
+                          siteId: grantSiteId,
                           userId: selectedMember.id,
-                          role,
+                          role: grantSiteRole,
                           status: "active",
                         })
                       }}
-                      disabled={updateSiteMembership.isPending}
+                      disabled={updateSiteMembership.isPending || !grantSiteId}
                     >
                       Save site grant
                     </Button>

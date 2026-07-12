@@ -2,9 +2,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Card,
   CardContent,
@@ -12,8 +14,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatDate } from "@/lib/dashboard"
+import { Textarea } from "@/components/ui/textarea"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { formatDate, statusLabel } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
 import { serviceDefaults, type ServiceType } from "@nms/shared"
 
@@ -54,6 +62,10 @@ export default function ConnectionsPage() {
         utils.managementServices.list.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      toast.success("Service created")
+    },
+    onError() {
+      toast.error("We couldn't create the service.")
     },
   })
   const updateService = trpc.managementServices.update.useMutation({
@@ -62,6 +74,10 @@ export default function ConnectionsPage() {
         utils.managementServices.list.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      toast.success("Service updated")
+    },
+    onError() {
+      toast.error("We couldn't update the service.")
     },
   })
   const setCredential = trpc.managementServices.setCredential.useMutation({
@@ -70,6 +86,10 @@ export default function ConnectionsPage() {
         utils.managementServices.list.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      toast.success("Password saved")
+    },
+    onError() {
+      toast.error("We couldn't save the password.")
     },
   })
   const setSshCredential = trpc.managementServices.setSshCredential.useMutation(
@@ -79,6 +99,10 @@ export default function ConnectionsPage() {
           utils.managementServices.list.invalidate(),
           utils.devices.list.invalidate(),
         ])
+        toast.success("SSH key saved")
+      },
+      onError() {
+        toast.error("We couldn't save the SSH key.")
       },
     }
   )
@@ -88,6 +112,10 @@ export default function ConnectionsPage() {
         utils.managementServices.list.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      toast.success("Credential cleared")
+    },
+    onError() {
+      toast.error("We couldn't clear the credential.")
     },
   })
   const deleteService = trpc.managementServices.delete.useMutation({
@@ -96,6 +124,10 @@ export default function ConnectionsPage() {
         utils.managementServices.list.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      toast.success("Service removed")
+    },
+    onError() {
+      toast.error("We couldn't remove the service.")
     },
   })
   const launchSession = trpc.sessions.create.useMutation({
@@ -105,6 +137,9 @@ export default function ConnectionsPage() {
       }
 
       window.open(result.url, "_blank", "noopener,noreferrer")
+    },
+    onError() {
+      toast.error("Couldn't start the session.")
     },
   })
 
@@ -144,19 +179,12 @@ export default function ConnectionsPage() {
   )
 
   return (
-    <div className="space-y-6">
-      <section className="flex flex-col gap-2">
-        <Badge variant="outline" className="w-fit">
-          Connections
-        </Badge>
-        <h1 className="text-3xl font-semibold tracking-tight">
-          Service entries
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Edit the service entries that the dashboard can launch sessions
-          against.
-        </p>
-      </section>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        badge="Connections"
+        title="Service entries"
+        description="Edit the service entries that the dashboard can launch sessions against."
+      />
 
       <Card>
         <CardHeader>
@@ -165,11 +193,14 @@ export default function ConnectionsPage() {
             Create the common remote access services with the known defaults.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <label className="grid gap-2 text-sm md:max-w-sm">
-            <span className="font-medium">Device</span>
-            <select
-              className="h-10 rounded-md border bg-background px-3"
+        <CardContent className="flex flex-col gap-4">
+          <FormField
+            label="Device"
+            htmlFor="connections-quick-device"
+            className="md:max-w-sm"
+          >
+            <NativeSelect
+              id="connections-quick-device"
               value={createDeviceId}
               onChange={(event) => setCreateDeviceId(event.target.value)}
             >
@@ -178,8 +209,8 @@ export default function ConnectionsPage() {
                   {device.displayName}
                 </option>
               ))}
-            </select>
-          </label>
+            </NativeSelect>
+          </FormField>
           <div className="grid gap-3 md:grid-cols-3">
             {quickServiceTypes.map((serviceType) => {
               const defaults = serviceDefaults[serviceType]
@@ -192,7 +223,7 @@ export default function ConnectionsPage() {
                   key={serviceType}
                   className="flex min-h-32 flex-col justify-between rounded-xl border bg-card p-4"
                 >
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="font-medium">
@@ -245,10 +276,9 @@ export default function ConnectionsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-5 md:items-end">
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Type</span>
-            <select
-              className="h-10 rounded-md border bg-background px-3"
+          <FormField label="Type" htmlFor="connections-custom-type">
+            <NativeSelect
+              id="connections-custom-type"
               value={createServiceType}
               onChange={(event) => {
                 const serviceType = event.target
@@ -265,25 +295,23 @@ export default function ConnectionsPage() {
                   {serviceLabels[type]}
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Protocol</span>
-            <input
-              className="h-10 rounded-md border bg-background px-3"
+            </NativeSelect>
+          </FormField>
+          <FormField label="Protocol" htmlFor="connections-custom-protocol">
+            <Input
+              id="connections-custom-protocol"
               value={createProtocol}
               onChange={(event) => setCreateProtocol(event.target.value)}
             />
-          </label>
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Port</span>
-            <input
+          </FormField>
+          <FormField label="Port" htmlFor="connections-custom-port">
+            <Input
+              id="connections-custom-port"
               type="number"
-              className="h-10 rounded-md border bg-background px-3"
               value={createPort}
               onChange={(event) => setCreatePort(event.target.value)}
             />
-          </label>
+          </FormField>
           <div>
             <Button
               onClick={() => {
@@ -308,14 +336,17 @@ export default function ConnectionsPage() {
           <CardTitle>Current services</CardTitle>
           <CardDescription>Edit or remove existing entries.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="flex flex-col gap-3">
           {servicesQuery.isLoading ? (
             <div className="grid gap-3">
               <Skeleton className="h-24 w-full" />
               <Skeleton className="h-24 w-full" />
             </div>
           ) : services.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No services yet.</p>
+            <EmptyState
+              title="No services yet"
+              description="Enable a service above to make it available for sessions."
+            />
           ) : (
             services.map((service) => {
               const serviceType = service.serviceType as ServiceType
@@ -354,8 +385,9 @@ export default function ConnectionsPage() {
                           "Unknown device"}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {serviceLabels[serviceType]} · {service.healthStatus} ·
-                        last checked {formatDate(service.lastCheckedAt)}
+                        {serviceLabels[serviceType]} ·{" "}
+                        {statusLabel(service.healthStatus)} · last checked{" "}
+                        {formatDate(service.lastCheckedAt)}
                       </p>
                     </div>
                     <Badge variant={service.enabled ? "secondary" : "outline"}>
@@ -364,7 +396,7 @@ export default function ConnectionsPage() {
                   </div>
 
                   {isPasswordService ? (
-                    <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 text-sm md:col-span-5">
+                    <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-3 text-sm md:col-span-5">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <p className="font-medium">
@@ -404,37 +436,43 @@ export default function ConnectionsPage() {
                     </div>
                   ) : (
                     <>
-                      <label className="grid gap-2 text-sm">
-                        <span className="font-medium">Type</span>
-                        <select
+                      <FormField
+                        label="Type"
+                        htmlFor={`connections-type-${service.id}`}
+                      >
+                        <NativeSelect
+                          id={`connections-type-${service.id}`}
                           name="serviceType"
                           defaultValue={service.serviceType}
-                          className="h-10 rounded-md border bg-background px-3"
                         >
                           {serviceTypes.map((type) => (
                             <option key={type} value={type}>
                               {serviceLabels[type]}
                             </option>
                           ))}
-                        </select>
-                      </label>
-                      <label className="grid gap-2 text-sm">
-                        <span className="font-medium">Protocol</span>
-                        <input
+                        </NativeSelect>
+                      </FormField>
+                      <FormField
+                        label="Protocol"
+                        htmlFor={`connections-protocol-${service.id}`}
+                      >
+                        <Input
+                          id={`connections-protocol-${service.id}`}
                           name="protocol"
                           defaultValue={service.protocol}
-                          className="h-10 rounded-md border bg-background px-3"
                         />
-                      </label>
-                      <label className="grid gap-2 text-sm">
-                        <span className="font-medium">Port</span>
-                        <input
+                      </FormField>
+                      <FormField
+                        label="Port"
+                        htmlFor={`connections-port-${service.id}`}
+                      >
+                        <Input
+                          id={`connections-port-${service.id}`}
                           name="port"
                           type="number"
                           defaultValue={service.port}
-                          className="h-10 rounded-md border bg-background px-3"
                         />
-                      </label>
+                      </FormField>
                       {isSsh ? (
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge
@@ -465,15 +503,19 @@ export default function ConnectionsPage() {
                     </>
                   )}
 
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`connections-enabled-${service.id}`}
                       name="enabled"
-                      type="checkbox"
                       defaultChecked={service.enabled}
-                      className="size-4 rounded border"
                     />
-                    Enabled
-                  </label>
+                    <Label
+                      htmlFor={`connections-enabled-${service.id}`}
+                      className="text-sm font-normal"
+                    >
+                      Enabled
+                    </Label>
+                  </div>
                   <div className="flex gap-2">
                     <Button
                       type="submit"
@@ -496,11 +538,11 @@ export default function ConnectionsPage() {
                   </div>
                   {isVnc ? (
                     <div className="flex flex-wrap gap-2 md:col-span-5">
-                      <input
+                      <Input
                         name={`password-${service.id}`}
                         type="password"
                         placeholder="Set password"
-                        className="h-10 min-w-64 rounded-md border bg-background px-3"
+                        className="min-w-64"
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault()
@@ -547,22 +589,21 @@ export default function ConnectionsPage() {
                     </div>
                   ) : null}
                   {isSsh ? (
-                    <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 md:col-span-5">
+                    <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-3 md:col-span-5">
                       <div className="grid gap-2 md:grid-cols-2">
-                        <input
+                        <Input
                           name={`ssh-username-${service.id}`}
                           placeholder="Username"
-                          className="h-10 rounded-md border bg-background px-3"
                           onKeyDown={(event) => {
                             if (event.key === "Enter") {
                               event.preventDefault()
                             }
                           }}
                         />
-                        <textarea
+                        <Textarea
                           name={`ssh-private-key-${service.id}`}
                           placeholder="Private key"
-                          className="min-h-24 rounded-md border bg-background px-3 py-2 font-mono text-xs"
+                          className="min-h-24 font-mono text-xs"
                         />
                       </div>
                       <div className="flex flex-wrap gap-2">

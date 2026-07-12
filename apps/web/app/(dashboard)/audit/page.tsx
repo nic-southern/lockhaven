@@ -19,15 +19,142 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { formatDate } from "@/lib/dashboard"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { formatDate, statusLabel } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
+
+const detailKeyLabels: Record<string, string> = {
+  organizationId: "Organization",
+  deviceId: "Device",
+  siteId: "Site",
+  routePolicyId: "Route policy",
+  tokenId: "Token",
+  serviceId: "Service",
+  serviceType: "Service type",
+  displayName: "Display name",
+  hostname: "Hostname",
+  name: "Name",
+  port: "Port",
+  enabled: "Enabled",
+  revoked: "Revoked",
+  siteWide: "Site-wide",
+  maxUses: "Max uses",
+  expiresAt: "Expires",
+  vpnIpv4: "VPN address",
+  serviceCount: "Services",
+  organization: "Organization",
+}
+
+function humanizeDetailKey(key: string) {
+  if (detailKeyLabels[key]) {
+    return detailKeyLabels[key]
+  }
+
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/^./, (character) => character.toUpperCase())
+}
+
+function shortId(value: string) {
+  return value.length > 10 ? `${value.slice(0, 8)}…` : value
+}
+
+function isIsoDateLike(value: string) {
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)
+}
+
+type DetailLookups = {
+  organizationNameById: Map<string, string>
+  deviceNameById: Map<string, string>
+  siteNameById: Map<string, string>
+  routePolicyNameById: Map<string, string>
+}
+
+function formatDetailValue(
+  key: string,
+  value: unknown,
+  lookups: DetailLookups
+) {
+  if (value === null || value === undefined || value === "") {
+    return "—"
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No"
+  }
+
+  if (typeof value === "string") {
+    if (key === "organizationId") {
+      return lookups.organizationNameById.get(value) ?? shortId(value)
+    }
+    if (key === "deviceId") {
+      return lookups.deviceNameById.get(value) ?? shortId(value)
+    }
+    if (key === "siteId") {
+      return lookups.siteNameById.get(value) ?? shortId(value)
+    }
+    if (key === "routePolicyId") {
+      return lookups.routePolicyNameById.get(value) ?? shortId(value)
+    }
+    if (key === "serviceType") {
+      return statusLabel(value)
+    }
+    if (key === "tokenId" || key === "serviceId") {
+      return shortId(value)
+    }
+    if (isIsoDateLike(value)) {
+      return formatDate(value)
+    }
+
+    return value
+  }
+
+  return String(value)
+}
 
 export default function AuditPage() {
   const auditQuery = trpc.audit.list.useQuery({})
   const organizationsQuery = trpc.organizations.list.useQuery()
   const devicesQuery = trpc.devices.list.useQuery()
+  const sitesQuery = trpc.sites.list.useQuery()
+  const routePoliciesQuery = trpc.routePolicies.list.useQuery()
   const [organizationId, setOrganizationId] = React.useState("")
   const [deviceId, setDeviceId] = React.useState("")
+
+  const organizations = React.useMemo(
+    () => organizationsQuery.data ?? [],
+    [organizationsQuery.data]
+  )
+  const devices = React.useMemo(
+    () => devicesQuery.data ?? [],
+    [devicesQuery.data]
+  )
+  const sites = React.useMemo(() => sitesQuery.data ?? [], [sitesQuery.data])
+  const routePolicies = React.useMemo(
+    () => routePoliciesQuery.data ?? [],
+    [routePoliciesQuery.data]
+  )
+
+  const lookups = React.useMemo<DetailLookups>(
+    () => ({
+      organizationNameById: new Map(
+        organizations.map((organization) => [
+          organization.id,
+          organization.name,
+        ])
+      ),
+      deviceNameById: new Map(
+        devices.map((device) => [device.id, device.displayName])
+      ),
+      siteNameById: new Map(sites.map((site) => [site.id, site.name])),
+      routePolicyNameById: new Map(
+        routePolicies.map((policy) => [policy.id, policy.name])
+      ),
+    }),
+    [organizations, devices, sites, routePolicies]
+  )
 
   const filteredAudit = React.useMemo(() => {
     return (auditQuery.data ?? []).filter((event) => {
@@ -41,20 +168,13 @@ export default function AuditPage() {
     })
   }, [auditQuery.data, organizationId, deviceId])
 
-  const organizations = organizationsQuery.data ?? []
-  const devices = devicesQuery.data ?? []
-
   return (
-    <div className="space-y-6">
-      <section className="flex flex-col gap-2">
-        <Badge variant="outline" className="w-fit">
-          Audit
-        </Badge>
-        <h1 className="text-3xl font-semibold tracking-tight">Activity log</h1>
-        <p className="text-sm text-muted-foreground">
-          Review recent operational changes across the workspace.
-        </p>
-      </section>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        badge="Audit"
+        title="Activity log"
+        description="Review recent operational changes across the workspace."
+      />
 
       <Card>
         <CardHeader>
@@ -64,10 +184,9 @@ export default function AuditPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Organization</span>
-            <select
-              className="h-10 rounded-md border bg-background px-3"
+          <FormField label="Organization" htmlFor="audit-filter-organization">
+            <NativeSelect
+              id="audit-filter-organization"
               value={organizationId}
               onChange={(event) => setOrganizationId(event.target.value)}
             >
@@ -77,12 +196,11 @@ export default function AuditPage() {
                   {organization.name}
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="grid gap-2 text-sm">
-            <span className="font-medium">Device</span>
-            <select
-              className="h-10 rounded-md border bg-background px-3"
+            </NativeSelect>
+          </FormField>
+          <FormField label="Device" htmlFor="audit-filter-device">
+            <NativeSelect
+              id="audit-filter-device"
               value={deviceId}
               onChange={(event) => setDeviceId(event.target.value)}
             >
@@ -92,8 +210,8 @@ export default function AuditPage() {
                   {device.displayName}
                 </option>
               ))}
-            </select>
-          </label>
+            </NativeSelect>
+          </FormField>
         </CardContent>
       </Card>
 
@@ -119,38 +237,64 @@ export default function AuditPage() {
               <TableBody>
                 {auditQuery.isLoading ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="py-8 text-center text-muted-foreground"
-                    >
+                    <TableCell colSpan={5} className="py-10">
                       <Skeleton className="h-5 w-40" />
                     </TableCell>
                   </TableRow>
                 ) : filteredAudit.length === 0 ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="py-8 text-center text-muted-foreground"
-                    >
-                      No events yet
+                    <TableCell colSpan={5} className="p-0">
+                      <EmptyState
+                        title="No events yet"
+                        description="Operational changes will show up here as they happen."
+                        bordered={false}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredAudit.map((event) => {
                     const details = Object.entries(event.eventData ?? {})
-                      .map(([key, value]) => `${key}: ${String(value)}`)
-                      .join(", ")
+                    const organizationName = event.organizationId
+                      ? (lookups.organizationNameById.get(
+                          event.organizationId
+                        ) ?? shortId(event.organizationId))
+                      : "—"
+                    const deviceName = event.deviceId
+                      ? (lookups.deviceNameById.get(event.deviceId) ??
+                        shortId(event.deviceId))
+                      : "—"
 
                     return (
                       <TableRow key={event.id}>
                         <TableCell className="font-medium">
-                          {event.eventType}
+                          <Badge variant="outline">
+                            {statusLabel(event.eventType)}
+                          </Badge>
                         </TableCell>
-                        <TableCell>{event.organizationId ?? "—"}</TableCell>
-                        <TableCell>{event.deviceId ?? "—"}</TableCell>
-                        <TableCell>{formatDate(event.createdAt)}</TableCell>
-                        <TableCell className="text-sm break-words text-muted-foreground">
-                          {details || "—"}
+                        <TableCell>{organizationName}</TableCell>
+                        <TableCell>{deviceName}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(event.createdAt)}
+                        </TableCell>
+                        <TableCell>
+                          {details.length === 0 ? (
+                            <span className="text-sm text-muted-foreground">
+                              —
+                            </span>
+                          ) : (
+                            <div className="flex flex-col gap-0.5 text-xs">
+                              {details.map(([key, value]) => (
+                                <div key={key} className="flex gap-1.5">
+                                  <span className="text-muted-foreground">
+                                    {humanizeDetailKey(key)}:
+                                  </span>
+                                  <span className="font-medium break-all">
+                                    {formatDetailValue(key, value, lookups)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     )

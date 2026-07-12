@@ -5,6 +5,7 @@ import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -24,20 +25,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { CodeBlock } from "@/components/dashboard/code-block"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import {
-  getClientProductName,
-  getClientSocEnrollmentPassword,
-  getClientSocBaseUrl,
-  getClientVpnBaseUrl,
-} from "@/lib/product-name"
-import { getApiBaseUrl, trpc } from "@/lib/trpc"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { StatStrip } from "@/components/dashboard/stat-strip"
+import { formatDate, statusLabel, statusVariant } from "@/lib/dashboard"
 import {
   buildLinuxInstallCommand,
-  buildSocWindowsInstallCommand,
-  buildVpnAndSocWindowsInstallCommand,
   buildWindowsInstallCommand,
 } from "@/lib/enrollment-commands"
+import { getClientProductName, getClientVpnBaseUrl } from "@/lib/product-name"
+import { getApiBaseUrl, trpc } from "@/lib/trpc"
 
 type HealthResponse = {
   ok: boolean
@@ -45,34 +45,18 @@ type HealthResponse = {
   redis: "ok" | "degraded"
 }
 
-const statusVariant: Record<
-  string,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  service_online: "default",
-  vpn_online: "secondary",
-  degraded: "destructive",
-  offline: "outline",
-  enrolled: "secondary",
-  pending: "outline",
-  revoked: "destructive",
-}
-
-function formatDate(value: string | Date | null | undefined) {
-  if (!value) {
-    return "—"
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value))
-}
-
 const ENROLLMENT_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 function getEnrollmentTokenExpiration() {
   return new Date(Date.now() + ENROLLMENT_TOKEN_TTL_MS)
+}
+
+function healthLabel(value: string | undefined, loading: boolean) {
+  if (loading) {
+    return "Checking"
+  }
+
+  return statusLabel(value ?? "Down")
 }
 
 export default function Page() {
@@ -84,10 +68,6 @@ export default function Page() {
   const [enrollmentToken, setEnrollmentToken] = React.useState("")
   const [installBaseUrl, setInstallBaseUrl] =
     React.useState(getClientVpnBaseUrl)
-  const [socBaseUrl, setSocBaseUrl] = React.useState(getClientSocBaseUrl)
-  const [socEnrollmentPassword, setSocEnrollmentPassword] = React.useState(
-    getClientSocEnrollmentPassword
-  )
   const [enrollmentError, setEnrollmentError] = React.useState<string | null>(
     null
   )
@@ -157,7 +137,7 @@ export default function Page() {
         siteName: string | null
         hostname: string | null
         displayName: string
-        status: keyof typeof statusVariant
+        status: string
         lastSeenAt: string | Date | null
         vpnIpv4: string | null
         vpnRoutePolicyId: string | null
@@ -216,6 +196,9 @@ export default function Page() {
 
       window.open(result.url, "_blank", "noopener,noreferrer")
     },
+    onError() {
+      toast.error("Couldn't start the session.")
+    },
   })
 
   const launchSshSession = trpc.sessions.create.useMutation({
@@ -225,6 +208,9 @@ export default function Page() {
       }
 
       window.open(result.url, "_blank", "noopener,noreferrer")
+    },
+    onError() {
+      toast.error("Couldn't start the session.")
     },
   })
 
@@ -239,8 +225,6 @@ export default function Page() {
 
   React.useEffect(() => {
     setInstallBaseUrl(getClientVpnBaseUrl())
-    setSocBaseUrl(getClientSocBaseUrl())
-    setSocEnrollmentPassword(getClientSocEnrollmentPassword())
   }, [])
 
   React.useEffect(() => {
@@ -271,8 +255,10 @@ export default function Page() {
       })
 
       setEnrollmentToken(result.token)
+      toast.success("Enrollment token created")
     } catch {
       setEnrollmentError("We couldn't create an enrollment token.")
+      toast.error("We couldn't create an enrollment token.")
     }
   }
 
@@ -288,75 +274,39 @@ export default function Page() {
         baseUrl: installBaseUrl,
       })
     : ""
-  const selectedSiteName = selectedSiteId
-    ? (siteNameById.get(selectedSiteId) ?? "")
-    : ""
-  const showSocCommands = Boolean(socBaseUrl)
-  const socCommandFallback = !selectedSiteName
-    ? "Choose a site to create this command."
-    : "Add an enrollment password to create this command."
-  const socWindowsInstallCommand =
-    socBaseUrl && socEnrollmentPassword && selectedSiteName
-      ? buildSocWindowsInstallCommand({
-          baseUrl: socBaseUrl,
-          siteName: selectedSiteName,
-          enrollmentPassword: socEnrollmentPassword,
-        })
-      : ""
-  const windowsVpnAndSocInstallCommand =
-    enrollmentToken && socBaseUrl && socEnrollmentPassword && selectedSiteName
-      ? buildVpnAndSocWindowsInstallCommand({
-          vpnToken: enrollmentToken,
-          vpnBaseUrl: installBaseUrl,
-          socBaseUrl,
-          siteName: selectedSiteName,
-          enrollmentPassword: socEnrollmentPassword,
-        })
-      : ""
 
   return (
     <DashboardShell>
-      <div className="flex w-full flex-col gap-6">
-        <section className="flex flex-col gap-4 rounded-2xl border bg-card p-6 shadow-sm">
-          <div className="flex flex-col gap-2">
-            <Badge variant="outline" className="w-fit">
-              Management dashboard
-            </Badge>
-            <h1 className="text-3xl font-semibold tracking-tight">
-              Device inventory and private management
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Track enrolled devices, review VPN and service state, and start
-              remote sessions without exposing management services directly.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Button onClick={() => setEnrollmentOpen((open) => !open)}>
-              New enrollment token
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/enrollment-tokens">Manage enrollment tokens</Link>
-            </Button>
-          </div>
-        </section>
+      <div className="flex w-full flex-col gap-8">
+        <PageHeader
+          badge="Overview"
+          title="Device inventory and private access"
+          description="Track enrolled devices, review connectivity, and start remote sessions without exposing management services."
+          actions={
+            <>
+              <Button onClick={() => setEnrollmentOpen((open) => !open)}>
+                {enrollmentOpen ? "Hide enrollment" : "New enrollment token"}
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href="/enrollment-tokens">Manage tokens</Link>
+              </Button>
+            </>
+          }
+        />
 
         {enrollmentOpen ? (
-          <Card>
+          <Card className="border-border/80 shadow-none">
             <CardHeader>
-              <CardTitle>Enroll a Device</CardTitle>
+              <CardTitle>Enroll a device</CardTitle>
               <CardDescription>
                 Choose where the device belongs, then run the installer.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <div className="space-y-4">
-                <div className="grid gap-2 text-sm">
-                  <label htmlFor="site" className="font-medium">
-                    Site
-                  </label>
-                  <select
+            <CardContent className="grid gap-6 lg:grid-cols-2">
+              <div className="flex flex-col gap-4">
+                <FormField label="Site" htmlFor="site">
+                  <NativeSelect
                     id="site"
-                    className="h-10 rounded-md border bg-background px-3"
                     value={selectedSiteId}
                     onChange={(event) => setSelectedSiteId(event.target.value)}
                     disabled={sites.length === 0}
@@ -367,15 +317,11 @@ export default function Page() {
                         {site.name}
                       </option>
                     ))}
-                  </select>
-                </div>
-                <div className="grid gap-2 text-sm">
-                  <label htmlFor="routePolicy" className="font-medium">
-                    Route policy
-                  </label>
-                  <select
+                  </NativeSelect>
+                </FormField>
+                <FormField label="Route policy" htmlFor="routePolicy">
+                  <NativeSelect
                     id="routePolicy"
-                    className="h-10 rounded-md border bg-background px-3"
                     value={selectedRoutePolicyId}
                     onChange={(event) =>
                       setSelectedRoutePolicyId(event.target.value)
@@ -387,9 +333,10 @@ export default function Page() {
                         {routePolicy.name}
                       </option>
                     ))}
-                  </select>
-                </div>
+                  </NativeSelect>
+                </FormField>
                 <Button
+                  className="w-fit"
                   onClick={() => {
                     void handleCreateEnrollmentToken()
                   }}
@@ -401,69 +348,28 @@ export default function Page() {
                   Create token
                 </Button>
                 {enrollmentToken ? (
-                  <div className="rounded-lg border bg-muted/40 p-3 text-sm">
-                    <p className="mb-2 font-medium">Enrollment token</p>
-                    <code className="break-all">{enrollmentToken}</code>
-                  </div>
+                  <CodeBlock label="Enrollment token" value={enrollmentToken} />
                 ) : null}
               </div>
 
-              <div className="space-y-4">
-                <div>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1">
                   <p className="font-medium">Run the installer</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     Create a token, then run one command on the device.
                   </p>
                 </div>
                 {enrollmentToken ? (
-                  <div className="space-y-3">
-                    <div className="rounded-lg border bg-muted/40 p-3 text-sm">
-                      <p className="mb-2 font-medium">VPN Windows</p>
-                      <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
-                        {windowsInstallCommand}
-                      </pre>
-                    </div>
-                    {showSocCommands ? (
-                      <>
-                        <div className="rounded-lg border bg-muted/40 p-3 text-sm">
-                          <p className="mb-2 font-medium">
-                            VPN + Lockhaven SOC Host
-                          </p>
-                          {windowsVpnAndSocInstallCommand ? (
-                            <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
-                              {windowsVpnAndSocInstallCommand}
-                            </pre>
-                          ) : (
-                            <p className="text-muted-foreground">
-                              {socCommandFallback}
-                            </p>
-                          )}
-                        </div>
-                        <div className="rounded-lg border bg-muted/40 p-3 text-sm">
-                          <p className="mb-2 font-medium">SOC only Windows</p>
-                          {socWindowsInstallCommand ? (
-                            <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
-                              {socWindowsInstallCommand}
-                            </pre>
-                          ) : (
-                            <p className="text-muted-foreground">
-                              {socCommandFallback}
-                            </p>
-                          )}
-                        </div>
-                      </>
-                    ) : null}
-                    <div className="rounded-lg border bg-muted/40 p-3 text-sm">
-                      <p className="mb-2 font-medium">Linux</p>
-                      <pre className="overflow-auto rounded-md bg-background p-3 text-xs whitespace-pre-wrap">
-                        {linuxInstallCommand}
-                      </pre>
-                    </div>
+                  <div className="flex flex-col gap-3">
+                    <CodeBlock label="Windows" value={windowsInstallCommand} />
+                    <CodeBlock label="Linux" value={linuxInstallCommand} />
                   </div>
                 ) : (
-                  <div className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-                    Installer commands appear after you create a token.
-                  </div>
+                  <EmptyState
+                    title="No token yet"
+                    description="Installer commands appear after you create a token."
+                    bordered
+                  />
                 )}
                 {enrollmentError ? (
                   <p className="text-sm text-destructive">{enrollmentError}</p>
@@ -473,264 +379,237 @@ export default function Page() {
           </Card>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader>
-              <CardDescription>Devices</CardDescription>
-              <CardTitle className="text-3xl">
+        <StatStrip
+          items={[
+            {
+              label: "Devices",
+              value: devicesQuery.isLoading ? (
+                <Skeleton className="h-8 w-12" />
+              ) : (
+                devices.length
+              ),
+            },
+            {
+              label: "Organizations",
+              value: organizationsQuery.isLoading ? (
+                <Skeleton className="h-8 w-12" />
+              ) : (
+                organizations.length
+              ),
+            },
+            {
+              label: "Sites",
+              value: sitesQuery.isLoading ? (
+                <Skeleton className="h-8 w-12" />
+              ) : (
+                sites.length
+              ),
+            },
+            {
+              label: "Connectivity",
+              value: healthQuery.isLoading ? (
+                <Skeleton className="h-8 w-16" />
+              ) : healthQuery.data?.ok ? (
+                "Healthy"
+              ) : (
+                "Degraded"
+              ),
+            },
+          ]}
+        />
+
+        <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 rounded-lg border bg-card/60 px-3 py-2">
+            <span>Records</span>
+            <Badge
+              variant={
+                healthQuery.data?.postgres === "ok"
+                  ? "secondary"
+                  : "destructive"
+              }
+            >
+              {healthLabel(healthQuery.data?.postgres, healthQuery.isLoading)}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border bg-card/60 px-3 py-2">
+            <span>Jobs</span>
+            <Badge
+              variant={
+                healthQuery.data?.redis === "ok" ? "secondary" : "destructive"
+              }
+            >
+              {healthLabel(healthQuery.data?.redis, healthQuery.isLoading)}
+            </Badge>
+          </div>
+        </div>
+
+        <section className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-semibold tracking-tight">Devices</h2>
+            <p className="text-sm text-muted-foreground">
+              Live inventory and status from enrolled devices.
+            </p>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-border/80 bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Device</TableHead>
+                  <TableHead>Site</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>VPN</TableHead>
+                  <TableHead>Policy</TableHead>
+                  <TableHead>Remote</TableHead>
+                  <TableHead>Last connected</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {devicesQuery.isLoading ? (
-                  <Skeleton className="h-9 w-16" />
-                ) : (
-                  devices.length
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              Devices currently known to the system.
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardDescription>Organizations</CardDescription>
-              <CardTitle className="text-3xl">
-                {organizationsQuery.isLoading ? (
-                  <Skeleton className="h-9 w-16" />
-                ) : (
-                  organizations.length
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              Top-level groups in your workspace.
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardDescription>Sites</CardDescription>
-              <CardTitle className="text-3xl">
-                {sitesQuery.isLoading ? (
-                  <Skeleton className="h-9 w-16" />
-                ) : (
-                  sites.length
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              Locations attached to enrolled devices.
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardDescription>Connectivity</CardDescription>
-              <CardTitle className="text-3xl">
-                {healthQuery.isLoading ? (
-                  <Skeleton className="h-9 w-16" />
-                ) : healthQuery.data?.ok ? (
-                  "OK"
-                ) : (
-                  "Degraded"
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
-              <div className="flex items-center justify-between gap-2">
-                <span>Records</span>
-                <Badge
-                  variant={
-                    healthQuery.data?.postgres === "ok"
-                      ? "secondary"
-                      : "destructive"
-                  }
-                >
-                  {healthQuery.isLoading
-                    ? "Checking"
-                    : (healthQuery.data?.postgres ?? "Down")}
-                </Badge>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>Jobs</span>
-                <Badge
-                  variant={
-                    healthQuery.data?.redis === "ok"
-                      ? "secondary"
-                      : "destructive"
-                  }
-                >
-                  {healthQuery.isLoading
-                    ? "Checking"
-                    : (healthQuery.data?.redis ?? "Down")}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Devices</CardTitle>
-            <CardDescription>
-              Live inventory and status from enrolled devices
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader>
                   <TableRow>
-                    <TableHead>Device</TableHead>
-                    <TableHead>Site</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>VPN</TableHead>
-                    <TableHead>Policy</TableHead>
-                    <TableHead>Remote</TableHead>
-                    <TableHead>Last connected</TableHead>
+                    <TableCell colSpan={7} className="py-10">
+                      <div className="flex flex-col gap-2">
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-4/5" />
+                        <Skeleton className="h-4 w-3/5" />
+                      </div>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {devicesQuery.isLoading ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={7}
-                        className="py-8 text-center text-muted-foreground"
-                      >
-                        Loading devices...
-                      </TableCell>
-                    </TableRow>
-                  ) : devices.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={7}
-                        className="py-8 text-center text-muted-foreground"
-                      >
-                        No devices yet
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    devices.map((device) => {
-                      const siteName =
-                        device.siteName ??
-                        (device.siteId
-                          ? (siteNameById.get(device.siteId) ?? "—")
-                          : "—")
-                      const vpnStatus = device.vpnRevokedAt
-                        ? "revoked"
-                        : device.vpnLastHandshakeAt
-                          ? "vpn_online"
-                          : "pending"
+                ) : devices.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="p-0">
+                      <EmptyState
+                        title="No devices yet"
+                        description="Create an enrollment token to add the first device."
+                        bordered={false}
+                        action={
+                          <Button onClick={() => setEnrollmentOpen(true)}>
+                            New enrollment token
+                          </Button>
+                        }
+                      />
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  devices.map((device) => {
+                    const siteName =
+                      device.siteName ??
+                      (device.siteId
+                        ? (siteNameById.get(device.siteId) ?? "—")
+                        : "—")
+                    const vpnStatus = device.vpnRevokedAt
+                      ? "revoked"
+                      : device.vpnLastHandshakeAt
+                        ? "vpn_online"
+                        : "pending"
 
-                      return (
-                        <TableRow
-                          key={device.id}
-                          className="cursor-pointer"
-                          onClick={() => {
-                            router.push(`/devices/${device.id}`)
-                          }}
-                        >
-                          <TableCell className="font-medium">
-                            <div className="flex flex-col gap-1">
-                              <span>{device.displayName}</span>
-                              {device.hostname ? (
-                                <span className="text-xs text-muted-foreground">
-                                  {device.hostname}
-                                </span>
-                              ) : null}
-                            </div>
-                          </TableCell>
-                          <TableCell>{siteName}</TableCell>
-                          <TableCell>
+                    return (
+                      <TableRow
+                        key={device.id}
+                        className="cursor-pointer"
+                        onClick={() => {
+                          router.push(`/devices/${device.id}`)
+                        }}
+                      >
+                        <TableCell className="font-medium">
+                          <div className="flex flex-col gap-1">
+                            <span>{device.displayName}</span>
+                            {device.hostname ? (
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {device.hostname}
+                              </span>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>{siteName}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              statusVariant[device.status] ?? "secondary"
+                            }
+                          >
+                            {statusLabel(device.status)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <span className="font-mono text-xs">
+                              {device.vpnIpv4 ?? "—"}
+                            </span>
                             <Badge
-                              variant={
-                                statusVariant[device.status] ?? "secondary"
-                              }
+                              variant={statusVariant[vpnStatus] ?? "outline"}
                             >
-                              {device.status.replaceAll("_", " ")}
+                              {statusLabel(vpnStatus)}
                             </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-1">
-                              <span>{device.vpnIpv4 ?? "—"}</span>
-                              <Badge
-                                variant={statusVariant[vpnStatus] ?? "outline"}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {device.vpnRoutePolicyId
+                            ? (routePolicyNameById.get(
+                                device.vpnRoutePolicyId
+                              ) ?? "—")
+                            : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            {firstEnabledVncServiceByDeviceId.get(device.id) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void launchVncSession.mutateAsync({
+                                    deviceId: device.id,
+                                    serviceId:
+                                      firstEnabledVncServiceByDeviceId.get(
+                                        device.id
+                                      )!.id,
+                                    connectionMethod: "guacamole",
+                                  })
+                                }}
+                                disabled={launchVncSession.isPending}
                               >
-                                {vpnStatus.replaceAll("_", " ")}
-                              </Badge>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {device.vpnRoutePolicyId
-                              ? (routePolicyNameById.get(
-                                  device.vpnRoutePolicyId
-                                ) ?? "—")
-                              : "—"}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-2">
-                              {firstEnabledVncServiceByDeviceId.get(
-                                device.id
-                              ) ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    void launchVncSession.mutateAsync({
-                                      deviceId: device.id,
-                                      serviceId:
-                                        firstEnabledVncServiceByDeviceId.get(
-                                          device.id
-                                        )!.id,
-                                      connectionMethod: "guacamole",
-                                    })
-                                  }}
-                                  disabled={launchVncSession.isPending}
-                                >
-                                  VNC
-                                </Button>
-                              ) : null}
-                              {firstEnabledSshServiceByDeviceId.get(
-                                device.id
-                              ) ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    void launchSshSession.mutateAsync({
-                                      deviceId: device.id,
-                                      serviceId:
-                                        firstEnabledSshServiceByDeviceId.get(
-                                          device.id
-                                        )!.id,
-                                      connectionMethod: "guacamole",
-                                    })
-                                  }}
-                                  disabled={launchSshSession.isPending}
-                                >
-                                  SSH
-                                </Button>
-                              ) : null}
-                              {!firstEnabledVncServiceByDeviceId.get(
-                                device.id
-                              ) &&
-                              !firstEnabledSshServiceByDeviceId.get(device.id)
-                                ? "—"
-                                : null}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {formatDate(
-                              device.vpnLastHandshakeAt ?? device.lastSeenAt
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+                                VNC
+                              </Button>
+                            ) : null}
+                            {firstEnabledSshServiceByDeviceId.get(device.id) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void launchSshSession.mutateAsync({
+                                    deviceId: device.id,
+                                    serviceId:
+                                      firstEnabledSshServiceByDeviceId.get(
+                                        device.id
+                                      )!.id,
+                                    connectionMethod: "guacamole",
+                                  })
+                                }}
+                                disabled={launchSshSession.isPending}
+                              >
+                                SSH
+                              </Button>
+                            ) : null}
+                            {!firstEnabledVncServiceByDeviceId.get(device.id) &&
+                            !firstEnabledSshServiceByDeviceId.get(device.id)
+                              ? "—"
+                              : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {formatDate(
+                            device.vpnLastHandshakeAt ?? device.lastSeenAt
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </section>
       </div>
     </DashboardShell>
   )

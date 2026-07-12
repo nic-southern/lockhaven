@@ -1,12 +1,17 @@
-import { Geist_Mono, Roboto } from "next/font/google"
+import { Geist, Geist_Mono } from "next/font/google"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/sonner"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { getServerProductName } from "@/lib/product-name"
 import { cn } from "@/lib/utils"
 import { Providers } from "./providers"
 
-const roboto = Roboto({ subsets: ["latin"], variable: "--font-sans" })
+const geistSans = Geist({
+  subsets: ["latin"],
+  variable: "--font-sans",
+})
 
 const fontMono = Geist_Mono({
   subsets: ["latin"],
@@ -20,6 +25,9 @@ export const dynamic = "force-dynamic"
 export const metadata = {
   title: productName,
   description: "Device inventory and private management access",
+  icons: {
+    icon: "/favicon.svg",
+  },
 }
 
 export default function RootLayout({
@@ -33,9 +41,9 @@ export default function RootLayout({
       suppressHydrationWarning
       className={cn(
         "antialiased",
+        geistSans.variable,
         fontMono.variable,
-        "font-sans",
-        roboto.variable
+        "font-sans"
       )}
     >
       <body>
@@ -44,14 +52,14 @@ export default function RootLayout({
             __html: `window.__LOCKHAVEN_CONFIG__=${JSON.stringify({
               productName,
               vpnPublicHostname: process.env.VPN_PUBLIC_HOSTNAME ?? null,
-              socBaseUrl: process.env.SOC_BASE_URL ?? null,
-              socEnrollmentPassword:
-                process.env.WAZUH_AGENT_ENROLLMENT_PASSWORD ?? null,
             })};`,
           }}
         />
         <ThemeProvider>
-          <Providers>{children}</Providers>
+          <TooltipProvider>
+            <Providers>{children}</Providers>
+            <Toaster position="top-right" richColors closeButton />
+          </TooltipProvider>
         </ThemeProvider>
       </body>
     </html>

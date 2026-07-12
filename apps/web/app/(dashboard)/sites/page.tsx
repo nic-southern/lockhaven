@@ -2,8 +2,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import { toast } from "sonner"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -21,6 +22,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Textarea } from "@/components/ui/textarea"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { PageHeader } from "@/components/dashboard/page-header"
+import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
 
 export default function SitesPage() {
@@ -29,6 +36,7 @@ export default function SitesPage() {
   const sitesQuery = trpc.sites.list.useQuery()
   const devicesQuery = trpc.devices.list.useQuery()
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
+  const [deleteOpen, setDeleteOpen] = React.useState(false)
 
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
   const [createName, setCreateName] = React.useState("")
@@ -44,6 +52,13 @@ export default function SitesPage() {
         utils.sites.list.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      setCreateName("")
+      setCreateTimezone("")
+      setCreateNotes("")
+      toast.success("Site created")
+    },
+    onError() {
+      toast.error("We couldn't create the site.")
     },
   })
 
@@ -53,6 +68,10 @@ export default function SitesPage() {
         utils.sites.list.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      toast.success("Site updated")
+    },
+    onError() {
+      toast.error("We couldn't update the site.")
     },
   })
 
@@ -62,6 +81,11 @@ export default function SitesPage() {
         utils.sites.list.invalidate(),
         utils.devices.list.invalidate(),
       ])
+      setDeleteOpen(false)
+      toast.success("Site removed")
+    },
+    onError() {
+      toast.error("We couldn't remove the site.")
     },
   })
 
@@ -111,16 +135,12 @@ export default function SitesPage() {
   }, [selectedSite])
 
   return (
-    <div className="space-y-6">
-      <section className="flex flex-col gap-2">
-        <Badge variant="outline" className="w-fit">
-          Sites
-        </Badge>
-        <h1 className="text-3xl font-semibold tracking-tight">Locations</h1>
-        <p className="text-sm text-muted-foreground">
-          Create and update sites, then assign devices to the right location.
-        </p>
-      </section>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        badge="Sites"
+        title="Locations"
+        description="Create and update sites, then assign devices to the right location."
+      />
 
       <div className="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card>
@@ -130,11 +150,10 @@ export default function SitesPage() {
               Add a location for devices to live under.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Organization</span>
-              <select
-                className="h-10 rounded-md border bg-background px-3"
+          <CardContent className="flex flex-col gap-4">
+            <FormField label="Organization" htmlFor="site-create-organization">
+              <NativeSelect
+                id="site-create-organization"
                 value={createOrganizationId}
                 onChange={(event) =>
                   setCreateOrganizationId(event.target.value)
@@ -146,33 +165,31 @@ export default function SitesPage() {
                     {organization.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Name</span>
-              <input
-                className="h-10 rounded-md border bg-background px-3"
+              </NativeSelect>
+            </FormField>
+            <FormField label="Name" htmlFor="site-create-name">
+              <Input
+                id="site-create-name"
                 value={createName}
                 onChange={(event) => setCreateName(event.target.value)}
               />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Timezone</span>
-              <input
-                className="h-10 rounded-md border bg-background px-3"
+            </FormField>
+            <FormField label="Timezone" htmlFor="site-create-timezone">
+              <Input
+                id="site-create-timezone"
                 value={createTimezone}
                 onChange={(event) => setCreateTimezone(event.target.value)}
               />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Notes</span>
-              <textarea
-                className="min-h-24 rounded-md border bg-background px-3 py-2"
+            </FormField>
+            <FormField label="Notes" htmlFor="site-create-notes">
+              <Textarea
+                id="site-create-notes"
                 value={createNotes}
                 onChange={(event) => setCreateNotes(event.target.value)}
               />
-            </label>
+            </FormField>
             <Button
+              className="w-fit"
               onClick={() => {
                 void createSite.mutateAsync({
                   organizationId: createOrganizationId,
@@ -180,9 +197,6 @@ export default function SitesPage() {
                   timezone: createTimezone || null,
                   notes: createNotes || null,
                 })
-                setCreateName("")
-                setCreateTimezone("")
-                setCreateNotes("")
               }}
               disabled={
                 !createOrganizationId || !createName || createSite.isPending
@@ -212,20 +226,18 @@ export default function SitesPage() {
                 <TableBody>
                   {sitesQuery.isLoading ? (
                     <TableRow>
-                      <TableCell
-                        colSpan={4}
-                        className="py-8 text-center text-muted-foreground"
-                      >
+                      <TableCell colSpan={4} className="py-10">
                         <Skeleton className="h-5 w-40" />
                       </TableCell>
                     </TableRow>
                   ) : sites.length === 0 ? (
                     <TableRow>
-                      <TableCell
-                        colSpan={4}
-                        className="py-8 text-center text-muted-foreground"
-                      >
-                        No sites yet
+                      <TableCell colSpan={4} className="p-0">
+                        <EmptyState
+                          title="No sites yet"
+                          description="Create a site to start assigning devices to a location."
+                          bordered={false}
+                        />
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -238,11 +250,10 @@ export default function SitesPage() {
                       return (
                         <TableRow
                           key={site.id}
-                          className={
-                            selectedSiteId === site.id
-                              ? "bg-muted/60"
-                              : undefined
-                          }
+                          className={cn(
+                            "cursor-pointer",
+                            selectedSiteId === site.id && "bg-muted/60"
+                          )}
                           onClick={() => setSelectedSiteId(site.id)}
                         >
                           <TableCell className="font-medium">
@@ -271,30 +282,31 @@ export default function SitesPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2">
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Name</span>
-              <input
-                className="h-10 rounded-md border bg-background px-3"
+            <FormField label="Name" htmlFor="site-edit-name">
+              <Input
+                id="site-edit-name"
                 value={editName}
                 onChange={(event) => setEditName(event.target.value)}
               />
-            </label>
-            <label className="grid gap-2 text-sm">
-              <span className="font-medium">Timezone</span>
-              <input
-                className="h-10 rounded-md border bg-background px-3"
+            </FormField>
+            <FormField label="Timezone" htmlFor="site-edit-timezone">
+              <Input
+                id="site-edit-timezone"
                 value={editTimezone}
                 onChange={(event) => setEditTimezone(event.target.value)}
               />
-            </label>
-            <label className="grid gap-2 text-sm md:col-span-2">
-              <span className="font-medium">Notes</span>
-              <textarea
-                className="min-h-24 rounded-md border bg-background px-3 py-2"
+            </FormField>
+            <FormField
+              label="Notes"
+              htmlFor="site-edit-notes"
+              className="md:col-span-2"
+            >
+              <Textarea
+                id="site-edit-notes"
                 value={editNotes}
                 onChange={(event) => setEditNotes(event.target.value)}
               />
-            </label>
+            </FormField>
             <div className="flex flex-wrap gap-3 md:col-span-2">
               <Button
                 onClick={() => {
@@ -311,11 +323,7 @@ export default function SitesPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={() => {
-                  if (window.confirm(`Remove ${selectedSite.name}?`)) {
-                    void deleteSite.mutateAsync({ id: selectedSite.id })
-                  }
-                }}
+                onClick={() => setDeleteOpen(true)}
                 disabled={deleteSite.isPending}
               >
                 Remove site
@@ -324,6 +332,24 @@ export default function SitesPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Remove site"
+        description={
+          selectedSite
+            ? `Remove ${selectedSite.name}? Devices assigned to it will lose this site.`
+            : "Remove this site?"
+        }
+        confirmLabel="Remove site"
+        destructive
+        pending={deleteSite.isPending}
+        onConfirm={() => {
+          if (!selectedSite) return
+          void deleteSite.mutateAsync({ id: selectedSite.id })
+        }}
+      />
     </div>
   )
 }
