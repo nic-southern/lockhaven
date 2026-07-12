@@ -8,7 +8,32 @@
 
 ## Production Deploy
 
-Lockhaven has two production deployment paths.
+Lockhaven has two production deployment paths, plus optional auto-deploy from
+GitHub Actions after images publish to GHCR.
+
+### Auto-deploy from GitHub Actions
+
+On every successful `main` push, CI publishes `lockhaven-web` and
+`lockhaven-worker` to GHCR. When auto-deploy is enabled, a follow-up job SSHs
+to the production host, syncs `deploy/production.compose.yml`, pulls the new
+images, runs migrations, and restarts the stack via
+[`scripts/remote-compose-update.sh`](../scripts/remote-compose-update.sh).
+
+Enable it once:
+
+1. Create a dedicated SSH key for deploys (do not reuse a personal laptop key
+   if you can avoid it).
+2. Install the public key in `authorized_keys` for the deploy user on the
+   droplet (default user is `root`).
+3. In the GitHub repository settings, add secrets:
+   - `DEPLOY_HOST` — droplet IP or hostname (for example `159.89.33.148`)
+   - `DEPLOY_SSH_PRIVATE_KEY` — the matching private key
+   - `DEPLOY_SSH_USER` — optional; defaults to `root`
+4. Add repository variable `AUTO_DEPLOY` with value `true`.
+
+Until `AUTO_DEPLOY=true`, publish still runs but the deploy job is skipped.
+Manual updates remain available with
+`DEPLOY_ONLY=1 DEPLOY_HOST=<ip> bash scripts/deploy-production.sh`.
 
 ### Terraform Deploy
 
@@ -40,6 +65,8 @@ Create this layout on the host:
   .env.deploy
   deploy/
     production.compose.yml
+  scripts/
+    remote-compose-update.sh
 ```
 
 Copy [`deploy/production.compose.yml`](../deploy/production.compose.yml) into
@@ -56,6 +83,13 @@ Then run:
 
 ```bash
 cd /opt/lockhaven
+bash scripts/remote-compose-update.sh
+```
+
+Or the equivalent Compose commands:
+
+```bash
+cd /opt/lockhaven
 docker compose --env-file .env.deploy -f deploy/production.compose.yml pull
 docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --remove-orphans
 docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm migrate
@@ -65,9 +99,9 @@ docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm 
 
 - Use the published Lockhaven images, or build and push your own customized web
   and worker images.
-- Pull pinned SHA tags on deploy and restart Docker Compose.
-- Run database migrations and refresh the admin account through the worker
-  image after each deploy.
+- Prefer auto-deploy from GitHub Actions after `main` publishes, or pull and
+  restart Docker Compose manually.
+- Run database migrations through the worker image after each deploy.
 - Keep Postgres, Redis, and Guacamole on private Docker networks.
 - Keep domain names configurable through environment variables.
 - Manage host firewall rules with `iptables` in the `DOCKER-USER` chain, not a

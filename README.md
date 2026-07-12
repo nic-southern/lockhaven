@@ -145,6 +145,10 @@ The deploy script also creates the host VPN keypair, writes
 To rerun the bootstrap against an existing droplet without touching Terraform,
 set `DEPLOY_ONLY=1` and provide `DEPLOY_HOST`.
 
+After GHCR publish on `main`, CI can auto-deploy when repository variable
+`AUTO_DEPLOY=true` and secrets `DEPLOY_HOST` / `DEPLOY_SSH_PRIVATE_KEY` are
+configured. See [docs/deployment.md](docs/deployment.md).
+
 ## Client Enrollment
 
 Create an enrollment token in the Console, then run the installer on the remote

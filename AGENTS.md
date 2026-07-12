@@ -63,6 +63,11 @@ The current public repository is
   Compose stack, applies database migrations, and refreshes the admin user.
 - Production deploys pull images from GHCR and require `GHCR_USER` plus
   `GHCR_READ_TOKEN` during bootstrap.
+- After images publish from `main`, CI can auto-deploy when repository variable
+  `AUTO_DEPLOY=true` and secrets `DEPLOY_HOST` /
+  `DEPLOY_SSH_PRIVATE_KEY` are set. See `docs/deployment.md`.
+- `scripts/remote-compose-update.sh` runs pull, migrate, and restart on an
+  existing `/opt/lockhaven` host.
 
 ## Safety Rules
 
