@@ -160,6 +160,13 @@ export const enrollmentResponseSchema = z.object({
     allowed_ips: z.array(z.string().min(1)),
     persistent_keepalive: z.number().int().positive(),
   }),
+  ssh: z
+    .object({
+      username: z.string().min(1),
+      public_key: z.string().min(1),
+    })
+    .nullable()
+    .optional(),
 })
 
 export const checkInSchema = z.object({

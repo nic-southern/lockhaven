@@ -106,6 +106,44 @@ allowed_ips="$(printf '%s' "$response" | json_get wireguard.allowed_ips)"
 persistent_keepalive="$(printf '%s' "$response" | json_get wireguard.persistent_keepalive)"
 check_in_secret="$(printf '%s' "$response" | json_get check_in_secret)"
 
+install_ssh_authorized_key() {
+  local ssh_username ssh_public_key home_dir auth_keys
+
+  ssh_username="$(printf '%s' "$response" | python3 -c 'import json,sys; data=json.load(sys.stdin); ssh=data.get("ssh");
+print(ssh["username"] if ssh else "")' 2>/dev/null || true)"
+  ssh_public_key="$(printf '%s' "$response" | python3 -c 'import json,sys; data=json.load(sys.stdin); ssh=data.get("ssh");
+print(ssh["public_key"] if ssh else "")' 2>/dev/null || true)"
+
+  if [ -z "$ssh_username" ] || [ -z "$ssh_public_key" ]; then
+    return
+  fi
+
+  if [ "$ssh_username" = "root" ]; then
+    home_dir="/root"
+  else
+    home_dir="$(getent passwd "$ssh_username" | cut -d: -f6 || true)"
+  fi
+
+  if [ -z "$home_dir" ] || [ ! -d "$home_dir" ]; then
+    echo "SSH user home for ${ssh_username} was not found; skipping authorized_keys." >&2
+    return
+  fi
+
+  install -d -m 0700 -o "$ssh_username" -g "$ssh_username" "${home_dir}/.ssh"
+  auth_keys="${home_dir}/.ssh/authorized_keys"
+  touch "$auth_keys"
+  chown "$ssh_username:$ssh_username" "$auth_keys"
+  chmod 0600 "$auth_keys"
+
+  if ! grep -Fqx "$ssh_public_key" "$auth_keys"; then
+    printf '%s\n' "$ssh_public_key" >>"$auth_keys"
+  fi
+
+  echo "SSH public key installed for ${ssh_username}."
+}
+
+install_ssh_authorized_key
+
 install -d -m 0700 /etc/wireguard /var/lib/lockhaven
 config_path="/etc/wireguard/${tunnel_name}.conf"
 secret_path="/var/lib/lockhaven/${tunnel_name}.check-in-secret"

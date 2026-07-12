@@ -115,7 +115,10 @@ export default function EnrollmentTokensPage() {
     async onSuccess(result) {
       setCreatedToken(result.token)
       setSelectedTokenId(result.enrollmentToken.id)
-      await utils.enrollmentTokens.list.invalidate()
+      await Promise.all([
+        utils.enrollmentTokens.list.invalidate(),
+        utils.organizations.imagingSsh.invalidate(),
+      ])
       toast.success("Enrollment token created")
     },
     onError() {
@@ -156,6 +159,18 @@ export default function EnrollmentTokensPage() {
   const selectedToken = React.useMemo(
     () => tokens.find((token) => token.id === selectedTokenId) ?? null,
     [selectedTokenId, tokens]
+  )
+
+  const imagingOrganizationId =
+    createSiteId === "" && createOrganizationId
+      ? createOrganizationId
+      : selectedToken && !selectedToken.siteId
+        ? selectedToken.organizationId
+        : ""
+
+  const imagingSshQuery = trpc.organizations.imagingSsh.useQuery(
+    { organizationId: imagingOrganizationId },
+    { enabled: Boolean(imagingOrganizationId) }
   )
 
   React.useEffect(() => {
@@ -299,8 +314,20 @@ export default function EnrollmentTokensPage() {
               <p className="text-sm text-muted-foreground">
                 {createSiteId
                   ? "Shared for this site until it expires or is revoked."
-                  : "Shared imaging token for this organization until it is revoked. Devices enroll without a site; assign location later."}
+                  : "Shared imaging token for this organization until it is revoked. All Linux hosts get the same SSH key so you can reach every imaged device."}
               </p>
+            ) : null}
+            {!createSiteId && createOrganizationId && !createSiteWide ? (
+              <p className="text-sm text-muted-foreground">
+                Imaging enrollments still use the organization SSH key so every
+                Linux host can be reached after install.
+              </p>
+            ) : null}
+            {!createSiteId && imagingSshQuery.data?.sshPublicKey ? (
+              <CodeBlock
+                label="Imaging SSH public key"
+                value={imagingSshQuery.data.sshPublicKey}
+              />
             ) : null}
             <Button
               className="w-fit"

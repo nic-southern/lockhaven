@@ -39,7 +39,6 @@ export default function SitesPage() {
   const devicesQuery = trpc.devices.list.useQuery()
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
   const [deleteOpen, setDeleteOpen] = React.useState(false)
-  const [clearSshOpen, setClearSshOpen] = React.useState(false)
 
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
   const [createName, setCreateName] = React.useState("")
@@ -48,9 +47,6 @@ export default function SitesPage() {
   const [editName, setEditName] = React.useState("")
   const [editTimezone, setEditTimezone] = React.useState("")
   const [editNotes, setEditNotes] = React.useState("")
-  const [sshUsername, setSshUsername] = React.useState("root")
-  const [sshPrivateKey, setSshPrivateKey] = React.useState("")
-  const [showPasteForm, setShowPasteForm] = React.useState(false)
 
   const createSite = trpc.sites.create.useMutation({
     async onSuccess() {
@@ -92,42 +88,6 @@ export default function SitesPage() {
     },
     onError() {
       toast.error("We couldn't remove the site.")
-    },
-  })
-
-  const generateSshCredential = trpc.sites.generateSshCredential.useMutation({
-    async onSuccess() {
-      await utils.sites.list.invalidate()
-      setSshPrivateKey("")
-      setShowPasteForm(false)
-      toast.success("SSH key generated")
-    },
-    onError() {
-      toast.error("We couldn't generate an SSH key.")
-    },
-  })
-
-  const setSshCredential = trpc.sites.setSshCredential.useMutation({
-    async onSuccess() {
-      await utils.sites.list.invalidate()
-      setSshPrivateKey("")
-      setShowPasteForm(false)
-      toast.success("SSH key saved")
-    },
-    onError() {
-      toast.error("We couldn't save that SSH key.")
-    },
-  })
-
-  const clearSshCredential = trpc.sites.clearSshCredential.useMutation({
-    async onSuccess() {
-      await utils.sites.list.invalidate()
-      setClearSshOpen(false)
-      setSshPrivateKey("")
-      toast.success("SSH key removed")
-    },
-    onError() {
-      toast.error("We couldn't remove the SSH key.")
     },
   })
 
@@ -173,9 +133,6 @@ export default function SitesPage() {
       setEditName(selectedSite.name)
       setEditTimezone(selectedSite.timezone ?? "")
       setEditNotes(selectedSite.notes ?? "")
-      setSshUsername(selectedSite.sshUsername ?? "root")
-      setSshPrivateKey("")
-      setShowPasteForm(false)
     }
   }, [selectedSite])
 
@@ -391,102 +348,27 @@ export default function SitesPage() {
             <CardHeader>
               <CardTitle>SSH access</CardTitle>
               <CardDescription>
-                Install this public key on hosts at this location. New SSH
-                services pick up the matching private key automatically.
+                A key is created with the site. Enrollment installs it on
+                devices automatically.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <FormField label="Username" htmlFor="site-ssh-username">
-                <Input
-                  id="site-ssh-username"
-                  value={sshUsername}
-                  onChange={(event) => setSshUsername(event.target.value)}
-                />
-              </FormField>
-
               {selectedSite.hasSshCredential && selectedSite.sshPublicKey ? (
-                <CodeBlock
-                  label="Public key"
-                  value={selectedSite.sshPublicKey}
-                />
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Username: {selectedSite.sshUsername ?? "root"}
+                  </p>
+                  <CodeBlock
+                    label="Public key"
+                    value={selectedSite.sshPublicKey}
+                  />
+                </>
               ) : (
                 <EmptyState
-                  title="No SSH key yet"
-                  description="Generate a key for this location, or paste an existing private key."
+                  title="SSH key pending"
+                  description="This location does not have an SSH key yet. Create a new site to provision one automatically."
                 />
               )}
-
-              {showPasteForm ? (
-                <div className="flex flex-col gap-4 rounded-lg border p-4">
-                  <FormField label="Private key" htmlFor="site-ssh-private-key">
-                    <Textarea
-                      id="site-ssh-private-key"
-                      className="min-h-32 font-mono text-xs"
-                      value={sshPrivateKey}
-                      onChange={(event) => setSshPrivateKey(event.target.value)}
-                      placeholder="Paste the private key"
-                    />
-                  </FormField>
-                  <div className="flex flex-wrap gap-3">
-                    <Button
-                      onClick={() => {
-                        void setSshCredential.mutateAsync({
-                          siteId: selectedSite.id,
-                          username: sshUsername,
-                          privateKey: sshPrivateKey,
-                        })
-                      }}
-                      disabled={
-                        !sshUsername ||
-                        !sshPrivateKey ||
-                        setSshCredential.isPending
-                      }
-                    >
-                      Save key
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setShowPasteForm(false)
-                        setSshPrivateKey("")
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  onClick={() => {
-                    void generateSshCredential.mutateAsync({
-                      siteId: selectedSite.id,
-                      username: sshUsername || "root",
-                    })
-                  }}
-                  disabled={!sshUsername || generateSshCredential.isPending}
-                >
-                  {selectedSite.hasSshCredential
-                    ? "Generate new key"
-                    : "Generate key"}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowPasteForm(true)}
-                >
-                  Paste private key
-                </Button>
-                {selectedSite.hasSshCredential ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => setClearSshOpen(true)}
-                    disabled={clearSshCredential.isPending}
-                  >
-                    Clear key
-                  </Button>
-                ) : null}
-              </div>
             </CardContent>
           </Card>
         </>
@@ -507,24 +389,6 @@ export default function SitesPage() {
         onConfirm={() => {
           if (!selectedSite) return
           void deleteSite.mutateAsync({ id: selectedSite.id })
-        }}
-      />
-
-      <ConfirmDialog
-        open={clearSshOpen}
-        onOpenChange={setClearSshOpen}
-        title="Clear SSH key"
-        description={
-          selectedSite
-            ? `Remove the SSH key for ${selectedSite.name}? Devices will no longer inherit it.`
-            : "Remove this SSH key?"
-        }
-        confirmLabel="Clear key"
-        destructive
-        pending={clearSshCredential.isPending}
-        onConfirm={() => {
-          if (!selectedSite) return
-          void clearSshCredential.mutateAsync({ siteId: selectedSite.id })
         }}
       />
     </div>

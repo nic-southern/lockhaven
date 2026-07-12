@@ -21,6 +21,7 @@ import {
   managementServices,
   organizationMemberships,
   organizations,
+  organizationSshCredentials,
   remoteSessions,
   routePolicies,
   siteMemberships,
@@ -206,13 +207,135 @@ async function upsertSiteSshCredential(
   return record
 }
 
+async function ensureSiteSshCredential(
+  db: ApiContext["db"],
+  site: typeof sites.$inferSelect
+) {
+  const [existing] = await db
+    .select()
+    .from(siteSshCredentials)
+    .where(eq(siteSshCredentials.siteId, site.id))
+
+  if (existing) {
+    return existing
+  }
+
+  const keyPair = generateSiteSshKeyPair(
+    site.name.replaceAll(/\s+/g, "-").toLowerCase()
+  )
+  const record = await upsertSiteSshCredential(
+    db,
+    site.id,
+    "root",
+    keyPair.privateKey,
+    keyPair.publicKey
+  )
+
+  await db.insert(auditEvents).values({
+    organizationId: site.organizationId,
+    eventType: "site_ssh_credential_generated",
+    eventData: { siteId: site.id, reason: "auto" },
+  })
+
+  return record
+}
+
+async function upsertOrganizationSshCredential(
+  db: ApiContext["db"],
+  organizationId: string,
+  username: string,
+  privateKey: string,
+  publicKey: string
+) {
+  const fields = buildEncryptedSshCredentialFields(username, privateKey)
+
+  const [record] = await db
+    .insert(organizationSshCredentials)
+    .values({
+      organizationId,
+      ...fields,
+      publicKey,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: organizationSshCredentials.organizationId,
+      set: {
+        ...fields,
+        publicKey,
+        updatedAt: new Date(),
+      },
+    })
+    .returning()
+
+  return record
+}
+
+async function ensureOrganizationSshCredential(
+  db: ApiContext["db"],
+  organization: typeof organizations.$inferSelect
+) {
+  const [existing] = await db
+    .select()
+    .from(organizationSshCredentials)
+    .where(eq(organizationSshCredentials.organizationId, organization.id))
+
+  if (existing) {
+    return existing
+  }
+
+  const keyPair = generateSiteSshKeyPair(
+    organization.name.replaceAll(/\s+/g, "-").toLowerCase()
+  )
+  const record = await upsertOrganizationSshCredential(
+    db,
+    organization.id,
+    "root",
+    keyPair.privateKey,
+    keyPair.publicKey
+  )
+
+  await db.insert(auditEvents).values({
+    organizationId: organization.id,
+    eventType: "site_ssh_credential_generated",
+    eventData: {
+      organizationId: organization.id,
+      scope: "imaging",
+      reason: "auto",
+    },
+  })
+
+  return record
+}
+
+function decodeOrganizationSshCredentialRecord(
+  record: typeof organizationSshCredentials.$inferSelect | null
+) {
+  if (!record) {
+    return { username: null, privateKey: null, publicKey: null }
+  }
+
+  return {
+    username: decryptRemoteSecret({
+      ciphertext: record.usernameCiphertext,
+      iv: record.usernameIv,
+      authTag: record.usernameAuthTag,
+    }),
+    privateKey: decryptRemoteSecret({
+      ciphertext: record.passwordCiphertext,
+      iv: record.passwordIv,
+      authTag: record.passwordAuthTag,
+    }),
+    publicKey: record.publicKey,
+  }
+}
+
 async function copySiteSshCredentialToService(
   db: ApiContext["db"],
-  deviceSiteId: string | null,
+  device: { siteId: string | null; organizationId: string },
   serviceId: string,
   serviceType: string
 ) {
-  if (serviceType !== "ssh" || !deviceSiteId) {
+  if (serviceType !== "ssh") {
     return
   }
 
@@ -225,23 +348,44 @@ async function copySiteSshCredentialToService(
     return
   }
 
-  const [siteCredential] = await db
-    .select()
-    .from(siteSshCredentials)
-    .where(eq(siteSshCredentials.siteId, deviceSiteId))
+  if (device.siteId) {
+    const [siteCredential] = await db
+      .select()
+      .from(siteSshCredentials)
+      .where(eq(siteSshCredentials.siteId, device.siteId))
 
-  if (!siteCredential) {
+    if (siteCredential) {
+      await db.insert(managementServiceCredentials).values({
+        managementServiceId: serviceId,
+        passwordCiphertext: siteCredential.passwordCiphertext,
+        passwordIv: siteCredential.passwordIv,
+        passwordAuthTag: siteCredential.passwordAuthTag,
+        usernameCiphertext: siteCredential.usernameCiphertext,
+        usernameIv: siteCredential.usernameIv,
+        usernameAuthTag: siteCredential.usernameAuthTag,
+        updatedAt: new Date(),
+      })
+      return
+    }
+  }
+
+  const [organizationCredential] = await db
+    .select()
+    .from(organizationSshCredentials)
+    .where(eq(organizationSshCredentials.organizationId, device.organizationId))
+
+  if (!organizationCredential) {
     return
   }
 
   await db.insert(managementServiceCredentials).values({
     managementServiceId: serviceId,
-    passwordCiphertext: siteCredential.passwordCiphertext,
-    passwordIv: siteCredential.passwordIv,
-    passwordAuthTag: siteCredential.passwordAuthTag,
-    usernameCiphertext: siteCredential.usernameCiphertext,
-    usernameIv: siteCredential.usernameIv,
-    usernameAuthTag: siteCredential.usernameAuthTag,
+    passwordCiphertext: organizationCredential.passwordCiphertext,
+    passwordIv: organizationCredential.passwordIv,
+    passwordAuthTag: organizationCredential.passwordAuthTag,
+    usernameCiphertext: organizationCredential.usernameCiphertext,
+    usernameIv: organizationCredential.usernameIv,
+    usernameAuthTag: organizationCredential.usernameAuthTag,
     updatedAt: new Date(),
   })
 }
@@ -694,6 +838,36 @@ export const appRouter = createTRPCRouter({
 
         return record
       }),
+    imagingSsh: adminProcedure
+      .input(z.object({ organizationId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        assertAuthorized(ctx.actor, "device:enroll", {
+          kind: "enrollmentToken",
+          organizationId: input.organizationId,
+          siteId: null,
+        })
+
+        const [organization] = await ctx.db
+          .select()
+          .from(organizations)
+          .where(eq(organizations.id, input.organizationId))
+
+        if (!organization) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        const credential = await ensureOrganizationSshCredential(
+          ctx.db,
+          organization
+        )
+        const decoded = decodeOrganizationSshCredentialRecord(credential)
+
+        return {
+          organizationId: organization.id,
+          sshUsername: decoded.username,
+          sshPublicKey: decoded.publicKey,
+        }
+      }),
   }),
   sites: createTRPCRouter({
     list: adminProcedure.query(async ({ ctx }) => {
@@ -710,8 +884,13 @@ export const appRouter = createTRPCRouter({
 
       if (organizationIds === null) {
         const rows = await query.orderBy(desc(sites.createdAt))
-        return rows.map(({ site, sshCredential }) =>
-          mapSiteWithSshCredential(site, sshCredential)
+        return Promise.all(
+          rows.map(async ({ site, sshCredential }) =>
+            mapSiteWithSshCredential(
+              site,
+              sshCredential ?? (await ensureSiteSshCredential(ctx.db, site))
+            )
+          )
         )
       }
 
@@ -732,8 +911,13 @@ export const appRouter = createTRPCRouter({
           ? await query.where(filters[0]).orderBy(desc(sites.createdAt))
           : await query.where(or(...filters)).orderBy(desc(sites.createdAt))
 
-      return rows.map(({ site, sshCredential }) =>
-        mapSiteWithSshCredential(site, sshCredential)
+      return Promise.all(
+        rows.map(async ({ site, sshCredential }) =>
+          mapSiteWithSshCredential(
+            site,
+            sshCredential ?? (await ensureSiteSshCredential(ctx.db, site))
+          )
+        )
       )
     }),
     create: adminProcedure
@@ -1431,7 +1615,7 @@ export const appRouter = createTRPCRouter({
 
         await copySiteSshCredentialToService(
           ctx.db,
-          device.siteId,
+          device,
           record.id,
           record.serviceType
         )
@@ -1506,7 +1690,7 @@ export const appRouter = createTRPCRouter({
         if (record.enabled && record.serviceType === "ssh") {
           await copySiteSshCredentialToService(
             ctx.db,
-            device.siteId,
+            device,
             record.id,
             record.serviceType
           )
@@ -1965,6 +2149,19 @@ export const appRouter = createTRPCRouter({
         const tokenHash = hashEnrollmentToken(rawToken)
         const expiresAt = input.siteId ? (input.expiresAt ?? null) : null
 
+        if (!input.siteId) {
+          const [organization] = await ctx.db
+            .select()
+            .from(organizations)
+            .where(eq(organizations.id, input.organizationId))
+
+          if (!organization) {
+            throw new TRPCError({ code: "NOT_FOUND" })
+          }
+
+          await ensureOrganizationSshCredential(ctx.db, organization)
+        }
+
         const [record] = await ctx.db
           .insert(enrollmentTokens)
           .values({
@@ -2316,6 +2513,30 @@ export const appRouter = createTRPCRouter({
           sshCredential = {
             username: sshCredential.username ?? decodedSite.username,
             privateKey: sshCredential.privateKey ?? decodedSite.privateKey,
+          }
+        }
+
+        if (
+          service.serviceType === "ssh" &&
+          (!sshCredential.username || !sshCredential.privateKey)
+        ) {
+          const [organizationCredential] = await ctx.db
+            .select()
+            .from(organizationSshCredentials)
+            .where(
+              eq(
+                organizationSshCredentials.organizationId,
+                device.organizationId
+              )
+            )
+
+          const decodedOrganization = decodeOrganizationSshCredentialRecord(
+            organizationCredential ?? null
+          )
+          sshCredential = {
+            username: sshCredential.username ?? decodedOrganization.username,
+            privateKey:
+              sshCredential.privateKey ?? decodedOrganization.privateKey,
           }
         }
 

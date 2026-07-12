@@ -319,6 +319,28 @@ export const siteSshCredentials = pgTable("site_ssh_credentials", {
     .defaultNow(),
 })
 
+export const organizationSshCredentials = pgTable(
+  "organization_ssh_credentials",
+  {
+    organizationId: uuid("organization_id")
+      .primaryKey()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    passwordCiphertext: text("password_ciphertext").notNull(),
+    passwordIv: text("password_iv").notNull(),
+    passwordAuthTag: text("password_auth_tag").notNull(),
+    usernameCiphertext: text("username_ciphertext").notNull(),
+    usernameIv: text("username_iv").notNull(),
+    usernameAuthTag: text("username_auth_tag").notNull(),
+    publicKey: text("public_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  }
+)
+
 export const enrollmentTokens = pgTable("enrollment_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   organizationId: uuid("organization_id")
@@ -397,6 +419,8 @@ export type ManagementService = typeof managementServices.$inferSelect
 export type ManagementServiceCredential =
   typeof managementServiceCredentials.$inferSelect
 export type SiteSshCredential = typeof siteSshCredentials.$inferSelect
+export type OrganizationSshCredential =
+  typeof organizationSshCredentials.$inferSelect
 export type EnrollmentToken = typeof enrollmentTokens.$inferSelect
 export type RemoteSession = typeof remoteSessions.$inferSelect
 export type AuditEvent = typeof auditEvents.$inferSelect
