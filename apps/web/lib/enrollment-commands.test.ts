@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  buildAndroidInstallCommand,
   buildLinuxInstallCommand,
   buildLinuxUninstallCommand,
   buildWindowsInstallCommand,
@@ -30,6 +31,22 @@ test("builds the Linux VPN enrollment command", () => {
       baseUrl: "https://vpn.example.com/",
     }),
     "curl -fsSL https://vpn.example.com/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN='nms_enroll_abc'\\''123' bash"
+  )
+})
+
+test("builds the Android VPN enrollment command", () => {
+  assert.equal(
+    buildAndroidInstallCommand({
+      token: "nms_enroll_abc'123",
+      baseUrl: "https://vpn.example.com/",
+    }),
+    [
+      "curl -fsSL https://vpn.example.com/install/enroll-android.sh",
+      "-o /tmp/lockhaven-enroll-android.sh",
+      "&& LOCKHAVEN_TOKEN='nms_enroll_abc'\\''123'",
+      "LOCKHAVEN_BASE_URL='https://vpn.example.com'",
+      "bash /tmp/lockhaven-enroll-android.sh",
+    ].join(" ")
   )
 })
 

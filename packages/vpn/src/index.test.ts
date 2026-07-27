@@ -22,6 +22,14 @@ test("skips addresses already returned by inet columns", () => {
   assert.equal(allocateVpnIpv4(["10.80.20.11/32"], "windows"), "10.80.20.12/32")
 })
 
+test("allocates Android devices from the android pool", () => {
+  assert.equal(allocateVpnIpv4([], "android"), "10.80.60.11/32")
+  assert.equal(
+    allocateVpnIpv4(["10.80.60.11/32"], "Android 14"),
+    "10.80.60.12/32"
+  )
+})
+
 test("allocates from the admin pool when requested", () => {
   assert.equal(
     allocateVpnIpv4(["10.80.100.11/32"], { pool: "admin" }),

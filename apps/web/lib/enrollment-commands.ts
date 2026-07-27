@@ -42,6 +42,24 @@ export function buildLinuxInstallCommand({
   return `curl -fsSL ${normalizeBaseUrl(baseUrl)}/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN=${quoteShell(token)} bash`
 }
 
+export function buildAndroidInstallCommand({
+  token,
+  baseUrl,
+}: {
+  token: string
+  baseUrl: string
+}) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+
+  return [
+    `curl -fsSL ${normalizedBaseUrl}/install/enroll-android.sh`,
+    `-o /tmp/lockhaven-enroll-android.sh`,
+    `&& LOCKHAVEN_TOKEN=${quoteShell(token)}`,
+    `LOCKHAVEN_BASE_URL=${quoteShell(normalizedBaseUrl)}`,
+    `bash /tmp/lockhaven-enroll-android.sh`,
+  ].join(" ")
+}
+
 export function buildWindowsUninstallCommand({ baseUrl }: { baseUrl: string }) {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
 

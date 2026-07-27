@@ -167,6 +167,15 @@ Linux:
 VPN_HOST="https://<vpn-hostname>"; curl -fsSL "$VPN_HOST/install/enroll-linux.sh" | sudo LOCKHAVEN_TOKEN="<enrollment-token>" LOCKHAVEN_BASE_URL="$VPN_HOST" bash
 ```
 
+Android (run on a workstation; import the resulting `.conf` or QR in the
+WireGuard app on the device):
+
+```bash
+VPN_HOST="https://<vpn-hostname>"
+curl -fsSL "$VPN_HOST/install/enroll-android.sh" -o /tmp/lockhaven-enroll-android.sh
+LOCKHAVEN_TOKEN="<enrollment-token>" LOCKHAVEN_BASE_URL="$VPN_HOST" bash /tmp/lockhaven-enroll-android.sh
+```
+
 Use the deployed VPN hostname for `<vpn-hostname>`, for example the value of
 `VPN_PUBLIC_HOSTNAME` in your environment.
 

@@ -21,6 +21,10 @@ export function normalizeDeviceFamily(osFamily: string) {
     return "windows"
   }
 
+  if (family.includes("android")) {
+    return "android"
+  }
+
   if (family.includes("mac")) {
     return "macos"
   }
@@ -38,6 +42,7 @@ const allocationPools = {
   linux: { subnet: "10.80.30", start: 11, end: 254 },
   macos: { subnet: "10.80.40", start: 11, end: 254 },
   lab: { subnet: "10.80.50", start: 11, end: 254 },
+  android: { subnet: "10.80.60", start: 11, end: 254 },
   admin: { subnet: "10.80.100", start: 11, end: 254 },
   updates: { subnet: "10.80.200", start: 11, end: 254 },
 } as const

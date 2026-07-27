@@ -35,6 +35,7 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { StatStrip } from "@/components/dashboard/stat-strip"
 import { formatDate, statusLabel, statusVariant } from "@/lib/dashboard"
 import {
+  buildAndroidInstallCommand,
   buildLinuxInstallCommand,
   buildWindowsInstallCommand,
 } from "@/lib/enrollment-commands"
@@ -276,6 +277,12 @@ export default function Page() {
         baseUrl: installBaseUrl,
       })
     : ""
+  const androidInstallCommand = enrollmentToken
+    ? buildAndroidInstallCommand({
+        token: enrollmentToken,
+        baseUrl: installBaseUrl,
+      })
+    : ""
 
   return (
     <DashboardShell>
@@ -388,13 +395,16 @@ export default function Page() {
                 <div className="flex flex-col gap-1">
                   <p className="font-medium">Run the installer</p>
                   <p className="text-sm text-muted-foreground">
-                    Create a token, then run one command on the device.
+                    Create a token, then run Windows or Linux on the device.
+                    Android runs on a workstation and imports the config into
+                    WireGuard on the tablet or phone.
                   </p>
                 </div>
                 {enrollmentToken ? (
                   <div className="flex flex-col gap-3">
                     <CodeBlock label="Windows" value={windowsInstallCommand} />
                     <CodeBlock label="Linux" value={linuxInstallCommand} />
+                    <CodeBlock label="Android" value={androidInstallCommand} />
                   </div>
                 ) : (
                   <EmptyState

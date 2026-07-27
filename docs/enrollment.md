@@ -20,6 +20,25 @@ For Windows devices, the enrollment script can generate the keypair, call the
 API over your app hostname, install WireGuard if needed, import the tunnel,
 and start it.
 
+## Android
+
+Android devices cannot run the Linux installer on-device. Use the operator-side
+script served at `/install/enroll-android.sh`:
+
+1. Create an enrollment token in the Console.
+2. On a Mac or Linux workstation with `wg`, `curl`, and `python3` (optional
+   `qrencode`), run the Android install command from the Console.
+3. The script calls `POST /api/enroll` with `os_family: android`, allocates an
+   address from the Android VPN pool (`10.80.60.0/24`), and writes a
+   `lockhaven-<hostname>.conf` (plus a QR image when `qrencode` is available).
+4. On the device, open the official WireGuard app and import the tunnel from
+   file or QR code. Activate the tunnel.
+5. Remote screen access is outside Console (for example `adb` / `scrcpy` over
+   the VPN). Enrollment registers no SSH/VNC services.
+
+The script does not bring up a WireGuard interface on the workstation — the
+config is only for the Android device.
+
 ## Imaging tokens (no site)
 
 Tokens can omit a site. Use a reusable shared token with no site when mass

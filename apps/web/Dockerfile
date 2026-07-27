@@ -18,6 +18,7 @@ COPY . .
 RUN mkdir -p apps/web/public/install \
   && cp scripts/enroll-windows.ps1 apps/web/public/install/enroll-windows.ps1 \
   && cp scripts/enroll-linux.sh apps/web/public/install/enroll-linux.sh \
+  && cp scripts/enroll-android.sh apps/web/public/install/enroll-android.sh \
   && cp scripts/uninstall-windows.ps1 apps/web/public/install/uninstall-windows.ps1 \
   && cp scripts/uninstall-linux.sh apps/web/public/install/uninstall-linux.sh
 RUN pnpm --dir /repo build:packages && pnpm --filter @nms/web build
