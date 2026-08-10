@@ -25,6 +25,6 @@ test("prefers native launch for VNC and SSH when on VPN", () => {
   )
 })
 
-test("openRemoteLaunchResult is a no-op for empty results", () => {
-  assert.equal(openRemoteLaunchResult(null), undefined)
+test("openRemoteLaunchResult is a no-op for empty results", async () => {
+  assert.equal(await openRemoteLaunchResult(null), null)
 })

@@ -172,9 +172,18 @@ export function buildNativeAppUrl(args: {
       throw new Error("VNC password is required for native launch")
     }
 
-    const userinfo = `:${encodeURIComponent(args.password)}`
-    const portSuffix = args.port === 5900 ? "" : `:${args.port}`
-    return `vnc://${userinfo}@${host}${portSuffix}`
+    // macOS Screen Sharing treats host:N as display N (TCP 5900+N), not a raw
+    // TCP port. It also does not reliably accept VNC passwords in the URL — the
+    // caller should copy the password and let Screen Sharing prompt.
+    if (args.port === 5900) {
+      return `vnc://${host}`
+    }
+
+    if (args.port > 5900 && args.port < 6000) {
+      return `vnc://${host}:${args.port - 5900}`
+    }
+
+    return `vnc://${host}:${args.port}`
   }
 
   if (args.serviceType === "ssh") {

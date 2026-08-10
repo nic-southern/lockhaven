@@ -71,6 +71,20 @@
       "when": 1780300000000,
       "tag": "0009_admin_vpn_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780400000000,
+      "tag": "0010_vpn_transfer_bigint",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1780500000000,
+      "tag": "0011_admin_vpn_multiple_profiles",
+      "breakpoints": true
     }
   ]
 }

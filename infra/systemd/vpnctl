@@ -136,6 +136,13 @@ EOF
       nft -f "$tmp_file"
     fi
 
+    # Docker sets iptables FORWARD policy to DROP. Accept WireGuard
+    # hairpin traffic so admin→device forwards (and SNAT) can work.
+    if command -v iptables >/dev/null 2>&1; then
+      iptables -C DOCKER-USER -i wg0 -o wg0 -j ACCEPT 2>/dev/null \
+        || iptables -I DOCKER-USER 1 -i wg0 -o wg0 -j ACCEPT
+    fi
+
     rm -f "$tmp_file"
     ;;
   *)

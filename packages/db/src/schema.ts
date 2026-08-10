@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   inet,
   index,
@@ -247,8 +248,8 @@ export const vpnIdentities = pgTable(
     serverPeerEnabled: boolean("server_peer_enabled").notNull().default(true),
     lastHandshakeAt: timestamp("last_handshake_at", { withTimezone: true }),
     latestEndpoint: text("latest_endpoint"),
-    rxBytes: integer("rx_bytes").notNull().default(0),
-    txBytes: integer("tx_bytes").notNull().default(0),
+    rxBytes: bigint("rx_bytes", { mode: "number" }).notNull().default(0),
+    txBytes: bigint("tx_bytes", { mode: "number" }).notNull().default(0),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -277,8 +278,8 @@ export const adminVpnProfiles = pgTable(
     serverPeerEnabled: boolean("server_peer_enabled").notNull().default(true),
     lastHandshakeAt: timestamp("last_handshake_at", { withTimezone: true }),
     latestEndpoint: text("latest_endpoint"),
-    rxBytes: integer("rx_bytes").notNull().default(0),
-    txBytes: integer("tx_bytes").notNull().default(0),
+    rxBytes: bigint("rx_bytes", { mode: "number" }).notNull().default(0),
+    txBytes: bigint("tx_bytes", { mode: "number" }).notNull().default(0),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -288,9 +289,10 @@ export const adminVpnProfiles = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    organizationUserIdx: uniqueIndex(
-      "admin_vpn_profiles_organization_user_idx"
-    ).on(table.organizationId, table.userId),
+    organizationUserIdx: index("admin_vpn_profiles_organization_user_idx").on(
+      table.organizationId,
+      table.userId
+    ),
     wireguardPublicKeyIdx: uniqueIndex(
       "admin_vpn_profiles_wireguard_public_key_idx"
     ).on(table.wireguardPublicKey),

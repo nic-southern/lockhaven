@@ -58,6 +58,7 @@ export default function AdminVpnPage() {
   const [label, setLabel] = React.useState("")
   const [revokeId, setRevokeId] = React.useState<string | null>(null)
   const [reissueId, setReissueId] = React.useState<string | null>(null)
+  const [deleteId, setDeleteId] = React.useState<string | null>(null)
 
   const organizations = React.useMemo(
     () => organizationsQuery.data ?? [],
@@ -109,9 +110,22 @@ export default function AdminVpnPage() {
     },
   })
 
-  const ownProfileForOrg = profiles.find(
+  const deleteProfile = trpc.adminVpn.delete.useMutation({
+    async onSuccess() {
+      await utils.adminVpn.list.invalidate()
+      setDeleteId(null)
+      toast.success("Admin VPN profile deleted")
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't delete the admin VPN profile.")
+    },
+  })
+
+  const ownActiveProfilesForOrg = profiles.filter(
     (profile) =>
-      profile.organizationId === organizationId && profile.isOwnProfile
+      profile.organizationId === organizationId &&
+      profile.isOwnProfile &&
+      !profile.revokedAt
   )
 
   return (
@@ -126,8 +140,8 @@ export default function AdminVpnPage() {
           <CardHeader>
             <CardTitle>Create profile</CardTitle>
             <CardDescription>
-              Generates a config for your account. The private key is shown only
-              in the downloaded file.
+              Create one profile per machine you connect from. The private key
+              is shown only in the downloaded file.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -145,27 +159,29 @@ export default function AdminVpnPage() {
                 ))}
               </NativeSelect>
             </FormField>
-            <FormField label="Label (optional)" htmlFor="admin-vpn-label">
+            <FormField
+              label="Device name"
+              htmlFor="admin-vpn-label"
+              description="Used to name the downloaded file so you can tell your machines apart."
+            >
               <Input
                 id="admin-vpn-label"
                 value={label}
                 onChange={(event) => setLabel(event.target.value)}
-                placeholder="MacBook"
+                placeholder="Desktop"
               />
             </FormField>
-            {ownProfileForOrg && !ownProfileForOrg.revokedAt ? (
+            {ownActiveProfilesForOrg.length > 0 ? (
               <p className="text-sm text-muted-foreground">
-                You already have an active profile for this organization.
-                Reissue it to download a new config.
+                You have {ownActiveProfilesForOrg.length} active{" "}
+                {ownActiveProfilesForOrg.length === 1 ? "profile" : "profiles"}{" "}
+                here. Each machine needs its own profile — the same config
+                cannot be used on two machines at once.
               </p>
             ) : null}
             <Button
               className="w-full"
-              disabled={
-                !organizationId ||
-                createProfile.isPending ||
-                Boolean(ownProfileForOrg && !ownProfileForOrg.revokedAt)
-              }
+              disabled={!organizationId || createProfile.isPending}
               onClick={() =>
                 createProfile.mutate({
                   organizationId,
@@ -173,11 +189,7 @@ export default function AdminVpnPage() {
                 })
               }
             >
-              {createProfile.isPending
-                ? "Creating…"
-                : ownProfileForOrg?.revokedAt
-                  ? "Restore and download"
-                  : "Create and download"}
+              {createProfile.isPending ? "Creating…" : "Create and download"}
             </Button>
           </CardContent>
         </Card>
@@ -194,12 +206,13 @@ export default function AdminVpnPage() {
           ) : profiles.length === 0 ? (
             <EmptyState
               title="No admin VPN profiles yet"
-              description="Create a profile to download a WireGuard config for native device access."
+              description="Create a profile for each machine you connect from to download its WireGuard config."
             />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Device</TableHead>
                   <TableHead>Organization</TableHead>
                   <TableHead>User</TableHead>
                   <TableHead>Address</TableHead>
@@ -212,16 +225,10 @@ export default function AdminVpnPage() {
                   const status = profileStatus(profile)
                   return (
                     <TableRow key={profile.id}>
-                      <TableCell>
-                        <div className="font-medium">
-                          {profile.organizationName}
-                        </div>
-                        {profile.label ? (
-                          <div className="text-xs text-muted-foreground">
-                            {profile.label}
-                          </div>
-                        ) : null}
+                      <TableCell className="font-medium">
+                        {profile.label || "—"}
                       </TableCell>
+                      <TableCell>{profile.organizationName}</TableCell>
                       <TableCell>
                         <div>{profile.userName || profile.userEmail}</div>
                         <div className="text-xs text-muted-foreground">
@@ -241,19 +248,27 @@ export default function AdminVpnPage() {
                           disabled={reissueProfile.isPending}
                           onClick={() => setReissueId(profile.id)}
                         >
-                          Reissue
+                          {profile.revokedAt ? "Restore" : "Reissue"}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={
-                            Boolean(profile.revokedAt) ||
-                            revokeProfile.isPending
-                          }
-                          onClick={() => setRevokeId(profile.id)}
-                        >
-                          Revoke
-                        </Button>
+                        {profile.revokedAt ? (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={deleteProfile.isPending}
+                            onClick={() => setDeleteId(profile.id)}
+                          >
+                            Delete
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={revokeProfile.isPending}
+                            onClick={() => setRevokeId(profile.id)}
+                          >
+                            Revoke
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   )
@@ -270,7 +285,7 @@ export default function AdminVpnPage() {
           if (!open) setReissueId(null)
         }}
         title="Reissue admin VPN profile?"
-        description="This replaces the current keys. Download and import the new config. The previous config will stop working."
+        description="This replaces the keys for this machine only. Download and import the new config. The previous config for this machine will stop working."
         confirmLabel="Reissue and download"
         pending={reissueProfile.isPending}
         onConfirm={() => {
@@ -286,12 +301,28 @@ export default function AdminVpnPage() {
           if (!open) setRevokeId(null)
         }}
         title="Revoke admin VPN profile?"
-        description="This disconnects the tunnel. You can reissue later to restore access with new keys."
+        description="This disconnects that machine's tunnel and stops its config from working. You can restore access later with new keys."
         confirmLabel="Revoke"
         pending={revokeProfile.isPending}
         onConfirm={() => {
           if (revokeId) {
             revokeProfile.mutate({ id: revokeId })
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteId)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteId(null)
+        }}
+        title="Delete admin VPN profile?"
+        description="This removes the profile and frees its address for reuse. It cannot be restored."
+        confirmLabel="Delete"
+        pending={deleteProfile.isPending}
+        onConfirm={() => {
+          if (deleteId) {
+            deleteProfile.mutate({ id: deleteId })
           }
         }}
       />

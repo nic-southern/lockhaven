@@ -53,6 +53,7 @@ import {
   normalizeVpnIpv4,
 } from "@nms/vpn"
 import {
+  adminVpnConfigFilename,
   normalizeRouteValues,
   permissionForServiceType,
   serviceConnectionDefaults,
@@ -125,14 +126,7 @@ function requireVpnServerConfig() {
   }
 }
 
-function adminVpnConfigFilename(organizationName: string, vpnIpv4: string) {
-  const safeName = organizationName
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-  const address = normalizeVpnIpv4(vpnIpv4).replaceAll(".", "-")
-  return `lockhaven-admin-${safeName || "org"}-${address}.conf`
-}
+const MAX_ADMIN_VPN_PROFILES_PER_ORG = 10
 
 function serializeAdminVpnProfile(
   profile: typeof adminVpnProfiles.$inferSelect
@@ -161,6 +155,28 @@ function requireActor(actor: ApiContext["actor"]) {
   }
 
   return actor
+}
+
+function assertCanManageAdminVpnProfile(
+  actor: ReturnType<typeof requireActor>,
+  profile: typeof adminVpnProfiles.$inferSelect,
+  action: string
+) {
+  assertAuthorized(actor, "vpn:admin_profile", {
+    kind: "organization",
+    organizationId: profile.organizationId,
+  })
+
+  if (
+    profile.userId !== actor.id &&
+    actor.platformRole !== "owner" &&
+    actor.platformRole !== "admin"
+  ) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `You can only ${action} your own admin VPN profiles`,
+    })
+  }
 }
 
 function decodePasswordRecord(
@@ -2689,6 +2705,8 @@ export const appRouter = createTRPCRouter({
             session: record,
             url: null,
             nativeUrl,
+            clipboardSecret:
+              service.serviceType === "vnc" ? (password ?? null) : null,
             mode: "native" as const,
           }
         }
@@ -2749,6 +2767,7 @@ export const appRouter = createTRPCRouter({
           session: record,
           url: launchUrl.toString(),
           nativeUrl: null,
+          clipboardSecret: null,
           mode: "guacamole" as const,
         }
       }),
@@ -2861,21 +2880,21 @@ export const appRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND" })
         }
 
-        const [existing] = await ctx.db
-          .select()
+        const activeCount = await ctx.db
+          .select({ id: adminVpnProfiles.id })
           .from(adminVpnProfiles)
           .where(
             and(
               eq(adminVpnProfiles.organizationId, input.organizationId),
-              eq(adminVpnProfiles.userId, actor.id)
+              eq(adminVpnProfiles.userId, actor.id),
+              isNull(adminVpnProfiles.revokedAt)
             )
           )
 
-        if (existing && !existing.revokedAt && existing.serverPeerEnabled) {
+        if (activeCount.length >= MAX_ADMIN_VPN_PROFILES_PER_ORG) {
           throw new TRPCError({
             code: "CONFLICT",
-            message:
-              "An admin VPN profile already exists for this organization",
+            message: `You can have up to ${MAX_ADMIN_VPN_PROFILES_PER_ORG} active profiles for this organization. Revoke one to add another.`,
           })
         }
 
@@ -2883,56 +2902,37 @@ export const appRouter = createTRPCRouter({
         const keyPair = generateWireGuardKeyPair()
         const now = new Date()
 
-        let profile: typeof adminVpnProfiles.$inferSelect
-        let vpnIpv4: string
+        const existingAdminIps = await ctx.db
+          .select({ vpnIpv4: adminVpnProfiles.vpnIpv4 })
+          .from(adminVpnProfiles)
+        const vpnIpv4 = allocateVpnIpv4(
+          existingAdminIps.map((row) => String(row.vpnIpv4)),
+          { pool: "admin" }
+        )
 
-        if (existing) {
-          vpnIpv4 = String(existing.vpnIpv4)
-          const [updated] = await ctx.db
-            .update(adminVpnProfiles)
-            .set({
-              wireguardPublicKey: keyPair.publicKey,
-              label: input.label ?? existing.label,
-              serverPeerEnabled: true,
-              revokedAt: null,
-              updatedAt: now,
-            })
-            .where(eq(adminVpnProfiles.id, existing.id))
-            .returning()
-          profile = updated
-        } else {
-          const existingAdminIps = await ctx.db
-            .select({ vpnIpv4: adminVpnProfiles.vpnIpv4 })
-            .from(adminVpnProfiles)
-          vpnIpv4 = allocateVpnIpv4(
-            existingAdminIps.map((row) => String(row.vpnIpv4)),
-            { pool: "admin" }
-          )
-
-          const [created] = await ctx.db
-            .insert(adminVpnProfiles)
-            .values({
-              organizationId: input.organizationId,
-              userId: actor.id,
-              vpnIpv4,
-              wireguardPublicKey: keyPair.publicKey,
-              label: input.label ?? null,
-              serverPeerEnabled: true,
-              revokedAt: null,
-              createdAt: now,
-              updatedAt: now,
-            })
-            .returning()
-          profile = created
-        }
+        const [profile] = await ctx.db
+          .insert(adminVpnProfiles)
+          .values({
+            organizationId: input.organizationId,
+            userId: actor.id,
+            vpnIpv4,
+            wireguardPublicKey: keyPair.publicKey,
+            label: input.label ?? null,
+            serverPeerEnabled: true,
+            revokedAt: null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
 
         await ctx.db.insert(auditEvents).values({
           actorUserId: actor.id,
           organizationId: input.organizationId,
-          eventType: existing ? "admin_vpn_reissued" : "admin_vpn_created",
+          eventType: "admin_vpn_created",
           eventData: {
             profileId: profile.id,
             vpnIpv4: normalizeVpnIpv4(vpnIpv4),
+            label: profile.label,
           },
         })
 
@@ -2946,7 +2946,11 @@ export const appRouter = createTRPCRouter({
         return {
           profile: serializeAdminVpnProfile(profile),
           config,
-          filename: adminVpnConfigFilename(organization.name, vpnIpv4),
+          filename: adminVpnConfigFilename(
+            organization.name,
+            vpnIpv4,
+            profile.label
+          ),
         }
       }),
     reissue: permissionProcedure("vpn:admin_profile")
@@ -2962,21 +2966,7 @@ export const appRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND" })
         }
 
-        assertAuthorized(actor, "vpn:admin_profile", {
-          kind: "organization",
-          organizationId: profile.organizationId,
-        })
-
-        if (
-          profile.userId !== actor.id &&
-          actor.platformRole !== "owner" &&
-          actor.platformRole !== "admin"
-        ) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You can only reissue your own admin VPN profile",
-          })
-        }
+        assertCanManageAdminVpnProfile(actor, profile, "reissue")
 
         const [organization] = await ctx.db
           .select()
@@ -3024,7 +3014,8 @@ export const appRouter = createTRPCRouter({
           config,
           filename: adminVpnConfigFilename(
             organization.name,
-            String(profile.vpnIpv4)
+            String(profile.vpnIpv4),
+            profile.label
           ),
         }
       }),
@@ -3041,21 +3032,7 @@ export const appRouter = createTRPCRouter({
           throw new TRPCError({ code: "NOT_FOUND" })
         }
 
-        assertAuthorized(actor, "vpn:admin_profile", {
-          kind: "organization",
-          organizationId: profile.organizationId,
-        })
-
-        if (
-          profile.userId !== actor.id &&
-          actor.platformRole !== "owner" &&
-          actor.platformRole !== "admin"
-        ) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You can only revoke your own admin VPN profile",
-          })
-        }
+        assertCanManageAdminVpnProfile(actor, profile, "revoke")
 
         const now = new Date()
         const [updated] = await ctx.db
@@ -3075,10 +3052,50 @@ export const appRouter = createTRPCRouter({
           eventData: {
             profileId: profile.id,
             vpnIpv4: normalizeVpnIpv4(String(profile.vpnIpv4)),
+            label: profile.label,
           },
         })
 
         return serializeAdminVpnProfile(updated)
+      }),
+    delete: permissionProcedure("vpn:admin_profile")
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const actor = requireActor(ctx.actor)
+        const [profile] = await ctx.db
+          .select()
+          .from(adminVpnProfiles)
+          .where(eq(adminVpnProfiles.id, input.id))
+
+        if (!profile) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        assertCanManageAdminVpnProfile(actor, profile, "delete")
+
+        if (!profile.revokedAt) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Revoke the profile before deleting it",
+          })
+        }
+
+        await ctx.db
+          .delete(adminVpnProfiles)
+          .where(eq(adminVpnProfiles.id, profile.id))
+
+        await ctx.db.insert(auditEvents).values({
+          actorUserId: actor.id,
+          organizationId: profile.organizationId,
+          eventType: "admin_vpn_deleted",
+          eventData: {
+            profileId: profile.id,
+            vpnIpv4: normalizeVpnIpv4(String(profile.vpnIpv4)),
+            label: profile.label,
+          },
+        })
+
+        return { id: profile.id }
       }),
   }),
 })

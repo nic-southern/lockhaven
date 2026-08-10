@@ -137,8 +137,11 @@ export default function ConnectionsPage() {
     },
   })
   const launchSession = trpc.sessions.create.useMutation({
-    onSuccess(result) {
-      openRemoteLaunchResult(result)
+    async onSuccess(result) {
+      const opened = await openRemoteLaunchResult(result)
+      if (opened?.mode === "native" && opened.copiedSecret) {
+        toast.success("VNC password copied — paste it when prompted")
+      }
     },
     onError() {
       toast.error("Couldn't start the session.")

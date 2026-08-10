@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  adminVpnConfigFilename,
   normalizeRouteValues,
   permissionForServiceType,
   serviceConnectionDefaults,
@@ -40,4 +41,26 @@ test("provides connection defaults for remote service types", () => {
 test("keeps site assignments within the same organization", () => {
   assert.equal(siteBelongsToOrganization("org-1", "org-1"), true)
   assert.equal(siteBelongsToOrganization("org-1", "org-2"), false)
+})
+
+test("names admin vpn configs after the machine label", () => {
+  assert.equal(
+    adminVpnConfigFilename("Acme Corp", "10.80.100.11/32", "Desktop"),
+    "lockhaven-admin-acme-corp-desktop.conf"
+  )
+  assert.equal(
+    adminVpnConfigFilename("Acme Corp", "10.80.100.12/32", "Laptop"),
+    "lockhaven-admin-acme-corp-laptop.conf"
+  )
+})
+
+test("falls back to the vpn address when a profile has no label", () => {
+  assert.equal(
+    adminVpnConfigFilename("Acme Corp", "10.80.100.11/32", null),
+    "lockhaven-admin-acme-corp-10-80-100-11.conf"
+  )
+  assert.equal(
+    adminVpnConfigFilename("!!!", "10.80.100.11", ""),
+    "lockhaven-admin-org-10-80-100-11.conf"
+  )
 })
