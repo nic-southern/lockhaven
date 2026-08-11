@@ -78,3 +78,30 @@ The current public repository is
   migrate it, especially host paths, database names, and image references.
 - Public-facing copy should be neutral product language. Do not expose vendor,
   framework, database, or implementation details in UI strings.
+
+## Cursor Cloud specific instructions
+
+This cloud environment is **production-oriented**: do **not** start local
+Postgres/Redis via root `docker-compose.yml`. Prefer the deployed production
+stack (`deploy/production.compose.yml` on the droplet) for end-to-end work.
+
+### Commands
+
+Standard install/lint/test/build/dev commands are listed under
+**Working In This Repo** above and in `README.md`.
+
+### Gotchas
+
+- `pnpm --filter @nms/web dev` (`pnpm dev:web`) sources the root `.env`
+  unconditionally (`set -a; . ../../.env`). Create a gitignored root `.env`
+  before starting the web app, or the script fails immediately.
+- Production Postgres/Redis live on the private Docker network on the host.
+  Pointing a laptop/cloud `pnpm dev:web` at production requires an SSH tunnel
+  (or equivalent). Otherwise exercise the **deployed** Console URL.
+- Do not run a second `pnpm dev:worker` against production Redis/DB from this
+  VM: the worker needs host WireGuard/`vpnctl` and a duplicate reconciler can
+  fight the production worker. Keep VPN reconciliation on the droplet.
+- Guacamole remote-session E2E needs the production Guacamole stack; console
+  inventory/auth/enrollment UI does not.
+- Pre-commit runs `pnpm format:check`. Pre-push also runs `pnpm lint`,
+  `pnpm typecheck`, and `pnpm test`.
