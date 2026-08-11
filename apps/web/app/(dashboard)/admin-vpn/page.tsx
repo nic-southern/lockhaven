@@ -13,7 +13,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -110,6 +112,20 @@ export default function AdminVpnPage() {
     },
   })
 
+  const updateProfile = trpc.adminVpn.update.useMutation({
+    async onSuccess(profile) {
+      await utils.adminVpn.list.invalidate()
+      toast.success(
+        profile.allowSameUserAccess
+          ? "Same-user access enabled"
+          : "Same-user access disabled"
+      )
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't update the profile.")
+    },
+  })
+
   const deleteProfile = trpc.adminVpn.delete.useMutation({
     async onSuccess() {
       await utils.adminVpn.list.invalidate()
@@ -132,7 +148,7 @@ export default function AdminVpnPage() {
     <div className="space-y-6">
       <PageHeader
         title="Admin VPN"
-        description="Download a WireGuard profile to reach this organization's devices from your Mac. Traffic is one-way from your admin tunnel to devices."
+        description="Download a profile for each machine you connect from. Enable same-user access on a profile to let your other machines reach it."
       />
 
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -196,7 +212,7 @@ export default function AdminVpnPage() {
 
         <SectionCard
           title="Profiles"
-          description="Import the downloaded file into WireGuard on macOS, then connect. SSH to device VPN addresses directly."
+          description="Import each downloaded file on its machine, then connect. Turn on same-user access when you want your other machines to reach that profile."
         >
           {profilesQuery.isLoading ? (
             <div className="space-y-3">
@@ -217,6 +233,7 @@ export default function AdminVpnPage() {
                   <TableHead>User</TableHead>
                   <TableHead>Address</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Same-user access</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -240,6 +257,33 @@ export default function AdminVpnPage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant={status.tone}>{status.label}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        {profile.revokedAt ? (
+                          <span className="text-sm text-muted-foreground">
+                            —
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Checkbox
+                              id={`same-user-${profile.id}`}
+                              checked={profile.allowSameUserAccess}
+                              disabled={updateProfile.isPending}
+                              onCheckedChange={(checked) => {
+                                updateProfile.mutate({
+                                  id: profile.id,
+                                  allowSameUserAccess: checked === true,
+                                })
+                              }}
+                            />
+                            <Label
+                              htmlFor={`same-user-${profile.id}`}
+                              className="text-sm font-normal"
+                            >
+                              Allow my other devices
+                            </Label>
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="space-x-2 text-right">
                         <Button

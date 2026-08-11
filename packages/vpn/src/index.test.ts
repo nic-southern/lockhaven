@@ -10,6 +10,7 @@ import {
   buildSyncFirewallCommand,
   generateWireGuardKeyPair,
   normalizeVpnIpv4,
+  sameUserPeerDestinationIps,
 } from "./index"
 
 test("normalizes inet values without breaking /32 allocation", () => {
@@ -104,4 +105,63 @@ test("builds sync-firewall command with admin forwards and snat", () => {
       "10.80.0.1",
     ]
   )
+})
+
+test("same-user peer destinations only include opted-in sibling profiles", () => {
+  const desktop = {
+    id: "desktop",
+    userId: "user-a",
+    organizationId: "org-1",
+    vpnIpv4: "10.80.100.11",
+    serverPeerEnabled: true,
+    revokedAt: null,
+    allowSameUserAccess: true,
+  }
+  const laptop = {
+    id: "laptop",
+    userId: "user-a",
+    organizationId: "org-1",
+    vpnIpv4: "10.80.100.12",
+    serverPeerEnabled: true,
+    revokedAt: null,
+    allowSameUserAccess: false,
+  }
+  const phone = {
+    id: "phone",
+    userId: "user-a",
+    organizationId: "org-1",
+    vpnIpv4: "10.80.100.13",
+    serverPeerEnabled: true,
+    revokedAt: null,
+    allowSameUserAccess: true,
+  }
+  const otherUser = {
+    id: "other",
+    userId: "user-b",
+    organizationId: "org-1",
+    vpnIpv4: "10.80.100.14",
+    serverPeerEnabled: true,
+    revokedAt: null,
+    allowSameUserAccess: true,
+  }
+  const revoked = {
+    id: "revoked",
+    userId: "user-a",
+    organizationId: "org-1",
+    vpnIpv4: "10.80.100.15",
+    serverPeerEnabled: true,
+    revokedAt: new Date("2026-01-01"),
+    allowSameUserAccess: true,
+  }
+
+  const profiles = [desktop, laptop, phone, otherUser, revoked]
+
+  assert.deepEqual(sameUserPeerDestinationIps(laptop, profiles), [
+    "10.80.100.11",
+    "10.80.100.13",
+  ])
+  assert.deepEqual(sameUserPeerDestinationIps(desktop, profiles), [
+    "10.80.100.13",
+  ])
+  assert.deepEqual(sameUserPeerDestinationIps(otherUser, profiles), [])
 })
