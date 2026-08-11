@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { CodeBlock } from "@/components/dashboard/code-block"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { CopyableText } from "@/components/dashboard/copyable-text"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { VpnStatusStrip } from "@/components/dashboard/stat-strip"
@@ -408,8 +409,16 @@ export default function DeviceConfigPage() {
                     value: formatDate(device.vpnIdentity?.lastHandshakeAt),
                   },
                   {
-                    label: "Endpoint",
-                    value: device.vpnIdentity?.latestEndpoint ?? "—",
+                    label: "Address",
+                    value: (
+                      <CopyableText
+                        value={
+                          device.vpnIdentity?.vpnIpv4
+                            ? String(device.vpnIdentity.vpnIpv4)
+                            : null
+                        }
+                      />
+                    ),
                   },
                   {
                     label: "Traffic",

@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { CopyableText } from "@/components/dashboard/copyable-text"
 import { DetailSheet } from "@/components/dashboard/detail-sheet"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
@@ -391,8 +392,16 @@ export default function DevicesPage() {
                     ),
                   },
                   {
-                    label: "Endpoint",
-                    value: selectedDevice.vpnIdentity?.latestEndpoint ?? "—",
+                    label: "Address",
+                    value: (
+                      <CopyableText
+                        value={
+                          selectedDevice.vpnIdentity?.vpnIpv4
+                            ? String(selectedDevice.vpnIdentity.vpnIpv4)
+                            : null
+                        }
+                      />
+                    ),
                   },
                   {
                     label: "Traffic",
