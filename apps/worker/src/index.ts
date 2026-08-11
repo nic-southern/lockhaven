@@ -27,6 +27,7 @@ import {
   deriveDeviceStatus,
   parseWgDump,
   normalizeVpnIpv4,
+  sameUserPeerDestinationIps,
   type AdminForwardRule,
 } from "@nms/vpn"
 
@@ -210,8 +211,10 @@ async function reconcileVpnPeers() {
       })
     )
 
-    const destinations =
-      deviceIpsByOrganization.get(profile.organizationId) ?? []
+    const destinations = [
+      ...(deviceIpsByOrganization.get(profile.organizationId) ?? []),
+      ...sameUserPeerDestinationIps(profile, adminProfiles),
+    ]
     if (destinations.length > 0) {
       adminForwards.push({
         sourceIp: String(profile.vpnIpv4),

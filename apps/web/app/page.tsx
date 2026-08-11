@@ -28,6 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { CodeBlock } from "@/components/dashboard/code-block"
+import { CopyableText } from "@/components/dashboard/copyable-text"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
@@ -567,9 +568,7 @@ export default function Page() {
                       </Badge>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs">
-                        {device.vpnIpv4 ?? "—"}
-                      </span>
+                      <CopyableText value={device.vpnIpv4} />
                       <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
                         {statusLabel(vpnStatus)}
                       </Badge>
@@ -710,9 +709,7 @@ export default function Page() {
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col gap-1">
-                            <span className="font-mono text-xs">
-                              {device.vpnIpv4 ?? "—"}
-                            </span>
+                            <CopyableText value={device.vpnIpv4} />
                             <Badge
                               variant={statusVariant[vpnStatus] ?? "outline"}
                             >

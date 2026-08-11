@@ -139,6 +139,7 @@ function serializeAdminVpnProfile(
     wireguardPublicKey: profile.wireguardPublicKey,
     label: profile.label,
     serverPeerEnabled: profile.serverPeerEnabled,
+    allowSameUserAccess: profile.allowSameUserAccess,
     lastHandshakeAt: profile.lastHandshakeAt,
     latestEndpoint: profile.latestEndpoint,
     rxBytes: profile.rxBytes,
@@ -3053,6 +3054,49 @@ export const appRouter = createTRPCRouter({
             profileId: profile.id,
             vpnIpv4: normalizeVpnIpv4(String(profile.vpnIpv4)),
             label: profile.label,
+          },
+        })
+
+        return serializeAdminVpnProfile(updated)
+      }),
+    update: permissionProcedure("vpn:admin_profile")
+      .input(
+        z.object({
+          id: z.string().uuid(),
+          allowSameUserAccess: z.boolean(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const actor = requireActor(ctx.actor)
+        const [profile] = await ctx.db
+          .select()
+          .from(adminVpnProfiles)
+          .where(eq(adminVpnProfiles.id, input.id))
+
+        if (!profile) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        assertCanManageAdminVpnProfile(actor, profile, "update")
+
+        const now = new Date()
+        const [updated] = await ctx.db
+          .update(adminVpnProfiles)
+          .set({
+            allowSameUserAccess: input.allowSameUserAccess,
+            updatedAt: now,
+          })
+          .where(eq(adminVpnProfiles.id, profile.id))
+          .returning()
+
+        await ctx.db.insert(auditEvents).values({
+          actorUserId: actor.id,
+          organizationId: profile.organizationId,
+          eventType: "admin_vpn_updated",
+          eventData: {
+            profileId: profile.id,
+            vpnIpv4: normalizeVpnIpv4(String(profile.vpnIpv4)),
+            allowSameUserAccess: input.allowSameUserAccess,
           },
         })
 

@@ -205,6 +205,55 @@ export type AdminForwardRule = {
   destinationIps: string[]
 }
 
+export type AdminVpnPeerAccessProfile = {
+  id: string
+  userId: string
+  organizationId: string
+  vpnIpv4: string
+  serverPeerEnabled: boolean
+  revokedAt: Date | string | null
+  allowSameUserAccess: boolean
+}
+
+function isActiveAdminVpnProfile(profile: AdminVpnPeerAccessProfile) {
+  return profile.serverPeerEnabled && !profile.revokedAt
+}
+
+/**
+ * Destinations on other admin VPN profiles owned by the same user that opted
+ * into same-user access. Used so desktop/laptop tunnels can reach each other.
+ */
+export function sameUserPeerDestinationIps(
+  source: AdminVpnPeerAccessProfile,
+  profiles: AdminVpnPeerAccessProfile[]
+) {
+  if (!isActiveAdminVpnProfile(source)) {
+    return [] as string[]
+  }
+
+  const destinations: string[] = []
+  for (const profile of profiles) {
+    if (profile.id === source.id) {
+      continue
+    }
+    if (!isActiveAdminVpnProfile(profile)) {
+      continue
+    }
+    if (profile.userId !== source.userId) {
+      continue
+    }
+    if (profile.organizationId !== source.organizationId) {
+      continue
+    }
+    if (!profile.allowSameUserAccess) {
+      continue
+    }
+    destinations.push(normalizeVpnIpv4(String(profile.vpnIpv4)))
+  }
+
+  return destinations
+}
+
 export function buildSyncFirewallCommand(args: {
   allowedRoutes: string[]
   adminForwards?: AdminForwardRule[]

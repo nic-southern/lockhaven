@@ -276,6 +276,9 @@ export const adminVpnProfiles = pgTable(
     wireguardPublicKey: text("wireguard_public_key").notNull().unique(),
     label: text("label"),
     serverPeerEnabled: boolean("server_peer_enabled").notNull().default(true),
+    allowSameUserAccess: boolean("allow_same_user_access")
+      .notNull()
+      .default(false),
     lastHandshakeAt: timestamp("last_handshake_at", { withTimezone: true }),
     latestEndpoint: text("latest_endpoint"),
     rxBytes: bigint("rx_bytes", { mode: "number" }).notNull().default(0),
