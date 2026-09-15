@@ -30,8 +30,11 @@ import {
 } from "./access"
 import { writeAuditEvent } from "./audit"
 import { issueLaunchTicket, redeemLaunchTicket } from "./launch-ticket"
+import { auditRouter } from "./routers/activity"
+import { alertsRouter } from "./routers/alerts"
 import { dashboardRouter } from "./routers/dashboard"
 import { devicesRouter } from "./routers/devices"
+import { networkRouter } from "./routers/network"
 import { routePoliciesRouter } from "./routers/route-policies"
 import { sessionsPage } from "./routers/sessions-page"
 import { usersRouter } from "./routers/users"
@@ -555,11 +558,6 @@ const managementServiceUpdateInput = z.object({
 })
 
 const enrollmentTokenInput = enrollmentTokenCreateSchema
-
-const auditListInput = z.object({
-  organizationId: z.string().uuid().optional(),
-  deviceId: z.string().uuid().optional(),
-})
 
 const sessionCreateInput = remoteSessionRequestSchema.extend({
   deviceId: z.string().uuid(),
@@ -1289,6 +1287,8 @@ export const appRouter = createTRPCRouter({
   }),
   devices: devicesRouter,
   dashboard: dashboardRouter,
+  network: networkRouter,
+  alerts: alertsRouter,
   managementServices: createTRPCRouter({
     list: permissionProcedure("device:view")
       .input(z.object({ deviceId: z.string().uuid().optional() }).optional())
@@ -2100,217 +2100,7 @@ export const appRouter = createTRPCRouter({
         return record ?? existing
       }),
   }),
-  audit: createTRPCRouter({
-    list: permissionProcedure("audit:view")
-      .input(auditListInput)
-      .query(async ({ ctx, input }) => {
-        if (input.organizationId) {
-          assertAuthorized(ctx.actor, "audit:view", {
-            kind: "organization",
-            organizationId: input.organizationId,
-          })
-
-          return ctx.db
-            .select()
-            .from(auditEvents)
-            .where(eq(auditEvents.organizationId, input.organizationId))
-            .orderBy(desc(auditEvents.createdAt))
-        }
-
-        if (input.deviceId) {
-          const [device] = await ctx.db
-            .select()
-            .from(devices)
-            .where(eq(devices.id, input.deviceId))
-
-          if (!device) {
-            return []
-          }
-
-          assertAuthorized(ctx.actor, "audit:view", {
-            kind: "device",
-            organizationId: device.organizationId,
-            siteId: device.siteId,
-          })
-
-          return ctx.db
-            .select()
-            .from(auditEvents)
-            .where(eq(auditEvents.deviceId, input.deviceId))
-            .orderBy(desc(auditEvents.createdAt))
-        }
-
-        const organizationIds = actorOrganizationIds(ctx.actor)
-        const siteIds = actorSiteIds(ctx.actor) ?? []
-
-        if (organizationIds === null) {
-          return ctx.db
-            .select()
-            .from(auditEvents)
-            .orderBy(desc(auditEvents.createdAt))
-        }
-
-        const filters = []
-
-        if (organizationIds.length > 0) {
-          filters.push(inArray(auditEvents.organizationId, organizationIds))
-        }
-
-        if (siteIds.length > 0) {
-          const accessibleDeviceIds = await ctx.db
-            .select({ id: devices.id })
-            .from(devices)
-            .where(inArray(devices.siteId, siteIds))
-
-          const deviceIds = accessibleDeviceIds.map((entry) => entry.id)
-          if (deviceIds.length > 0) {
-            filters.push(inArray(auditEvents.deviceId, deviceIds))
-          }
-        }
-
-        if (filters.length === 0) {
-          return []
-        }
-
-        return filters.length === 1
-          ? ctx.db
-              .select()
-              .from(auditEvents)
-              .where(filters[0])
-              .orderBy(desc(auditEvents.createdAt))
-          : ctx.db
-              .select()
-              .from(auditEvents)
-              .where(or(...filters))
-              .orderBy(desc(auditEvents.createdAt))
-      }),
-    page: permissionProcedure("audit:view")
-      .input(listQuerySchema.optional())
-      .query(async ({ ctx, input }) => {
-        const query = resolveListQuery(input, { defaultLimit: 50 })
-        const organizationIds = actorOrganizationIds(ctx.actor)
-        const siteIds = actorSiteIds(ctx.actor) ?? []
-
-        let scopeCondition: ReturnType<typeof or> | undefined
-        if (organizationIds !== null) {
-          const scopeFilters = []
-          if (organizationIds.length > 0) {
-            scopeFilters.push(
-              inArray(auditEvents.organizationId, organizationIds)
-            )
-          }
-          if (siteIds.length > 0) {
-            const accessibleDeviceIds = await ctx.db
-              .select({ id: devices.id })
-              .from(devices)
-              .where(inArray(devices.siteId, siteIds))
-            const deviceIds = accessibleDeviceIds.map((entry) => entry.id)
-            if (deviceIds.length > 0) {
-              scopeFilters.push(inArray(auditEvents.deviceId, deviceIds))
-            }
-          }
-          if (scopeFilters.length === 0) {
-            return paginate([], query, 0)
-          }
-          scopeCondition =
-            scopeFilters.length === 1 ? scopeFilters[0] : or(...scopeFilters)
-        }
-
-        const parseDate = (value: string[] | undefined) => {
-          if (!value?.[0]) return undefined
-          const date = new Date(value[0])
-          return Number.isNaN(date.getTime()) ? undefined : date
-        }
-        const from = parseDate(query.filters.from)
-        const to = parseDate(query.filters.to)
-
-        const conditions = combineConditions([
-          scopeCondition,
-          query.filters.eventType
-            ? inArray(auditEvents.eventType, query.filters.eventType)
-            : undefined,
-          query.filters.organizationId
-            ? inArray(auditEvents.organizationId, query.filters.organizationId)
-            : undefined,
-          query.filters.deviceId
-            ? inArray(auditEvents.deviceId, query.filters.deviceId)
-            : undefined,
-          query.filters.actorUserId
-            ? inArray(auditEvents.actorUserId, query.filters.actorUserId)
-            : undefined,
-          from ? gte(auditEvents.createdAt, from) : undefined,
-          to ? lte(auditEvents.createdAt, to) : undefined,
-          query.search
-            ? or(
-                ilike(auditEvents.eventType, likePattern(query.search)),
-                ilike(
-                  sql`${auditEvents.eventData}::text`,
-                  likePattern(query.search)
-                ),
-                ilike(user.name, likePattern(query.search)),
-                ilike(user.email, likePattern(query.search)),
-                ilike(devices.displayName, likePattern(query.search))
-              )
-            : undefined,
-        ])
-        const where = conditions.length > 0 ? and(...conditions) : undefined
-
-        const [[totalRow], rows] = await Promise.all([
-          ctx.db
-            .select({ total: count() })
-            .from(auditEvents)
-            .leftJoin(user, eq(user.id, auditEvents.actorUserId))
-            .leftJoin(devices, eq(devices.id, auditEvents.deviceId))
-            .where(where),
-          ctx.db
-            .select({
-              id: auditEvents.id,
-              actorUserId: auditEvents.actorUserId,
-              actorName: user.name,
-              actorEmail: user.email,
-              organizationId: auditEvents.organizationId,
-              organizationName: organizations.name,
-              deviceId: auditEvents.deviceId,
-              deviceName: devices.displayName,
-              eventType: auditEvents.eventType,
-              eventData: auditEvents.eventData,
-              createdAt: auditEvents.createdAt,
-            })
-            .from(auditEvents)
-            .leftJoin(user, eq(user.id, auditEvents.actorUserId))
-            .leftJoin(devices, eq(devices.id, auditEvents.deviceId))
-            .leftJoin(
-              organizations,
-              eq(organizations.id, auditEvents.organizationId)
-            )
-            .where(where)
-            .orderBy(
-              ...buildOrderBy(
-                query.sort,
-                {
-                  createdAt: auditEvents.createdAt,
-                  eventType: auditEvents.eventType,
-                  actorName: user.name,
-                  organizationName: organizations.name,
-                  deviceName: devices.displayName,
-                },
-                [desc(auditEvents.createdAt), desc(auditEvents.id)]
-              )
-            )
-            .limit(query.limit + 1)
-            .offset(query.offset),
-        ])
-
-        return paginate(rows, query, Number(totalRow?.total ?? 0))
-      }),
-    eventTypes: permissionProcedure("audit:view").query(async ({ ctx }) => {
-      const rows = await ctx.db
-        .selectDistinct({ eventType: auditEvents.eventType })
-        .from(auditEvents)
-        .orderBy(auditEvents.eventType)
-      return rows.map((row) => row.eventType)
-    }),
-  }),
+  audit: auditRouter,
   sessions: createTRPCRouter({
     page: sessionsPage,
     create: permissionProcedure("device:view")

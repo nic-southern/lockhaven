@@ -1,4 +1,5 @@
-import { inArray, or, type SQL } from "drizzle-orm"
+import { inArray, or, sql, type SQL } from "drizzle-orm"
+import type { AnyPgColumn } from "drizzle-orm/pg-core"
 
 import type { ActorPrincipal } from "@nms/auth"
 import { devices } from "@nms/db"
@@ -31,6 +32,47 @@ export function deviceScopeCondition(
   }
   if (siteIds.length > 0) {
     filters.push(inArray(devices.siteId, siteIds))
+  }
+
+  if (filters.length === 0) {
+    return { kind: "none" }
+  }
+
+  const condition = filters.length === 1 ? filters[0] : or(...filters)
+  return condition ? { kind: "where", condition } : { kind: "none" }
+}
+
+type ScopedColumns = {
+  organizationId: AnyPgColumn
+  siteId: AnyPgColumn
+  deviceId: AnyPgColumn
+}
+
+/**
+ * Row-level scope for event-style tables (audit events, alerts, connection
+ * logs) that carry their own organization/site/device columns. Site members
+ * see rows tagged with their site directly or through one of its devices.
+ */
+export function eventScopeCondition(
+  actor: ActorPrincipal | null,
+  columns: ScopedColumns
+): ScopeCondition {
+  const organizationIds = actorOrganizationIds(actor)
+  const siteIds = actorSiteIds(actor) ?? []
+
+  if (organizationIds === null) {
+    return { kind: "all" }
+  }
+
+  const filters: SQL[] = []
+  if (organizationIds.length > 0) {
+    filters.push(inArray(columns.organizationId, organizationIds))
+  }
+  if (siteIds.length > 0) {
+    filters.push(inArray(columns.siteId, siteIds))
+    filters.push(
+      sql`${columns.deviceId} in (select ${devices.id} from ${devices} where ${inArray(devices.siteId, siteIds)})`
+    )
   }
 
   if (filters.length === 0) {
