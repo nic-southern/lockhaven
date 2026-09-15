@@ -49,7 +49,12 @@ export function statusLabel(value: string | null | undefined) {
     return "—"
   }
 
-  return statusLabels[value] ?? value.replaceAll("_", " ")
+  if (statusLabels[value]) {
+    return statusLabels[value]
+  }
+
+  const spaced = value.replaceAll("_", " ")
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
 export function formatDate(value: string | Date | null | undefined) {
