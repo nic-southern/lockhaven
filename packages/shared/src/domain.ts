@@ -245,6 +245,72 @@ export const checkInSchema = z.object({
   ),
 })
 
+/**
+ * Connectivity is derived from the WireGuard handshake rather than stored, so
+ * lists and metrics agree on the same thresholds.
+ */
+export const deviceConnectivityStates = [
+  "online",
+  "offline",
+  "never",
+  "revoked",
+] as const
+
+export type DeviceConnectivity = (typeof deviceConnectivityStates)[number]
+
+/** Handshakes older than this are treated as offline. */
+export const DEVICE_ONLINE_WINDOW_MS = 3 * 60 * 1000
+
+export const MAX_DEVICE_TAGS = 20
+export const DEVICE_TAG_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,31}$/
+
+export const deviceTagSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(
+    DEVICE_TAG_PATTERN,
+    "Tags use lowercase letters, numbers, and . _ : - (max 32 characters)."
+  )
+
+export const deviceTagsSchema = z
+  .array(deviceTagSchema)
+  .max(MAX_DEVICE_TAGS)
+  .transform((tags) => [...new Set(tags)].sort())
+
+export const deviceBulkActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("assign_site"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+    siteId: z.string().uuid().nullable(),
+  }),
+  z.object({
+    action: z.literal("assign_route_policy"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+    routePolicyId: z.string().uuid().nullable(),
+  }),
+  z.object({
+    action: z.literal("add_tags"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+    tags: z.array(deviceTagSchema).min(1).max(MAX_DEVICE_TAGS),
+  }),
+  z.object({
+    action: z.literal("remove_tags"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+    tags: z.array(deviceTagSchema).min(1).max(MAX_DEVICE_TAGS),
+  }),
+  z.object({
+    action: z.literal("revoke_vpn"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+  }),
+  z.object({
+    action: z.literal("delete"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+  }),
+])
+
+export type DeviceBulkAction = z.infer<typeof deviceBulkActionSchema>
+
 export const remoteSessionRequestSchema = z.object({
   serviceId: z.string().uuid(),
   connectionMethod: z
@@ -278,6 +344,8 @@ export const auditEventTypeSchema = z.enum([
   "device_created",
   "device_updated",
   "device_site_assigned",
+  "device_route_policy_assigned",
+  "device_tags_updated",
   "enrollment_token_created",
   "enrollment_token_updated",
   "enrollment_token_revoked",

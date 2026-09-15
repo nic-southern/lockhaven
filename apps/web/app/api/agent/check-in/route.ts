@@ -62,7 +62,9 @@ export async function POST(request: Request) {
         hostname: input.hostname,
         osFamily: input.os_family,
         osVersion: input.os_version,
+        agentVersion: input.agent_version,
         lastSeenAt: now,
+        updatedAt: now,
         status,
       })
       .where(eq(devices.id, input.device_id))

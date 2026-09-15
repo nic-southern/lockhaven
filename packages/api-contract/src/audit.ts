@@ -3,8 +3,14 @@ import type { AuditEventType } from "@nms/shared"
 
 import type { ApiContext } from "./context"
 
+/** Accepts the request database or a transaction handle. */
+export type AuditContext = {
+  db: Pick<ApiContext["db"], "insert">
+  actor: ApiContext["actor"]
+}
+
 export async function writeAuditEvent(
-  ctx: Pick<ApiContext, "db" | "actor">,
+  ctx: AuditContext,
   input: {
     eventType: AuditEventType
     organizationId?: string | null

@@ -295,25 +295,47 @@ export const siteMemberships = pgTable(
   })
 )
 
-export const devices = pgTable("devices", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  siteId: uuid("site_id").references(() => sites.id, { onDelete: "set null" }),
-  hostname: text("hostname"),
-  displayName: text("display_name").notNull(),
-  osFamily: text("os_family"),
-  osVersion: text("os_version"),
-  architecture: text("architecture"),
-  serialNumber: text("serial_number"),
-  checkInSecretHash: text("check_in_secret_hash"),
-  status: statusEnum("status").notNull().default("pending"),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-})
+export const devices = pgTable(
+  "devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    hostname: text("hostname"),
+    displayName: text("display_name").notNull(),
+    osFamily: text("os_family"),
+    osVersion: text("os_version"),
+    architecture: text("architecture"),
+    serialNumber: text("serial_number"),
+    agentVersion: text("agent_version"),
+    tags: text("tags")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    checkInSecretHash: text("check_in_secret_hash"),
+    status: statusEnum("status").notNull().default("pending"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationStatusIdx: index("devices_organization_status_idx").on(
+      table.organizationId,
+      table.status
+    ),
+    siteIdx: index("devices_site_idx").on(table.siteId),
+    lastSeenIdx: index("devices_last_seen_idx").on(table.lastSeenAt),
+    tagsIdx: index("devices_tags_idx").using("gin", table.tags),
+  })
+)
 
 export const routePolicies = pgTable(
   "route_policies",
@@ -507,28 +529,35 @@ export const enrollmentTokens = pgTable("enrollment_tokens", {
     .defaultNow(),
 })
 
-export const remoteSessions = pgTable("remote_sessions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  adminUserId: text("admin_user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  deviceId: uuid("device_id")
-    .notNull()
-    .references(() => devices.id, { onDelete: "cascade" }),
-  managementServiceId: uuid("management_service_id")
-    .notNull()
-    .references(() => managementServices.id, { onDelete: "cascade" }),
-  status: text("status").notNull(),
-  connectionMethod: text("connection_method").notNull(),
-  startedAt: timestamp("started_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  endedAt: timestamp("ended_at", { withTimezone: true }),
-  auditMetadata: jsonb("audit_metadata")
-    .$type<Record<string, unknown>>()
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-})
+export const remoteSessions = pgTable(
+  "remote_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    adminUserId: text("admin_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    managementServiceId: uuid("management_service_id")
+      .notNull()
+      .references(() => managementServices.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    connectionMethod: text("connection_method").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    auditMetadata: jsonb("audit_metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+  },
+  (table) => ({
+    startedAtIdx: index("remote_sessions_started_at_idx").on(table.startedAt),
+    deviceIdx: index("remote_sessions_device_idx").on(table.deviceId),
+  })
+)
 
 export const auditEvents = pgTable("audit_events", {
   id: uuid("id").primaryKey().defaultRandom(),
