@@ -147,6 +147,7 @@ ssh "${ssh_opts[@]}" "$ssh_host" "mkdir -p /opt/lockhaven/deploy"
 scp "${ssh_opts[@]}" "$ROOT_DIR/deploy/production.compose.yml" "$ssh_host:/opt/lockhaven/deploy/production.compose.yml"
 scp "${ssh_opts[@]}" "$DEPLOY_ENV_FILE" "$ssh_host:/opt/lockhaven/.env.deploy"
 scp "${ssh_opts[@]}" "$ROOT_DIR/infra/systemd/vpnctl" "$ssh_host:/tmp/vpnctl"
+scp "${ssh_opts[@]}" "$ROOT_DIR/infra/systemd/install-flow-logging.sh" "$ssh_host:/tmp/install-flow-logging.sh"
 ssh "${ssh_opts[@]}" "$ssh_host" "install -m 0755 /tmp/vpnctl /usr/local/sbin/vpnctl && chmod 600 /opt/lockhaven/.env.deploy"
 
 log "Preparing Docker on ${ssh_host}"
@@ -176,6 +177,9 @@ ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
   done
   docker info >/dev/null
 "
+
+log "Configuring connection flow logging on ${ssh_host}"
+ssh "${ssh_opts[@]}" "$ssh_host" "bash /tmp/install-flow-logging.sh && rm -f /tmp/install-flow-logging.sh"
 
 log "Preparing WireGuard on ${ssh_host}"
 vpn_server_public_key="$(ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail

@@ -24,6 +24,9 @@ import {
   type AlertKind,
   type AlertStatus,
   type AuditSeverity,
+  type ConnectionDirection,
+  type ConnectionProtocol,
+  type ConnectionVerdict,
   type RoutePolicyColor,
   type RoutePolicyEntry,
   type SiteGrant,
@@ -727,6 +730,119 @@ export const alerts = pgTable(
   })
 )
 
+/**
+ * One row per new connection observed on the concentrator. Populated by the
+ * worker from nftables log lines; never updated in place.
+ */
+export const connectionEvents = pgTable(
+  "connection_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    adminProfileId: uuid("admin_profile_id").references(
+      () => adminVpnProfiles.id,
+      { onDelete: "cascade" }
+    ),
+    direction: text("direction").$type<ConnectionDirection>().notNull(),
+    verdict: text("verdict").$type<ConnectionVerdict>().notNull(),
+    protocol: text("protocol").$type<ConnectionProtocol>().notNull(),
+    srcIp: inet("src_ip").notNull(),
+    dstIp: inet("dst_ip").notNull(),
+    dstPort: integer("dst_port"),
+    bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    occurredAtIdx: index("connection_events_occurred_at_idx").on(
+      table.occurredAt
+    ),
+    deviceOccurredIdx: index("connection_events_device_occurred_idx").on(
+      table.deviceId,
+      table.occurredAt
+    ),
+    organizationOccurredIdx: index(
+      "connection_events_organization_occurred_idx"
+    ).on(table.organizationId, table.occurredAt),
+    adminOccurredIdx: index("connection_events_admin_occurred_idx").on(
+      table.adminProfileId,
+      table.occurredAt
+    ),
+    destinationIdx: index("connection_events_destination_idx").on(
+      table.dstIp,
+      table.dstPort
+    ),
+  })
+)
+
+/**
+ * Per-day rollup of connection events by source, destination and verdict.
+ * `subject_key` identifies the source peer so the unique key has no nulls.
+ */
+export const connectionDaily = pgTable(
+  "connection_daily",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    day: timestamp("day", { withTimezone: true }).notNull(),
+    subjectKey: text("subject_key").notNull(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    adminProfileId: uuid("admin_profile_id").references(
+      () => adminVpnProfiles.id,
+      { onDelete: "cascade" }
+    ),
+    direction: text("direction").$type<ConnectionDirection>().notNull(),
+    verdict: text("verdict").$type<ConnectionVerdict>().notNull(),
+    protocol: text("protocol").$type<ConnectionProtocol>().notNull(),
+    dstIp: inet("dst_ip").notNull(),
+    dstPort: integer("dst_port").notNull().default(0),
+    connections: integer("connections").notNull().default(0),
+    bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uniqueBucket: uniqueIndex("connection_daily_bucket_idx").on(
+      table.day,
+      table.subjectKey,
+      table.direction,
+      table.verdict,
+      table.protocol,
+      table.dstIp,
+      table.dstPort
+    ),
+    deviceDayIdx: index("connection_daily_device_day_idx").on(
+      table.deviceId,
+      table.day
+    ),
+    organizationDayIdx: index("connection_daily_organization_day_idx").on(
+      table.organizationId,
+      table.day
+    ),
+    dayIdx: index("connection_daily_day_idx").on(table.day),
+  })
+)
+
 export type Organization = typeof organizations.$inferSelect
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
@@ -750,3 +866,5 @@ export type RemoteSession = typeof remoteSessions.$inferSelect
 export type AuditEvent = typeof auditEvents.$inferSelect
 export type VpnPeerSample = typeof vpnPeerSamples.$inferSelect
 export type Alert = typeof alerts.$inferSelect
+export type ConnectionEvent = typeof connectionEvents.$inferSelect
+export type ConnectionDailyRow = typeof connectionDaily.$inferSelect

@@ -8,9 +8,14 @@ packages:
   - iptables-persistent
   - openssh-server
   - openssl
+  - ulogd2
+  - ulogd2-json
   - wireguard
 
 runcmd:
+  # Connection flow log consumed by the worker; ulogd2 is configured by
+  # infra/systemd/install-flow-logging.sh during deployment.
+  - [bash, -lc, "install -d -m 0755 /var/log/lockhaven"]
   - [
       bash,
       -lc,

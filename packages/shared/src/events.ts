@@ -98,3 +98,23 @@ export const PEER_SAMPLE_RETENTION_DAYS = 90
 
 /** Minimum spacing between routine (non-transition) peer samples. */
 export const PEER_SAMPLE_INTERVAL_MS = 60 * 60 * 1000
+
+/** Raw connection events are pruned after this many days by default. */
+export const FLOW_RETENTION_DAYS_DEFAULT = 30
+
+/** Daily connection rollups are pruned after this many days by default. */
+export const FLOW_ROLLUP_RETENTION_DAYS_DEFAULT = 365
+
+export const connectionVerdicts = ["accept", "drop"] as const
+export type ConnectionVerdict = (typeof connectionVerdicts)[number]
+
+/**
+ * Where a logged connection was headed: `hub` for traffic addressed to the
+ * concentrator itself, `forward` for traffic routed on to another peer or
+ * allowed network.
+ */
+export const connectionDirections = ["hub", "forward"] as const
+export type ConnectionDirection = (typeof connectionDirections)[number]
+
+export const connectionProtocols = ["tcp", "udp", "icmp", "other"] as const
+export type ConnectionProtocol = (typeof connectionProtocols)[number]

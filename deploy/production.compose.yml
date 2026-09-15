@@ -155,9 +155,11 @@ services:
       VPNCTL_PATH: /usr/local/sbin/host-vpnctl
       WIREGUARD_INTERFACE: wg0
       RUN_DB_MIGRATIONS_ON_START: "1"
+      FLOW_LOG_PATH: /var/log/lockhaven/flows.jsonl
       NODE_ENV: production
     volumes:
       - /usr/local/sbin/vpnctl:/usr/local/sbin/vpnctl:ro
+      - /var/log/lockhaven:/var/log/lockhaven:ro
     depends_on:
       postgres:
         condition: service_healthy

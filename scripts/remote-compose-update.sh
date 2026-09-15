@@ -24,6 +24,19 @@ compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
+# Host-side helpers shipped alongside the compose file. The worker container
+# runs vpnctl through a read-only bind mount, and ulogd2 writes the connection
+# flow log the worker tails, so both must be refreshed on the host itself.
+if [ -f infra/systemd/vpnctl ]; then
+  echo "Updating host vpnctl..."
+  install -m 0755 infra/systemd/vpnctl /usr/local/sbin/vpnctl
+fi
+
+if [ -f infra/systemd/install-flow-logging.sh ]; then
+  echo "Configuring connection flow logging..."
+  bash infra/systemd/install-flow-logging.sh
+fi
+
 echo "Pulling images..."
 compose pull
 

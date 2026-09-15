@@ -150,5 +150,6 @@ export const alertKeys = {
   newEndpoint: (deviceId: string) => `new_endpoint:${deviceId}`,
   peerFlapping: (deviceId: string) => `peer_flapping:${deviceId}`,
   deviceOffline: (deviceId: string) => `device_offline:${deviceId}`,
+  concentratorProbe: (deviceId: string) => `concentrator_probe:${deviceId}`,
   firewallSync: () => "firewall_sync_failed:hub",
 }

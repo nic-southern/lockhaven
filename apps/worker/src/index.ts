@@ -47,6 +47,12 @@ import {
 
 import { alertKeys, raiseAlert, resolveAlert } from "./alerts"
 import { recordEvent } from "./audit"
+import {
+  FlowCursorStore,
+  ingestFlows,
+  pruneConnectionHistory,
+  rollupConnections,
+} from "./flows"
 import { PeerStateStore, type StoredPeerState } from "./peer-state"
 import { refreshRemoteSessions } from "./sessions"
 
@@ -61,6 +67,7 @@ const connection = new Redis(redisUrl, {
 })
 
 const peerStateStore = new PeerStateStore(connection)
+const flowCursorStore = new FlowCursorStore(connection)
 
 type VpnctlResult =
   | { ok: true }
@@ -679,12 +686,14 @@ async function refreshServiceHealth() {
 }
 
 async function pruneHistory() {
+  const now = new Date()
   const cutoff = new Date(
-    Date.now() - PEER_SAMPLE_RETENTION_DAYS * 24 * 60 * 60 * 1000
+    now.getTime() - PEER_SAMPLE_RETENTION_DAYS * 24 * 60 * 60 * 1000
   )
   await db
     .delete(vpnPeerSamples)
     .where(sql`${vpnPeerSamples.sampledAt} < ${cutoff}`)
+  await pruneConnectionHistory(now)
 }
 
 async function main() {
@@ -704,6 +713,12 @@ async function main() {
           break
         case "refresh-sessions":
           await refreshRemoteSessions()
+          break
+        case "flow-ingest":
+          await ingestFlows(flowCursorStore)
+          break
+        case "rollup-connections":
+          await rollupConnections()
           break
         case "prune-history":
           await pruneHistory()
@@ -730,6 +745,8 @@ async function main() {
     { name: "reconcile-vpn", data: {} },
     { name: "refresh-services", data: {} },
     { name: "refresh-sessions", data: {} },
+    { name: "flow-ingest", data: {} },
+    { name: "rollup-connections", data: {} },
     { name: "prune-history", data: {} },
   ])
 
@@ -737,7 +754,15 @@ async function main() {
     void queue.add("reconcile-vpn", {})
     void queue.add("refresh-services", {})
     void queue.add("refresh-sessions", {})
+    void queue.add("flow-ingest", {})
   }, 15_000)
+
+  setInterval(
+    () => {
+      void queue.add("rollup-connections", {})
+    },
+    10 * 60 * 1000
+  )
 
   setInterval(
     () => {

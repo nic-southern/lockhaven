@@ -143,15 +143,19 @@ jobs:
           user="${DEPLOY_SSH_USER:-root}"
           host="$DEPLOY_HOST"
           ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=yes)
-          ssh "${ssh_opts[@]}" "${user}@${host}" "mkdir -p /opt/lockhaven/deploy /opt/lockhaven/scripts"
+          ssh "${ssh_opts[@]}" "${user}@${host}" "mkdir -p /opt/lockhaven/deploy /opt/lockhaven/scripts /opt/lockhaven/infra/systemd"
           scp "${ssh_opts[@]}" \
             deploy/production.compose.yml \
             "${user}@${host}:/opt/lockhaven/deploy/production.compose.yml"
           scp "${ssh_opts[@]}" \
             scripts/remote-compose-update.sh \
             "${user}@${host}:/opt/lockhaven/scripts/remote-compose-update.sh"
+          scp "${ssh_opts[@]}" \
+            infra/systemd/vpnctl \
+            infra/systemd/install-flow-logging.sh \
+            "${user}@${host}:/opt/lockhaven/infra/systemd/"
           ssh "${ssh_opts[@]}" "${user}@${host}" \
-            "chmod 0755 /opt/lockhaven/scripts/remote-compose-update.sh"
+            "chmod 0755 /opt/lockhaven/scripts/remote-compose-update.sh /opt/lockhaven/infra/systemd/vpnctl /opt/lockhaven/infra/systemd/install-flow-logging.sh"
 
       - name: Pull images, migrate, and restart
         env:
