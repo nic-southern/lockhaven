@@ -1,19 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 
 import { TRPCError } from "@trpc/server"
-import {
-  and,
-  count,
-  desc,
-  eq,
-  gte,
-  ilike,
-  inArray,
-  isNull,
-  lte,
-  or,
-  sql,
-} from "drizzle-orm"
+import { and, count, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm"
 import { z } from "zod"
 
 import {
