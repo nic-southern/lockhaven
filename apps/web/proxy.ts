@@ -1,9 +1,30 @@
 import { type NextRequest, NextResponse } from "next/server"
 
 import { auth } from "@/auth"
+import { buildContentSecurityPolicy } from "@/lib/security-headers"
 
 const PUBLIC_PREFIXES = ["/sign-in", "/accept-invite"]
 const SECURITY_SETUP_PATH = "/setup-security"
+const CSP_HEADER = "Content-Security-Policy"
+
+/**
+ * Renders the page with a per-request script nonce. The policy travels on the
+ * request so the framework stamps the nonce onto its own inline scripts, and
+ * on the response so the browser enforces it.
+ */
+function renderWithPolicy(request: NextRequest) {
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64")
+  const policy = buildContentSecurityPolicy({
+    nonce,
+    dev: process.env.NODE_ENV !== "production",
+  })
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set(CSP_HEADER, policy)
+  requestHeaders.set("x-nonce", nonce)
+  const response = NextResponse.next({ request: { headers: requestHeaders } })
+  response.headers.set(CSP_HEADER, policy)
+  return response
+}
 
 type SessionUser = {
   status?: string | null
@@ -26,7 +47,7 @@ export async function proxy(request: NextRequest) {
 
   if (!session) {
     if (isPublic) {
-      return NextResponse.next()
+      return renderWithPolicy(request)
     }
     const signIn = new URL("/sign-in", request.url)
     if (pathname !== "/") {
@@ -45,7 +66,7 @@ export async function proxy(request: NextRequest) {
 
   if (needsSecuritySetup(user)) {
     if (isSecuritySetup) {
-      return NextResponse.next()
+      return renderWithPolicy(request)
     }
     return NextResponse.redirect(new URL(SECURITY_SETUP_PATH, request.url))
   }
@@ -59,7 +80,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/", request.url))
   }
 
-  return NextResponse.next()
+  return renderWithPolicy(request)
 }
 
 export const config = {
