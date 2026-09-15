@@ -61,6 +61,9 @@ export const sessionsPage = permissionProcedure("device:view")
       query.filters.deviceId
         ? inArray(remoteSessions.deviceId, query.filters.deviceId)
         : undefined,
+      query.filters.siteId
+        ? inArray(devices.siteId, query.filters.siteId)
+        : undefined,
       query.filters.adminUserId
         ? inArray(remoteSessions.adminUserId, query.filters.adminUserId)
         : undefined,

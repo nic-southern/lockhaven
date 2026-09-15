@@ -136,6 +136,7 @@ function buildDeviceConditions(
 
   return combineConditions([
     scope.kind === "where" ? scope.condition : undefined,
+    query.filters.id ? inArray(devices.id, query.filters.id) : undefined,
     query.filters.organizationId
       ? inArray(devices.organizationId, query.filters.organizationId)
       : undefined,
@@ -462,21 +463,35 @@ export const devicesRouter = createTRPCRouter({
         .where(eq(managementServices.deviceId, record.id))
         .orderBy(desc(managementServices.createdAt))
 
-      const [enrollmentEvent] = await ctx.db
-        .select({ createdAt: auditEvents.createdAt })
-        .from(auditEvents)
-        .where(
-          and(
-            eq(auditEvents.deviceId, record.id),
-            eq(auditEvents.eventType, "device_enrolled")
+      const [[enrollmentEvent], [routePolicy]] = await Promise.all([
+        ctx.db
+          .select({ createdAt: auditEvents.createdAt })
+          .from(auditEvents)
+          .where(
+            and(
+              eq(auditEvents.deviceId, record.id),
+              eq(auditEvents.eventType, "device_enrolled")
+            )
           )
-        )
-        .orderBy(desc(auditEvents.createdAt))
-        .limit(1)
+          .orderBy(desc(auditEvents.createdAt))
+          .limit(1),
+        identity?.routePolicyId
+          ? ctx.db
+              .select({
+                id: routePolicies.id,
+                name: routePolicies.name,
+                routes: routePolicies.routes,
+              })
+              .from(routePolicies)
+              .where(eq(routePolicies.id, identity.routePolicyId))
+              .limit(1)
+          : Promise.resolve([null]),
+      ])
 
       return {
         ...record,
         enrolledAt: enrollmentEvent?.createdAt ?? record.createdAt,
+        routePolicy: routePolicy ?? null,
         vpnIdentity: identity
           ? { ...identity, wireguardPresharedKey: undefined }
           : null,

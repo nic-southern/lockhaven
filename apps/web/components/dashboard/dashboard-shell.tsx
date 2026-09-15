@@ -85,7 +85,7 @@ const navSections: NavSection[] = [
       },
       {
         href: "/connections",
-        label: "Connections",
+        label: "Sessions",
         icon: CableIcon,
         permissions: ["device:view"],
       },

@@ -311,11 +311,22 @@ export const deviceBulkActionSchema = z.discriminatedUnion("action", [
 
 export type DeviceBulkAction = z.infer<typeof deviceBulkActionSchema>
 
+export const remoteConnectionMethods = [
+  "guacamole",
+  "custom-novnc",
+  "native",
+] as const
+
+export type RemoteConnectionMethod = (typeof remoteConnectionMethods)[number]
+
+/** Connection method used when a session is opened in the browser. */
+export const BROWSER_CONNECTION_METHOD: RemoteConnectionMethod = "guacamole"
+
 export const remoteSessionRequestSchema = z.object({
   serviceId: z.string().uuid(),
   connectionMethod: z
-    .enum(["guacamole", "custom-novnc", "native"])
-    .default("guacamole"),
+    .enum(remoteConnectionMethods)
+    .default(BROWSER_CONNECTION_METHOD),
 })
 
 export const permissionSetSchema = z.array(z.enum(permissions))

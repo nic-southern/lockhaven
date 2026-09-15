@@ -81,6 +81,9 @@ export type DataTableProps<TData, TValue> = {
   pageSizeOptions?: number[]
   initialSorting?: SortingState
   initialColumnVisibility?: VisibilityState
+  /** Provide both to control column visibility from the parent. */
+  columnVisibility?: VisibilityState
+  onColumnVisibilityChange?: OnChangeFn<VisibilityState>
   enableRowSelection?: boolean
   rowSelection?: RowSelectionState
   onRowSelectionChange?: OnChangeFn<RowSelectionState>
@@ -131,6 +134,8 @@ export function DataTable<TData, TValue>({
   pageSizeOptions,
   initialSorting = [],
   initialColumnVisibility = {},
+  columnVisibility: controlledColumnVisibility,
+  onColumnVisibilityChange,
   enableRowSelection = false,
   rowSelection: controlledRowSelection,
   onRowSelectionChange,
@@ -151,8 +156,12 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     []
   )
-  const [columnVisibility, setColumnVisibility] =
+  const [internalColumnVisibility, setInternalColumnVisibility] =
     React.useState<VisibilityState>(initialColumnVisibility)
+  const columnVisibility =
+    controlledColumnVisibility ?? internalColumnVisibility
+  const handleColumnVisibilityChange =
+    onColumnVisibilityChange ?? setInternalColumnVisibility
   const [pagination, setPagination] = React.useState<PaginationState>({
     pageIndex: 0,
     pageSize,
@@ -236,7 +245,7 @@ export function DataTable<TData, TValue>({
     onColumnFiltersChange: server
       ? server.onColumnFiltersChange
       : setColumnFilters,
-    onColumnVisibilityChange: setColumnVisibility,
+    onColumnVisibilityChange: handleColumnVisibilityChange,
     onPaginationChange: server ? server.onPaginationChange : setPagination,
     onRowSelectionChange: handleRowSelectionChange,
     onGlobalFilterChange: isServer ? undefined : handleSearchChange,
