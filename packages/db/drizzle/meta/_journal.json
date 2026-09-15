@@ -120,6 +120,13 @@
       "when": 1781000000000,
       "tag": "0016_route_policy_entries",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781100000000,
+      "tag": "0017_activity_events",
+      "breakpoints": true
     }
   ]
 }

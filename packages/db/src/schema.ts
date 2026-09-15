@@ -21,6 +21,9 @@ import {
   platformRoles,
   serviceTypes,
   siteRoles,
+  type AlertKind,
+  type AlertStatus,
+  type AuditSeverity,
   type RoutePolicyColor,
   type RoutePolicyEntry,
   type SiteGrant,
@@ -580,26 +583,149 @@ export const remoteSessions = pgTable(
   })
 )
 
-export const auditEvents = pgTable("audit_events", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  actorUserId: text("actor_user_id").references(() => user.id, {
-    onDelete: "set null",
-  }),
-  organizationId: uuid("organization_id").references(() => organizations.id, {
-    onDelete: "set null",
-  }),
-  deviceId: uuid("device_id").references(() => devices.id, {
-    onDelete: "set null",
-  }),
-  eventType: text("event_type").notNull(),
-  eventData: jsonb("event_data")
-    .$type<Record<string, unknown>>()
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-})
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "set null",
+    }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "set null",
+    }),
+    eventType: text("event_type").notNull(),
+    severity: text("severity").$type<AuditSeverity>().notNull().default("info"),
+    actorIp: inet("actor_ip"),
+    userAgent: text("user_agent"),
+    eventData: jsonb("event_data")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    createdAtIdx: index("audit_events_created_at_idx").on(table.createdAt),
+    organizationCreatedIdx: index("audit_events_organization_created_idx").on(
+      table.organizationId,
+      table.createdAt
+    ),
+    deviceCreatedIdx: index("audit_events_device_created_idx").on(
+      table.deviceId,
+      table.createdAt
+    ),
+    eventTypeCreatedIdx: index("audit_events_event_type_created_idx").on(
+      table.eventType,
+      table.createdAt
+    ),
+    severityCreatedIdx: index("audit_events_severity_created_idx").on(
+      table.severity,
+      table.createdAt
+    ),
+  })
+)
+
+/**
+ * Point-in-time tunnel readings per device: written on every transition
+ * (up, down, endpoint change) and at least hourly while online, so the
+ * Console can draw traffic and endpoint history.
+ */
+export const vpnPeerSamples = pgTable(
+  "vpn_peer_samples",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    sampledAt: timestamp("sampled_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    online: boolean("online").notNull(),
+    endpoint: text("endpoint"),
+    lastHandshakeAt: timestamp("last_handshake_at", { withTimezone: true }),
+    rxBytes: bigint("rx_bytes", { mode: "number" }).notNull().default(0),
+    txBytes: bigint("tx_bytes", { mode: "number" }).notNull().default(0),
+    /** Why the sample was taken: `up`, `down`, `endpoint`, or `interval`. */
+    reason: text("reason").notNull().default("interval"),
+  },
+  (table) => ({
+    deviceSampledIdx: index("vpn_peer_samples_device_sampled_idx").on(
+      table.deviceId,
+      table.sampledAt
+    ),
+    sampledAtIdx: index("vpn_peer_samples_sampled_at_idx").on(table.sampledAt),
+  })
+)
+
+export const alerts = pgTable(
+  "alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    kind: text("kind").$type<AlertKind>().notNull(),
+    severity: text("severity").$type<AuditSeverity>().notNull(),
+    status: text("status").$type<AlertStatus>().notNull().default("open"),
+    title: text("title").notNull(),
+    detail: jsonb("detail")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    /** Stable key so the same condition never opens twice while unresolved. */
+    dedupeKey: text("dedupe_key").notNull(),
+    occurrences: integer("occurrences").notNull().default(1),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    acknowledgedByUserId: text("acknowledged_by_user_id").references(
+      () => user.id,
+      { onDelete: "set null" }
+    ),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByUserId: text("resolved_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    openDedupeIdx: uniqueIndex("alerts_open_dedupe_idx")
+      .on(table.dedupeKey)
+      .where(sql`${table.status} <> 'resolved'`),
+    statusSeverityIdx: index("alerts_status_severity_idx").on(
+      table.status,
+      table.severity,
+      table.lastSeenAt
+    ),
+    organizationStatusIdx: index("alerts_organization_status_idx").on(
+      table.organizationId,
+      table.status
+    ),
+    deviceIdx: index("alerts_device_idx").on(table.deviceId),
+  })
+)
 
 export type Organization = typeof organizations.$inferSelect
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect
@@ -622,3 +748,5 @@ export type OrganizationSshCredential =
 export type EnrollmentToken = typeof enrollmentTokens.$inferSelect
 export type RemoteSession = typeof remoteSessions.$inferSelect
 export type AuditEvent = typeof auditEvents.$inferSelect
+export type VpnPeerSample = typeof vpnPeerSamples.$inferSelect
+export type Alert = typeof alerts.$inferSelect

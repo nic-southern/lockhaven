@@ -966,8 +966,7 @@ export const appRouter = createTRPCRouter({
           .values({ name: input.name })
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: record.id,
           eventType: "organization_created",
           eventData: { organizationId: record.id, name: record.name },
@@ -1077,14 +1076,12 @@ export const appRouter = createTRPCRouter({
           keyPair.publicKey
         )
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: record.organizationId,
           eventType: "site_created",
           eventData: { siteId: record.id, name: record.name },
         })
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: record.organizationId,
           eventType: "site_ssh_credential_generated",
           eventData: { siteId: record.id },
@@ -1119,8 +1116,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(sites.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_updated",
           eventData: { siteId: record.id, name: record.name },
@@ -1167,8 +1163,7 @@ export const appRouter = createTRPCRouter({
           keyPair.publicKey
         )
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_ssh_credential_generated",
           eventData: { siteId: existing.id },
@@ -1224,8 +1219,7 @@ export const appRouter = createTRPCRouter({
           publicKey
         )
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_ssh_credential_set",
           eventData: { siteId: existing.id },
@@ -1254,8 +1248,7 @@ export const appRouter = createTRPCRouter({
           .delete(siteSshCredentials)
           .where(eq(siteSshCredentials.siteId, input.siteId))
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_ssh_credential_cleared",
           eventData: { siteId: existing.id },
@@ -1285,8 +1278,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(sites.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_deleted",
           eventData: { siteId: existing.id, name: existing.name },
@@ -1546,8 +1538,7 @@ export const appRouter = createTRPCRouter({
           record.serviceType
         )
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: device.organizationId,
           deviceId: device.id,
           eventType: "management_service_created",
@@ -1622,8 +1613,7 @@ export const appRouter = createTRPCRouter({
           )
         }
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: device.organizationId,
           deviceId: device.id,
           eventType: "management_service_updated",
@@ -1669,8 +1659,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(managementServices.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: device.organizationId,
           deviceId: device.id,
           eventType: "management_service_deleted",
@@ -1967,8 +1956,7 @@ export const appRouter = createTRPCRouter({
           })
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: input.organizationId,
           eventType: "enrollment_token_created",
           eventData: { tokenId: record.id },
@@ -2062,8 +2050,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(enrollmentTokens.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: input.organizationId,
           eventType: "enrollment_token_updated",
           eventData: {
@@ -2102,8 +2089,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(enrollmentTokens.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "enrollment_token_revoked",
           eventData: {
@@ -2810,8 +2796,7 @@ export const appRouter = createTRPCRouter({
           })
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: input.organizationId,
           eventType: "admin_vpn_created",
           eventData: {
@@ -2877,8 +2862,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(adminVpnProfiles.id, profile.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: profile.organizationId,
           eventType: "admin_vpn_reissued",
           eventData: {
@@ -2930,8 +2914,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(adminVpnProfiles.id, profile.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: profile.organizationId,
           eventType: "admin_vpn_revoked",
           eventData: {
@@ -2973,8 +2956,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(adminVpnProfiles.id, profile.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: profile.organizationId,
           eventType: "admin_vpn_updated",
           eventData: {
@@ -3012,8 +2994,7 @@ export const appRouter = createTRPCRouter({
           .delete(adminVpnProfiles)
           .where(eq(adminVpnProfiles.id, profile.id))
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: profile.organizationId,
           eventType: "admin_vpn_deleted",
           eventData: {
