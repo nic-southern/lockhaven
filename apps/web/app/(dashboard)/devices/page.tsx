@@ -196,8 +196,8 @@ export default function DevicesPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         badge="Devices"
-        title="Inventory"
-        description="Review device state, change the assigned site, update the VPN route policy, and manage service entries from one place."
+        title="Device inventory"
+        description="Review connectivity, assign sites and policies, and manage remote services."
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">

@@ -7,7 +7,8 @@
     "build": "sh -c 'if [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; next build'",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test lib/**/*.test.ts"
   },
   "dependencies": {
     "@nms/api-contract": "workspace:*",
@@ -40,6 +41,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "eslint-config-next": "16.1.7",
+    "tsx": "^4.23.13",
     "typescript": "^5.9.3"
   }
 }

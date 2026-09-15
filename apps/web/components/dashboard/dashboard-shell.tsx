@@ -3,7 +3,20 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LogOutIcon, MenuIcon } from "lucide-react"
+import {
+  CableIcon,
+  KeyRoundIcon,
+  LayoutDashboardIcon,
+  LogOutIcon,
+  MapPinIcon,
+  MenuIcon,
+  MonitorIcon,
+  RouteIcon,
+  ScrollTextIcon,
+  ShieldIcon,
+  UsersIcon,
+  type LucideIcon,
+} from "lucide-react"
 
 import { signOut, useSession } from "@/lib/auth-client"
 import { trpc } from "@/lib/trpc"
@@ -20,51 +33,101 @@ import { getClientProductName, getProductInitials } from "@/lib/product-name"
 import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
 import { cn } from "@/lib/utils"
 
-const navItems = [
-  { href: "/", label: "Overview" },
-  { href: "/devices", label: "Devices" },
-  { href: "/sites", label: "Sites" },
-  { href: "/connections", label: "Connections" },
-  { href: "/admin-vpn", label: "Admin VPN" },
-  { href: "/route-policies", label: "Route policies" },
-  { href: "/enrollment-tokens", label: "Enrollment tokens" },
-  { href: "/users", label: "Users" },
-  { href: "/audit", label: "Audit" },
+type NavItem = {
+  href: string
+  label: string
+  icon: LucideIcon
+}
+
+type NavSection = {
+  label: string
+  items: NavItem[]
+}
+
+const navSections: NavSection[] = [
+  {
+    label: "Operate",
+    items: [
+      { href: "/", label: "Overview", icon: LayoutDashboardIcon },
+      { href: "/devices", label: "Devices", icon: MonitorIcon },
+      { href: "/sites", label: "Sites", icon: MapPinIcon },
+      { href: "/connections", label: "Connections", icon: CableIcon },
+    ],
+  },
+  {
+    label: "Network",
+    items: [
+      { href: "/admin-vpn", label: "Admin VPN", icon: ShieldIcon },
+      { href: "/route-policies", label: "Route policies", icon: RouteIcon },
+    ],
+  },
+  {
+    label: "Access",
+    items: [
+      {
+        href: "/enrollment-tokens",
+        label: "Enrollment tokens",
+        icon: KeyRoundIcon,
+      },
+      { href: "/users", label: "Users", icon: UsersIcon },
+      { href: "/audit", label: "Audit", icon: ScrollTextIcon },
+    ],
+  },
 ]
 
 function NavLinks({
-  items,
+  sections,
   pathname,
   onNavigate,
   className,
 }: {
-  items: typeof navItems
+  sections: NavSection[]
   pathname: string
   onNavigate?: () => void
   className?: string
 }) {
   return (
-    <nav className={cn("flex flex-col gap-1", className)}>
-      {items.map((item) => {
-        const active =
-          item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
+    <nav className={cn("flex flex-col gap-5", className)}>
+      {sections.map((section) => (
+        <div key={section.label} className="flex flex-col gap-1">
+          <p className="px-3 text-[11px] font-medium tracking-[0.08em] text-muted-foreground uppercase">
+            {section.label}
+          </p>
+          <div className="flex flex-col gap-0.5">
+            {section.items.map((item) => {
+              const active =
+                item.href === "/"
+                  ? pathname === "/"
+                  : pathname.startsWith(item.href)
+              const Icon = item.icon
 
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "inline-flex min-h-11 items-center rounded-lg px-3 py-2.5 text-sm transition-colors lg:min-h-0 lg:py-2",
-              active
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
-            )}
-          >
-            {item.label}
-          </Link>
-        )
-      })}
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onNavigate}
+                  className={cn(
+                    "group relative inline-flex min-h-11 items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-[background-color,color] duration-150 lg:min-h-0 lg:py-2",
+                    active
+                      ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-sidebar-primary"
+                      : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      "size-4 shrink-0 transition-colors",
+                      active
+                        ? "text-sidebar-primary"
+                        : "text-muted-foreground group-hover:text-foreground"
+                    )}
+                  />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              )
+            })}
+          </div>
+        </div>
+      ))}
     </nav>
   )
 }
@@ -140,12 +203,17 @@ export function DashboardShell({
   const productName = getClientProductName()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const userLabel = session?.user?.name ?? session?.user?.email ?? "—"
-  const visibleNavItems = React.useMemo(() => {
+  const visibleNavSections = React.useMemo(() => {
     if (accessQuery.data?.canManageUsers === false) {
-      return navItems.filter((item) => item.href !== "/users")
+      return navSections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter((item) => item.href !== "/users"),
+        }))
+        .filter((section) => section.items.length > 0)
     }
 
-    return navItems
+    return navSections
   }, [accessQuery.data?.canManageUsers])
 
   const vpnStatus = (
@@ -156,9 +224,13 @@ export function DashboardShell({
   )
 
   return (
-    <div className="min-h-svh bg-background">
+    <div className="relative min-h-svh bg-background">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(ellipse_at_top,oklch(0.72_0.06_186/0.12),transparent_70%)] dark:bg-[radial-gradient(ellipse_at_top,oklch(0.45_0.06_186/0.18),transparent_70%)]"
+      />
       {hideHeader ? null : (
-        <header className="sticky top-0 z-40 border-b border-border/80 bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+        <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 pt-[env(safe-area-inset-top)] backdrop-blur-md">
           <div className="flex h-14 w-full items-center justify-between gap-3 px-4 sm:gap-4 sm:px-6">
             <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
               <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -175,9 +247,9 @@ export function DashboardShell({
                 </SheetTrigger>
                 <SheetContent
                   side="left"
-                  className="flex w-[min(20rem,100%)] flex-col gap-0 p-0"
+                  className="flex w-[min(20rem,100%)] flex-col gap-0 bg-sidebar p-0"
                 >
-                  <SheetHeader className="border-b px-4 py-4 text-left">
+                  <SheetHeader className="border-b border-sidebar-border px-4 py-4 text-left">
                     <SheetTitle className="flex items-center gap-3">
                       <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-xs font-semibold text-primary-foreground">
                         {getProductInitials(productName)}
@@ -191,12 +263,12 @@ export function DashboardShell({
                   </SheetHeader>
                   <div className="flex-1 overflow-y-auto p-3">
                     <NavLinks
-                      items={visibleNavItems}
+                      sections={visibleNavSections}
                       pathname={pathname}
                       onNavigate={() => setMobileOpen(false)}
                     />
                   </div>
-                  <div className="mt-auto flex flex-col gap-2 border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                  <div className="mt-auto flex flex-col gap-2 border-t border-sidebar-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                     <div className="flex items-center justify-between gap-2 px-1">
                       <span className="text-sm text-muted-foreground">
                         Appearance
@@ -216,7 +288,7 @@ export function DashboardShell({
               </Sheet>
 
               <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-semibold tracking-wide text-primary-foreground">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-xs font-semibold tracking-wide text-primary-foreground shadow-sm shadow-primary/20">
                   {getProductInitials(productName)}
                 </div>
                 <div className="min-w-0">
@@ -251,10 +323,10 @@ export function DashboardShell({
         </header>
       )}
 
-      <div className="flex w-full gap-6 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
-        <aside className="hidden w-52 shrink-0 lg:block xl:w-56">
-          <div className="sticky top-20 rounded-xl border border-border/80 bg-card/60 p-2">
-            <NavLinks items={visibleNavItems} pathname={pathname} />
+      <div className="relative flex w-full gap-6 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
+        <aside className="hidden w-56 shrink-0 lg:block xl:w-60">
+          <div className="sticky top-20 flex flex-col gap-4 rounded-2xl border border-sidebar-border/80 bg-sidebar/80 p-3 backdrop-blur-sm">
+            <NavLinks sections={visibleNavSections} pathname={pathname} />
           </div>
         </aside>
 

@@ -1,3 +1,5 @@
+export type StatusTone = "online" | "warning" | "offline" | "neutral" | "danger"
+
 export const statusVariant: Record<
   string,
   "default" | "secondary" | "destructive" | "outline"
@@ -11,6 +13,18 @@ export const statusVariant: Record<
   revoked: "destructive",
   ok: "default",
   Down: "destructive",
+}
+
+export const statusTone: Record<string, StatusTone> = {
+  service_online: "online",
+  vpn_online: "online",
+  enrolled: "online",
+  ok: "online",
+  degraded: "warning",
+  pending: "warning",
+  offline: "offline",
+  revoked: "danger",
+  Down: "danger",
 }
 
 const statusLabels: Record<string, string> = {
@@ -47,6 +61,61 @@ export function formatDate(value: string | Date | null | undefined) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value))
+}
+
+export function formatRelativeTime(value: string | Date | null | undefined) {
+  if (!value) {
+    return "Never"
+  }
+
+  const date = new Date(value)
+  const deltaSeconds = Math.round((date.getTime() - Date.now()) / 1000)
+
+  const divisions: Array<{
+    amount: number
+    unit: Intl.RelativeTimeFormatUnit
+  }> = [
+    { amount: 60, unit: "second" },
+    { amount: 60, unit: "minute" },
+    { amount: 24, unit: "hour" },
+    { amount: 7, unit: "day" },
+    { amount: 4.34524, unit: "week" },
+    { amount: 12, unit: "month" },
+    { amount: Number.POSITIVE_INFINITY, unit: "year" },
+  ]
+
+  let duration = deltaSeconds
+  for (const division of divisions) {
+    if (Math.abs(duration) < division.amount) {
+      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(
+        Math.round(duration),
+        division.unit
+      )
+    }
+    duration /= division.amount
+  }
+
+  return formatDate(date)
+}
+
+export function connectivityTone(value: {
+  revokedAt?: string | Date | null
+  lastHandshakeAt?: string | Date | null
+  lastSeenAt?: string | Date | null
+}): StatusTone {
+  if (value.revokedAt) {
+    return "danger"
+  }
+
+  if (value.lastHandshakeAt) {
+    return "online"
+  }
+
+  if (value.lastSeenAt) {
+    return "warning"
+  }
+
+  return "offline"
 }
 
 export function formatBytes(value: number | null | undefined) {

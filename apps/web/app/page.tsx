@@ -32,9 +32,17 @@ import { CopyableText } from "@/components/dashboard/copyable-text"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { InventoryToolbar } from "@/components/dashboard/inventory-toolbar"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { StatStrip } from "@/components/dashboard/stat-strip"
-import { formatDate, statusLabel, statusVariant } from "@/lib/dashboard"
+import { StatusIndicator } from "@/components/dashboard/status-indicator"
+import {
+  connectivityTone,
+  formatRelativeTime,
+  statusLabel,
+  statusTone,
+  statusVariant,
+} from "@/lib/dashboard"
 import {
   buildAndroidInstallCommand,
   buildLinuxInstallCommand,
@@ -73,6 +81,7 @@ export default function Page() {
   const productName = getClientProductName()
   const { connected: adminVpnConnected } = useAdminVpnConnected()
   const [enrollmentOpen, setEnrollmentOpen] = React.useState(false)
+  const [deviceSearch, setDeviceSearch] = React.useState("")
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
   const [selectedRoutePolicyId, setSelectedRoutePolicyId] = React.useState("")
   const [enrollmentReusable, setEnrollmentReusable] = React.useState(false)
@@ -199,6 +208,35 @@ export default function Page() {
     return map
   }, [managementServicesQuery.data])
 
+  const filteredDevices = React.useMemo(() => {
+    const query = deviceSearch.trim().toLowerCase()
+    if (!query) {
+      return devices
+    }
+
+    return devices.filter((device) => {
+      const haystack = [
+        device.displayName,
+        device.hostname,
+        device.siteName,
+        device.vpnIpv4,
+        device.status,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+
+      return haystack.includes(query)
+    })
+  }, [deviceSearch, devices])
+
+  const onlineDeviceCount = React.useMemo(
+    () =>
+      devices.filter(
+        (device) => !device.vpnRevokedAt && Boolean(device.vpnLastHandshakeAt)
+      ).length,
+    [devices]
+  )
   const launchVncSession = trpc.sessions.create.useMutation({
     onSuccess(result) {
       openRemoteLaunchResult(result)
@@ -290,15 +328,15 @@ export default function Page() {
       <div className="flex w-full flex-col gap-8">
         <PageHeader
           badge="Overview"
-          title="Device inventory and private access"
-          description="Track enrolled devices, review connectivity, and start remote sessions without exposing management services."
+          title="Devices on your private network"
+          description="Watch enrollment, connectivity, and remote access from one place."
           actions={
             <>
               <Button
                 className="w-full sm:w-auto"
                 onClick={() => setEnrollmentOpen((open) => !open)}
               >
-                {enrollmentOpen ? "Hide enrollment" : "New enrollment token"}
+                {enrollmentOpen ? "Hide enrollment" : "Add device"}
               </Button>
               <Button variant="outline" className="w-full sm:w-auto" asChild>
                 <Link href="/enrollment-tokens">Manage tokens</Link>
@@ -431,6 +469,9 @@ export default function Page() {
               ) : (
                 devices.length
               ),
+              hint: devicesQuery.isLoading
+                ? undefined
+                : `${onlineDeviceCount} connected`,
             },
             {
               label: "Organizations",
@@ -453,17 +494,26 @@ export default function Page() {
               value: healthQuery.isLoading ? (
                 <Skeleton className="h-8 w-16" />
               ) : healthQuery.data?.ok ? (
-                "Healthy"
+                <StatusIndicator
+                  tone="online"
+                  label="Healthy"
+                  pulse
+                  className="text-2xl font-semibold tracking-tight"
+                />
               ) : (
-                "Degraded"
+                <StatusIndicator
+                  tone="warning"
+                  label="Degraded"
+                  className="text-2xl font-semibold tracking-tight"
+                />
               ),
             },
           ]}
         />
 
         <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2 rounded-lg border bg-card/60 px-3 py-2">
-            <span>Records</span>
+          <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-card/70 px-3 py-2">
+            <span>Directory</span>
             <Badge
               variant={
                 healthQuery.data?.postgres === "ok"
@@ -474,8 +524,8 @@ export default function Page() {
               {healthLabel(healthQuery.data?.postgres, healthQuery.isLoading)}
             </Badge>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border bg-card/60 px-3 py-2">
-            <span>Jobs</span>
+          <div className="flex items-center gap-2 rounded-lg border border-border/80 bg-card/70 px-3 py-2">
+            <span>Background</span>
             <Badge
               variant={
                 healthQuery.data?.redis === "ok" ? "secondary" : "destructive"
@@ -490,34 +540,56 @@ export default function Page() {
           <div className="flex flex-col gap-1">
             <h2 className="text-lg font-semibold tracking-tight">Devices</h2>
             <p className="text-sm text-muted-foreground">
-              Live inventory and status from enrolled devices.
+              Manage the devices connected to your network.
             </p>
           </div>
+
+          <InventoryToolbar
+            search={deviceSearch}
+            onSearchChange={setDeviceSearch}
+            searchPlaceholder="Search devices"
+            countLabel={
+              devicesQuery.isLoading
+                ? undefined
+                : `${filteredDevices.length} ${filteredDevices.length === 1 ? "device" : "devices"}`
+            }
+            actions={
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/devices">Open devices</Link>
+              </Button>
+            }
+          />
           {devicesQuery.isLoading ? (
             <div className="flex flex-col gap-3 md:hidden">
               <Skeleton className="h-28 w-full rounded-xl" />
               <Skeleton className="h-28 w-full rounded-xl" />
               <Skeleton className="h-28 w-full rounded-xl" />
             </div>
-          ) : devices.length === 0 ? (
+          ) : filteredDevices.length === 0 ? (
             <div className="md:hidden">
               <EmptyState
-                title="No devices yet"
-                description="Create an enrollment token to add the first device."
+                title={devices.length === 0 ? "No devices yet" : "No matches"}
+                description={
+                  devices.length === 0
+                    ? "Create an enrollment token to add the first device."
+                    : "Try a different search."
+                }
                 bordered
                 action={
-                  <Button
-                    className="w-full sm:w-auto"
-                    onClick={() => setEnrollmentOpen(true)}
-                  >
-                    New enrollment token
-                  </Button>
+                  devices.length === 0 ? (
+                    <Button
+                      className="w-full sm:w-auto"
+                      onClick={() => setEnrollmentOpen(true)}
+                    >
+                      Add device
+                    </Button>
+                  ) : undefined
                 }
               />
             </div>
           ) : (
             <div className="flex flex-col gap-3 md:hidden">
-              {devices.map((device) => {
+              {filteredDevices.map((device) => {
                 const siteName =
                   device.siteName ??
                   (device.siteId
@@ -530,6 +602,7 @@ export default function Page() {
                     : "pending"
                 const hasVnc = firstEnabledVncServiceByDeviceId.has(device.id)
                 const hasSsh = firstEnabledSshServiceByDeviceId.has(device.id)
+                const lastSeen = device.vpnLastHandshakeAt ?? device.lastSeenAt
 
                 return (
                   <div
@@ -569,10 +642,22 @@ export default function Page() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <CopyableText value={device.vpnIpv4} />
-                      <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
-                        {statusLabel(vpnStatus)}
-                      </Badge>
+                      <StatusIndicator
+                        tone={statusTone[vpnStatus] ?? "neutral"}
+                        label={statusLabel(vpnStatus)}
+                        pulse={vpnStatus === "vpn_online"}
+                      />
                     </div>
+                    <StatusIndicator
+                      tone={connectivityTone({
+                        revokedAt: device.vpnRevokedAt,
+                        lastHandshakeAt: device.vpnLastHandshakeAt,
+                        lastSeenAt: device.lastSeenAt,
+                      })}
+                      label={formatRelativeTime(lastSeen)}
+                      pulse={Boolean(device.vpnLastHandshakeAt)}
+                      className="text-muted-foreground"
+                    />
                     {hasVnc || hasSsh ? (
                       <div className="flex flex-wrap gap-2">
                         {hasVnc ? (
@@ -630,14 +715,14 @@ export default function Page() {
           <div className="hidden overflow-hidden rounded-xl border border-border/80 bg-card md:block">
             <Table>
               <TableHeader>
-                <TableRow>
+                <TableRow className="hover:bg-transparent">
                   <TableHead>Device</TableHead>
                   <TableHead>Site</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>VPN</TableHead>
+                  <TableHead>Address</TableHead>
                   <TableHead>Policy</TableHead>
                   <TableHead>Remote</TableHead>
-                  <TableHead>Last connected</TableHead>
+                  <TableHead>Last seen</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -651,23 +736,31 @@ export default function Page() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ) : devices.length === 0 ? (
+                ) : filteredDevices.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="p-0">
                       <EmptyState
-                        title="No devices yet"
-                        description="Create an enrollment token to add the first device."
+                        title={
+                          devices.length === 0 ? "No devices yet" : "No matches"
+                        }
+                        description={
+                          devices.length === 0
+                            ? "Create an enrollment token to add the first device."
+                            : "Try a different search."
+                        }
                         bordered={false}
                         action={
-                          <Button onClick={() => setEnrollmentOpen(true)}>
-                            New enrollment token
-                          </Button>
+                          devices.length === 0 ? (
+                            <Button onClick={() => setEnrollmentOpen(true)}>
+                              Add device
+                            </Button>
+                          ) : undefined
                         }
                       />
                     </TableCell>
                   </TableRow>
                 ) : (
-                  devices.map((device) => {
+                  filteredDevices.map((device) => {
                     const siteName =
                       device.siteName ??
                       (device.siteId
@@ -678,6 +771,8 @@ export default function Page() {
                       : device.vpnLastHandshakeAt
                         ? "vpn_online"
                         : "pending"
+                    const lastSeen =
+                      device.vpnLastHandshakeAt ?? device.lastSeenAt
 
                     return (
                       <TableRow
@@ -697,27 +792,31 @@ export default function Page() {
                             ) : null}
                           </div>
                         </TableCell>
-                        <TableCell>{siteName}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              statusVariant[device.status] ?? "secondary"
-                            }
-                          >
-                            {statusLabel(device.status)}
-                          </Badge>
+                        <TableCell className="text-muted-foreground">
+                          {siteName}
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-col gap-1">
+                          <StatusIndicator
+                            tone={statusTone[device.status] ?? "neutral"}
+                            label={statusLabel(device.status)}
+                            pulse={
+                              device.status === "service_online" ||
+                              device.status === "enrolled"
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1.5">
                             <CopyableText value={device.vpnIpv4} />
-                            <Badge
-                              variant={statusVariant[vpnStatus] ?? "outline"}
-                            >
-                              {statusLabel(vpnStatus)}
-                            </Badge>
+                            <StatusIndicator
+                              tone={statusTone[vpnStatus] ?? "neutral"}
+                              label={statusLabel(vpnStatus)}
+                              pulse={vpnStatus === "vpn_online"}
+                              className="text-muted-foreground"
+                            />
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-muted-foreground">
                           {device.vpnRoutePolicyId
                             ? (routePolicyNameById.get(
                                 device.vpnRoutePolicyId
@@ -783,9 +882,15 @@ export default function Page() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {formatDate(
-                            device.vpnLastHandshakeAt ?? device.lastSeenAt
-                          )}
+                          <StatusIndicator
+                            tone={connectivityTone({
+                              revokedAt: device.vpnRevokedAt,
+                              lastHandshakeAt: device.vpnLastHandshakeAt,
+                              lastSeenAt: device.lastSeenAt,
+                            })}
+                            label={formatRelativeTime(lastSeen)}
+                            pulse={Boolean(device.vpnLastHandshakeAt)}
+                          />
                         </TableCell>
                       </TableRow>
                     )

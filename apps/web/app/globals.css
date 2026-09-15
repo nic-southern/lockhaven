@@ -152,6 +152,20 @@
   }
 }
 
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 @utility animate-fade-up {
   animation: fade-up 0.35s ease-out both;
+}
+
+@utility animate-soft-pulse {
+  animation: soft-pulse 2.4s ease-in-out infinite;
 }
