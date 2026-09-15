@@ -35,7 +35,10 @@ export function EnrollDeviceCard({ onClose }: { onClose?: () => void }) {
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
 
   const [siteId, setSiteId] = React.useState("")
-  const [routePolicyId, setRoutePolicyId] = React.useState("")
+  // `null` means the user hasn't chosen, so the organization default applies.
+  const [chosenRoutePolicyId, setChosenRoutePolicyId] = React.useState<
+    string | null
+  >(null)
   const [reusable, setReusable] = React.useState(false)
   const [token, setToken] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
@@ -50,6 +53,16 @@ export function EnrollDeviceCard({ onClose }: { onClose?: () => void }) {
   const sites = sitesQuery.data ?? []
   const selectedSite = sites.find((site) => site.id === siteId)
   const baseUrl = getClientVpnBaseUrl()
+  const routePolicies = routePoliciesQuery.data ?? []
+  const targetOrganizationId =
+    selectedSite?.organizationId ?? organizationsQuery.data?.[0]?.id ?? null
+  const defaultPolicy = routePolicies.find(
+    (policy) =>
+      policy.isDefault &&
+      (policy.organizationId === null ||
+        policy.organizationId === targetOrganizationId)
+  )
+  const routePolicyId = chosenRoutePolicyId ?? defaultPolicy?.id ?? ""
 
   async function handleCreate() {
     setError(null)
@@ -119,11 +132,13 @@ export function EnrollDeviceCard({ onClose }: { onClose?: () => void }) {
             <SelectField
               id="enroll-route-policy"
               value={routePolicyId}
-              onValueChange={setRoutePolicyId}
+              onValueChange={setChosenRoutePolicyId}
               emptyLabel="No policy"
-              options={(routePoliciesQuery.data ?? []).map((policy) => ({
+              options={routePolicies.map((policy) => ({
                 value: policy.id,
-                label: policy.name,
+                label: policy.isDefault
+                  ? `${policy.name} (default)`
+                  : policy.name,
               }))}
             />
           </FormField>

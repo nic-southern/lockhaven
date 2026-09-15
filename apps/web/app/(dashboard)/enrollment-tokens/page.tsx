@@ -121,7 +121,17 @@ export default function EnrollmentTokensPage() {
   const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
   const [createSiteId, setCreateSiteId] = React.useState("")
-  const [createRoutePolicyId, setCreateRoutePolicyId] = React.useState("")
+  // `null` means the user hasn't chosen, so the organization default applies.
+  const [chosenCreateRoutePolicyId, setChosenCreateRoutePolicyId] =
+    React.useState<string | null>(null)
+  const defaultCreatePolicy = routePolicies.find(
+    (policy) =>
+      policy.isDefault &&
+      (policy.organizationId === null ||
+        policy.organizationId === createOrganizationId)
+  )
+  const createRoutePolicyId =
+    chosenCreateRoutePolicyId ?? defaultCreatePolicy?.id ?? ""
   const [createSiteWide, setCreateSiteWide] = React.useState(true)
   const [createExpiresAt, setCreateExpiresAt] = React.useState("")
   const [createMaxUses, setCreateMaxUses] = React.useState("1")
@@ -427,11 +437,13 @@ export default function EnrollmentTokensPage() {
             <SelectField
               id="token-create-policy"
               value={createRoutePolicyId}
-              onValueChange={setCreateRoutePolicyId}
+              onValueChange={setChosenCreateRoutePolicyId}
               emptyLabel="No policy"
               options={routePolicies.map((policy) => ({
                 value: policy.id,
-                label: policy.name,
+                label: policy.isDefault
+                  ? `${policy.name} (default)`
+                  : policy.name,
               }))}
             />
           </FormField>

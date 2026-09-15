@@ -32,6 +32,7 @@ import { writeAuditEvent } from "./audit"
 import { issueLaunchTicket, redeemLaunchTicket } from "./launch-ticket"
 import { dashboardRouter } from "./routers/dashboard"
 import { devicesRouter } from "./routers/devices"
+import { routePoliciesRouter } from "./routers/route-policies"
 import { sessionsPage } from "./routers/sessions-page"
 import { usersRouter } from "./routers/users"
 import {
@@ -87,7 +88,6 @@ import {
 } from "@nms/vpn"
 import {
   adminVpnConfigFilename,
-  normalizeRouteValues,
   permissionForServiceType,
   serviceConnectionDefaults,
   siteBelongsToOrganization,
@@ -552,17 +552,6 @@ const managementServiceUpdateInput = z.object({
   protocol: z.string().min(1),
   port: z.number().int().positive(),
   enabled: z.boolean(),
-})
-
-const routePolicyCreateInput = z.object({
-  organizationId: z.string().uuid(),
-  name: z.string().min(1),
-  routes: z.array(z.string().min(1)).min(1),
-  description: z.string().optional().nullable(),
-})
-
-const routePolicyUpdateInput = routePolicyCreateInput.extend({
-  id: z.string().uuid(),
 })
 
 const enrollmentTokenInput = enrollmentTokenCreateSchema
@@ -1863,142 +1852,7 @@ export const appRouter = createTRPCRouter({
         return record ?? null
       }),
   }),
-  routePolicies: createTRPCRouter({
-    list: adminProcedure.query(async ({ ctx }) => {
-      const organizationIds = actorOrganizationIds(ctx.actor)
-
-      if (organizationIds === null) {
-        return ctx.db.select().from(routePolicies).orderBy(routePolicies.name)
-      }
-
-      if (organizationIds.length === 0) {
-        return []
-      }
-
-      return ctx.db
-        .select()
-        .from(routePolicies)
-        .where(inArray(routePolicies.organizationId, organizationIds))
-        .orderBy(routePolicies.name)
-    }),
-    create: adminProcedure
-      .input(routePolicyCreateInput)
-      .mutation(async ({ ctx, input }) => {
-        assertAuthorized(ctx.actor, "organization:admin", {
-          kind: "organization",
-          organizationId: input.organizationId,
-        })
-
-        const [record] = await ctx.db
-          .insert(routePolicies)
-          .values({
-            organizationId: input.organizationId,
-            name: input.name,
-            routes: normalizeRouteValues(input.routes),
-            description: input.description ?? null,
-          })
-          .returning()
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          eventType: "route_policy_created",
-          eventData: {
-            routePolicyId: record.id,
-            name: record.name,
-          },
-        })
-
-        return record
-      }),
-    update: adminProcedure
-      .input(routePolicyUpdateInput)
-      .mutation(async ({ ctx, input }) => {
-        const [existing] = await ctx.db
-          .select()
-          .from(routePolicies)
-          .where(eq(routePolicies.id, input.id))
-
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        if (existing.organizationId) {
-          assertAuthorized(ctx.actor, "organization:admin", {
-            kind: "organization",
-            organizationId: existing.organizationId,
-          })
-        } else {
-          assertAuthorized(ctx.actor, "organization:admin", {
-            kind: "platform",
-          })
-        }
-
-        const [record] = await ctx.db
-          .update(routePolicies)
-          .set({
-            organizationId: existing.organizationId,
-            name: input.name,
-            routes: normalizeRouteValues(input.routes),
-            description: input.description ?? null,
-          })
-          .where(eq(routePolicies.id, input.id))
-          .returning()
-
-        if (!record) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          eventType: "route_policy_updated",
-          eventData: {
-            routePolicyId: record.id,
-            name: record.name,
-          },
-        })
-
-        return record
-      }),
-    delete: adminProcedure
-      .input(z.object({ id: z.string().uuid() }))
-      .mutation(async ({ ctx, input }) => {
-        const [existing] = await ctx.db
-          .select()
-          .from(routePolicies)
-          .where(eq(routePolicies.id, input.id))
-
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        if (existing.organizationId) {
-          assertAuthorized(ctx.actor, "organization:admin", {
-            kind: "organization",
-            organizationId: existing.organizationId,
-          })
-        } else {
-          assertAuthorized(ctx.actor, "organization:admin", {
-            kind: "platform",
-          })
-        }
-
-        const [record] = await ctx.db
-          .delete(routePolicies)
-          .where(eq(routePolicies.id, input.id))
-          .returning()
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          eventType: "route_policy_deleted",
-          eventData: {
-            routePolicyId: existing.id,
-            name: existing.name,
-          },
-        })
-
-        return record ?? existing
-      }),
-  }),
+  routePolicies: routePoliciesRouter,
   enrollmentTokens: createTRPCRouter({
     list: adminProcedure.query(async ({ ctx }) => {
       const organizationIds = actorOrganizationIds(ctx.actor)

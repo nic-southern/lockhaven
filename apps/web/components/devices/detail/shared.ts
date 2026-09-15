@@ -29,6 +29,7 @@ export function useInvalidateDevice(deviceId: string) {
   return React.useCallback(async () => {
     await Promise.all([
       utils.devices.byId.invalidate({ id: deviceId }),
+      utils.devices.effectiveRoutes.invalidate({ id: deviceId }),
       utils.devices.page.invalidate(),
       utils.devices.list.invalidate(),
       utils.devices.facets.invalidate(),

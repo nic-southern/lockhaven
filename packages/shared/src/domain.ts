@@ -376,6 +376,8 @@ export const auditEventTypeSchema = z.enum([
   "route_policy_created",
   "route_policy_updated",
   "route_policy_deleted",
+  "route_policy_default_changed",
+  "route_policy_devices_reassigned",
 ])
 
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>

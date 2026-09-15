@@ -21,6 +21,8 @@ import {
   platformRoles,
   serviceTypes,
   siteRoles,
+  type RoutePolicyColor,
+  type RoutePolicyEntry,
   type SiteGrant,
 } from "@nms/shared"
 
@@ -345,14 +347,33 @@ export const routePolicies = pgTable(
       onDelete: "cascade",
     }),
     name: text("name").notNull(),
+    /** Canonical CIDRs published to the tunnel; derived from `entries`. */
     routes: text("routes").array().notNull(),
+    /** Routes with labels/comments for the Console. */
+    entries: jsonb("entries")
+      .$type<RoutePolicyEntry[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     description: text("description"),
+    isDefault: boolean("is_default").notNull().default(false),
+    color: text("color").$type<RoutePolicyColor>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => ({
     organizationNameIdx: uniqueIndex("route_policies_organization_name_idx").on(
       table.organizationId,
       table.name
     ),
+    organizationDefaultIdx: uniqueIndex(
+      "route_policies_organization_default_idx"
+    )
+      .on(table.organizationId)
+      .where(sql`${table.isDefault} = true`),
   })
 )
 

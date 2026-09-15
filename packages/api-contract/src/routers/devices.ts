@@ -29,9 +29,11 @@ import {
   deviceConnectivityStates,
   deviceStatuses,
   deviceTagsSchema,
+  entriesFromRoutes,
   type DeviceConnectivity,
   type DeviceStatus,
 } from "@nms/shared"
+import { buildClientAllowedIps, normalizeVpnIpv4 } from "@nms/vpn"
 
 import { assertAuthorized } from "../access"
 import { writeAuditEvent, type AuditContext } from "../audit"
@@ -481,6 +483,8 @@ export const devicesRouter = createTRPCRouter({
                 id: routePolicies.id,
                 name: routePolicies.name,
                 routes: routePolicies.routes,
+                entries: routePolicies.entries,
+                color: routePolicies.color,
               })
               .from(routePolicies)
               .where(eq(routePolicies.id, identity.routePolicyId))
@@ -499,6 +503,60 @@ export const devicesRouter = createTRPCRouter({
           ...service,
           hasSavedPassword: Boolean(credential),
         })),
+      }
+    }),
+  /**
+   * What the tunnel actually publishes to this device: the concentrator
+   * address plus the assigned policy, in the same order the client config
+   * lists them.
+   */
+  effectiveRoutes: permissionProcedure("device:view")
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const device = await loadDevice(ctx, input.id)
+      assertAuthorized(ctx.actor, "device:view", {
+        kind: "device",
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+      })
+
+      const [identity] = await ctx.db
+        .select({
+          routePolicyId: vpnIdentities.routePolicyId,
+          revokedAt: vpnIdentities.revokedAt,
+        })
+        .from(vpnIdentities)
+        .where(eq(vpnIdentities.deviceId, device.id))
+
+      const [policy] = identity?.routePolicyId
+        ? await ctx.db
+            .select({
+              id: routePolicies.id,
+              name: routePolicies.name,
+              routes: routePolicies.routes,
+              entries: routePolicies.entries,
+              color: routePolicies.color,
+            })
+            .from(routePolicies)
+            .where(eq(routePolicies.id, identity.routePolicyId))
+        : [null]
+
+      const serverIp = process.env.VPN_SERVER_IP ?? null
+      const policyRoutes = policy?.routes ?? []
+      const entries =
+        policy && policy.entries.length > 0
+          ? policy.entries
+          : entriesFromRoutes(policyRoutes)
+
+      return {
+        hasIdentity: Boolean(identity),
+        revoked: Boolean(identity?.revokedAt),
+        tunnelCidr: process.env.VPN_CIDR ?? null,
+        tunnelRoute: serverIp ? `${normalizeVpnIpv4(serverIp)}/32` : null,
+        policy: policy ? { ...policy, entries } : null,
+        allowedIps: serverIp
+          ? buildClientAllowedIps({ serverIp, routePolicyRoutes: policyRoutes })
+          : policyRoutes,
       }
     }),
   update: permissionProcedure("device:update")
