@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 
 import { auth } from "@/auth"
-import { appRouter, type ApiContext } from "@nms/api-contract"
+import {
+  appRouter,
+  requestInfoFromHeaders,
+  type ApiContext,
+} from "@nms/api-contract"
 import { resolveAdminPrincipalByEmail } from "@nms/auth/server"
 import { db } from "@nms/db/client"
 
@@ -18,6 +22,7 @@ async function createTRPCContext(req: Request): Promise<ApiContext> {
     db,
     actor,
     requestId: randomUUID(),
+    request: requestInfoFromHeaders(req.headers),
   }
 }
 
