@@ -325,6 +325,14 @@ export const devices = pgTable(
       .notNull()
       .default(sql`'{}'::text[]`),
     checkInSecretHash: text("check_in_secret_hash"),
+    /**
+     * Set by an administrator to let the next check-in adopt a new hostname.
+     * Cleared once used; check-ins reporting a different hostname are refused
+     * while it is null.
+     */
+    hostnameChangeAllowedAt: timestamp("hostname_change_allowed_at", {
+      withTimezone: true,
+    }),
     status: statusEnum("status").notNull().default("pending"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })

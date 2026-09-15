@@ -21,6 +21,14 @@ import { usePermissions } from "@/lib/use-permissions"
 
 import { type DeviceDetail, useInvalidateDevice } from "./shared"
 
+const RENAME_WINDOW_MS = 24 * 60 * 60 * 1000
+
+/** Whether an administrator's rename permission is still within its window. */
+function isRenameWindowOpen(allowedAt: string | Date | null | undefined) {
+  if (!allowedAt) return false
+  return Date.now() - new Date(allowedAt).getTime() <= RENAME_WINDOW_MS
+}
+
 export function SettingsTab({ device }: { device: DeviceDetail }) {
   const router = useRouter()
   const { can } = usePermissions()
@@ -97,6 +105,20 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
       toast.error("We couldn't remove the device.")
     },
   })
+  const allowHostnameChange = trpc.devices.allowHostnameChange.useMutation({
+    async onSuccess(result) {
+      await invalidate()
+      toast.success(
+        result?.hostnameChangeAllowedAt
+          ? "The next check-in may use a new host name."
+          : "Host name changes are locked again."
+      )
+    },
+    onError() {
+      toast.error("We couldn't update that setting.")
+    },
+  })
+  const renameWindowOpen = isRenameWindowOpen(device.hostnameChangeAllowedAt)
 
   const baseUrl = getClientVpnBaseUrl()
   const linuxUninstall = buildLinuxUninstallCommand({ baseUrl })
@@ -121,7 +143,7 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
             <FormField
               label="Host name"
               htmlFor="device-hostname"
-              description="Reported by the agent; override only if it's wrong."
+              description="The name this device is expected to report. Check-ins under a different name are refused."
             >
               <Input
                 id="device-hostname"
@@ -172,6 +194,37 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
                 Discard
               </Button>
             ) : null}
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {canUpdate ? (
+        <SectionCard
+          title="Host name changes"
+          description="A device that starts reporting a different host name is refused until you allow it, since a copied check-in secret looks the same from here."
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              {renameWindowOpen
+                ? "The next check-in within 24 hours may adopt a new host name. The window closes as soon as it's used."
+                : "Renamed this device? Allow the change, then let it check in again."}
+            </p>
+            <Button
+              variant={renameWindowOpen ? "outline" : "default"}
+              disabled={allowHostnameChange.isPending}
+              onClick={() =>
+                allowHostnameChange.mutate({
+                  id: device.id,
+                  allow: !renameWindowOpen,
+                })
+              }
+            >
+              {allowHostnameChange.isPending
+                ? "Saving…"
+                : renameWindowOpen
+                  ? "Cancel"
+                  : "Allow host name change"}
+            </Button>
           </div>
         </SectionCard>
       ) : null}

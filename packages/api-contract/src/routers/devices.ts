@@ -91,6 +91,7 @@ function deviceRowSelection() {
     status: devices.status,
     lastSeenAt: devices.lastSeenAt,
     createdAt: devices.createdAt,
+    hostnameChangeAllowedAt: devices.hostnameChangeAllowedAt,
     vpnIpv4: vpnIdentities.vpnIpv4,
     vpnRoutePolicyId: vpnIdentities.routePolicyId,
     vpnRoutePolicyName: routePolicies.name,
@@ -606,6 +607,47 @@ export const devicesRouter = createTRPCRouter({
           previousSiteId: existing.siteId,
           displayName: input.displayName ?? existing.displayName,
           hostname: input.hostname ?? existing.hostname,
+        },
+      })
+
+      return record ?? null
+    }),
+  /**
+   * Opens a 24-hour window in which the device may check in under a new
+   * hostname. Outside that window a renamed device is refused, since the
+   * same symptom is what a copied check-in secret looks like.
+   */
+  allowHostnameChange: permissionProcedure("device:update")
+    .input(z.object({ id: z.string().uuid(), allow: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await loadDevice(ctx, input.id)
+      assertAuthorized(ctx.actor, "device:update", {
+        kind: "device",
+        organizationId: existing.organizationId,
+        siteId: existing.siteId,
+      })
+
+      const now = new Date()
+      const [record] = await ctx.db
+        .update(devices)
+        .set({
+          hostnameChangeAllowedAt: input.allow ? now : null,
+          updatedAt: now,
+        })
+        .where(eq(devices.id, input.id))
+        .returning({
+          id: devices.id,
+          hostnameChangeAllowedAt: devices.hostnameChangeAllowedAt,
+        })
+
+      await writeAuditEvent(ctx, {
+        eventType: "device_hostname_change_allowed",
+        organizationId: existing.organizationId,
+        deviceId: existing.id,
+        eventData: {
+          deviceId: existing.id,
+          hostname: existing.hostname,
+          allowed: input.allow,
         },
       })
 

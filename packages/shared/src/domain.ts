@@ -246,6 +246,23 @@ export const checkInSchema = z.object({
 })
 
 /**
+ * Hostnames compare case-insensitively and ignore a trailing dot, so a device
+ * that starts reporting `KIOSK-01.` instead of `kiosk-01` is still itself.
+ */
+export function normalizeHostname(value: string | null | undefined) {
+  if (!value) return null
+  const trimmed = value.trim().replace(/\.+$/, "").toLowerCase()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+export function hostnamesMatch(
+  expected: string | null | undefined,
+  reported: string | null | undefined
+) {
+  return normalizeHostname(expected) === normalizeHostname(reported)
+}
+
+/**
  * Connectivity is derived from the WireGuard handshake rather than stored, so
  * lists and metrics agree on the same thresholds.
  */
@@ -395,6 +412,9 @@ export const auditEventTypeSchema = z.enum([
   "device_enroll_failed",
   "device_check_in_failed",
   "device_check_in_secret_mismatch",
+  "device_check_in_hostname_mismatch",
+  "device_hostname_changed",
+  "device_hostname_change_allowed",
   "alert_raised",
   "alert_acknowledged",
   "alert_resolved",

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto"
+import { randomBytes } from "node:crypto"
 
 import {
   auditEvents,
@@ -28,6 +28,13 @@ import {
 } from "@nms/shared"
 import { allocateVpnIpv4, buildClientAllowedIps } from "@nms/vpn"
 
+import { hashAgentSecret } from "@/lib/agent-secret"
+import {
+  addressKey,
+  enforceRateLimit,
+  rateLimitPolicies,
+} from "@/lib/rate-limit-server"
+
 const env = {
   vpnServerPublicKey: process.env.VPN_SERVER_PUBLIC_KEY,
   vpnPublicHostname: process.env.VPN_PUBLIC_HOSTNAME ?? "vpn.example.com",
@@ -41,14 +48,6 @@ type TransactionClient = Parameters<typeof db.transaction>[0] extends (
 ) => unknown
   ? T
   : never
-
-function hashEnrollmentToken(token: string) {
-  return createHash("sha256").update(token).digest("hex")
-}
-
-function hashDeviceSecret(secret: string) {
-  return createHash("sha256").update(secret).digest("hex")
-}
 
 function encryptRemoteSecret(secret: string, credentialSecret: string) {
   return encryptSecret(secret, credentialSecret)
@@ -198,6 +197,13 @@ async function readJson(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const limited = await enforceRateLimit(
+    `enroll:ip:${addressKey(request.headers)}`,
+    rateLimitPolicies.enrollPerAddress,
+    "Too many enrollment attempts from this address. Try again in a minute."
+  )
+  if (limited) return limited
+
   const parsed = enrollmentRequestSchema.safeParse(await readJson(request))
 
   if (!parsed.success) {
@@ -209,9 +215,9 @@ export async function POST(request: Request) {
   }
 
   const input = parsed.data
-  const tokenHash = hashEnrollmentToken(input.token)
+  const tokenHash = hashAgentSecret(input.token)
   const checkInSecret = randomBytes(32).toString("base64url")
-  const checkInSecretHash = hashDeviceSecret(checkInSecret)
+  const checkInSecretHash = hashAgentSecret(checkInSecret)
   const requestsSsh = input.services.some((service) => service.type === "ssh")
   const requestsPasswordService = input.services.some(
     (service) =>

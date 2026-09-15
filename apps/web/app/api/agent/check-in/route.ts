@@ -1,5 +1,3 @@
-import { createHash, timingSafeEqual } from "node:crypto"
-
 import { requestInfoFromHeaders } from "@nms/api-contract"
 import {
   and,
@@ -12,9 +10,21 @@ import {
 import { db } from "@nms/db/client"
 import {
   checkInSchema,
+  hostnamesMatch,
+  normalizeHostname,
   severityForEvent,
   type AuditEventType,
 } from "@nms/shared"
+
+import { agentSecretMatches } from "@/lib/agent-secret"
+import {
+  addressKey,
+  enforceRateLimit,
+  rateLimitPolicies,
+} from "@/lib/rate-limit-server"
+
+/** How long an administrator's permission to rename stays usable. */
+const HOSTNAME_CHANGE_WINDOW_MS = 24 * 60 * 60 * 1000
 
 type TransactionClient = Parameters<typeof db.transaction>[0] extends (
   tx: infer T
@@ -22,23 +32,13 @@ type TransactionClient = Parameters<typeof db.transaction>[0] extends (
   ? T
   : never
 
-function hashDeviceSecret(secret: string) {
-  return createHash("sha256").update(secret).digest("hex")
-}
-
-/** Compares hex digests without leaking where they first differ. */
-function secretMatches(provided: string, expectedHash: string) {
-  const providedHash = Buffer.from(hashDeviceSecret(provided), "hex")
-  const expected = Buffer.from(expectedHash, "hex")
-  if (providedHash.length !== expected.length) return false
-  return timingSafeEqual(providedHash, expected)
-}
-
 async function recordCheckInFailure(
   request: Request,
   eventType: Extract<
     AuditEventType,
-    "device_check_in_failed" | "device_check_in_secret_mismatch"
+    | "device_check_in_failed"
+    | "device_check_in_secret_mismatch"
+    | "device_check_in_hostname_mismatch"
   >,
   args: {
     reason: string
@@ -48,6 +48,7 @@ async function recordCheckInFailure(
       siteId: string | null
     } | null
     deviceId?: string | null
+    details?: Record<string, unknown>
   }
 ) {
   const info = requestInfoFromHeaders(request.headers)
@@ -62,8 +63,16 @@ async function recordCheckInFailure(
     eventData: {
       reason: args.reason,
       requestedDeviceId: args.deviceId ?? args.device?.id ?? null,
+      ...args.details,
     },
   })
+}
+
+function renameAllowed(allowedAt: Date | null, now: Date) {
+  return (
+    allowedAt !== null &&
+    now.getTime() - allowedAt.getTime() <= HOSTNAME_CHANGE_WINDOW_MS
+  )
 }
 
 async function readJson(request: Request) {
@@ -75,6 +84,12 @@ async function readJson(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const addressLimited = await enforceRateLimit(
+    `check-in:ip:${addressKey(request.headers)}`,
+    rateLimitPolicies.checkInPerAddress
+  )
+  if (addressLimited) return addressLimited
+
   const parsed = checkInSchema.safeParse(await readJson(request))
 
   if (!parsed.success) {
@@ -85,6 +100,12 @@ export async function POST(request: Request) {
   }
 
   const input = parsed.data
+  const deviceLimited = await enforceRateLimit(
+    `check-in:device:${input.device_id}`,
+    rateLimitPolicies.checkInPerDevice
+  )
+  if (deviceLimited) return deviceLimited
+
   const [device] = await db
     .select()
     .from(devices)
@@ -109,7 +130,7 @@ export async function POST(request: Request) {
     )
   }
 
-  if (!secretMatches(input.check_in_secret, device.checkInSecretHash)) {
+  if (!agentSecretMatches(input.check_in_secret, device.checkInSecretHash)) {
     await recordCheckInFailure(request, "device_check_in_secret_mismatch", {
       reason: "secret_mismatch",
       device,
@@ -117,12 +138,41 @@ export async function POST(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const now = new Date()
+
+  // A device that suddenly reports a different name is either renamed on
+  // purpose or someone replaying its secret from another machine. Only an
+  // administrator's recent permission distinguishes the two.
+  const hostnameChanged =
+    device.hostname !== null && !hostnamesMatch(device.hostname, input.hostname)
+  const adoptHostname =
+    device.hostname === null ||
+    (hostnameChanged && renameAllowed(device.hostnameChangeAllowedAt, now))
+
+  if (hostnameChanged && !adoptHostname) {
+    await recordCheckInFailure(request, "device_check_in_hostname_mismatch", {
+      reason: "hostname_mismatch",
+      device,
+      details: {
+        expectedHostname: device.hostname,
+        reportedHostname: normalizeHostname(input.hostname),
+      },
+    })
+    return Response.json(
+      {
+        error:
+          "This device reported a different hostname than the one on record. Ask an administrator to allow the change and check in again.",
+        code: "hostname_mismatch",
+      },
+      { status: 409 }
+    )
+  }
+
   const [identity] = await db
     .select()
     .from(vpnIdentities)
     .where(eq(vpnIdentities.deviceId, device.id))
 
-  const now = new Date()
   const serviceReachable = input.services.some((service) => service.listening)
   const status = input.vpn.interface_up
     ? serviceReachable
@@ -134,7 +184,9 @@ export async function POST(request: Request) {
     await tx
       .update(devices)
       .set({
-        hostname: input.hostname,
+        ...(adoptHostname
+          ? { hostname: input.hostname, hostnameChangeAllowedAt: null }
+          : {}),
         osFamily: input.os_family,
         osVersion: input.os_version,
         agentVersion: input.agent_version,
@@ -143,6 +195,25 @@ export async function POST(request: Request) {
         status,
       })
       .where(eq(devices.id, input.device_id))
+
+    if (hostnameChanged && adoptHostname) {
+      const info = requestInfoFromHeaders(request.headers)
+      await tx.insert(auditEvents).values({
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+        deviceId: device.id,
+        eventType: "device_hostname_changed",
+        severity: severityForEvent("device_hostname_changed"),
+        actorIp: info.ipAddress,
+        userAgent: info.userAgent,
+        eventData: {
+          deviceId: device.id,
+          previousHostname: device.hostname,
+          hostname: input.hostname,
+          allowedAt: device.hostnameChangeAllowedAt?.toISOString() ?? null,
+        },
+      })
+    }
 
     if (identity) {
       await tx
