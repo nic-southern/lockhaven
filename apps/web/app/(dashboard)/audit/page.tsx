@@ -1,6 +1,13 @@
 "use client"
 
 import * as React from "react"
+import type {
+  ColumnDef,
+  ColumnFiltersState,
+  PaginationState,
+  SortingState,
+} from "@tanstack/react-table"
+import { keepPreviousData } from "@tanstack/react-query"
 
 import { Badge } from "@/components/ui/badge"
 import {
@@ -10,19 +17,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { EmptyState } from "@/components/dashboard/empty-state"
-import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+  DataTable,
+  DataTableColumnHeader,
+} from "@/components/dashboard/data-table"
 import { PageHeader } from "@/components/dashboard/page-header"
-import { formatDate, statusLabel } from "@/lib/dashboard"
+import { SelectField } from "@/components/dashboard/select-field"
+import { formatDate, formatRelativeTime, statusLabel } from "@/lib/dashboard"
+import { buildListQuery, columnFiltersToRecord } from "@/lib/list-query"
 import { trpc } from "@/lib/trpc"
 
 const detailKeyLabels: Record<string, string> = {
@@ -114,14 +116,88 @@ function formatDetailValue(
   return String(value)
 }
 
+const timeRanges = [
+  { value: "all", label: "All time" },
+  { value: "1h", label: "Last hour" },
+  { value: "24h", label: "Last 24 hours" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+] as const
+
+function rangeStart(range: string) {
+  const now = Date.now()
+  switch (range) {
+    case "1h":
+      return new Date(now - 60 * 60 * 1000)
+    case "24h":
+      return new Date(now - 24 * 60 * 60 * 1000)
+    case "7d":
+      return new Date(now - 7 * 24 * 60 * 60 * 1000)
+    case "30d":
+      return new Date(now - 30 * 24 * 60 * 60 * 1000)
+    default:
+      return null
+  }
+}
+
+type AuditRow = {
+  id: string
+  eventType: string
+  actorName: string | null
+  actorEmail: string | null
+  organizationId: string | null
+  organizationName: string | null
+  deviceId: string | null
+  deviceName: string | null
+  eventData: Record<string, unknown>
+  createdAt: Date | string
+}
+
 export default function AuditPage() {
-  const auditQuery = trpc.audit.list.useQuery({})
   const organizationsQuery = trpc.organizations.list.useQuery()
   const devicesQuery = trpc.devices.list.useQuery()
   const sitesQuery = trpc.sites.list.useQuery()
   const routePoliciesQuery = trpc.routePolicies.list.useQuery()
-  const [organizationId, setOrganizationId] = React.useState("")
-  const [deviceId, setDeviceId] = React.useState("")
+  const eventTypesQuery = trpc.audit.eventTypes.useQuery()
+
+  const [sorting, setSorting] = React.useState<SortingState>([
+    { id: "createdAt", desc: true },
+  ])
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
+    []
+  )
+  const [pagination, setPagination] = React.useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 25,
+  })
+  const [search, setSearch] = React.useState("")
+  const [debouncedSearch, setDebouncedSearch] = React.useState("")
+  const [range, setRange] = React.useState<string>("all")
+
+  React.useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedSearch(search), 250)
+    return () => window.clearTimeout(handle)
+  }, [search])
+
+  const resetToFirstPage = React.useCallback(() => {
+    setPagination((current) =>
+      current.pageIndex === 0 ? current : { ...current, pageIndex: 0 }
+    )
+  }, [])
+
+  const filters = React.useMemo(() => {
+    const record = columnFiltersToRecord(columnFilters)
+    const start = rangeStart(range)
+    if (start) {
+      record.from = [start.toISOString()]
+    }
+    return record
+  }, [columnFilters, range])
+
+  const pageQuery = trpc.audit.page.useQuery(
+    buildListQuery({ pagination, sorting, filters, search: debouncedSearch }),
+    { placeholderData: keepPreviousData }
+  )
 
   const organizations = React.useMemo(
     () => organizationsQuery.data ?? [],
@@ -156,17 +232,126 @@ export default function AuditPage() {
     [organizations, devices, sites, routePolicies]
   )
 
-  const filteredAudit = React.useMemo(() => {
-    return (auditQuery.data ?? []).filter((event) => {
-      if (organizationId && event.organizationId !== organizationId) {
-        return false
-      }
-      if (deviceId && event.deviceId !== deviceId) {
-        return false
-      }
-      return true
-    })
-  }, [auditQuery.data, organizationId, deviceId])
+  const columns = React.useMemo<ColumnDef<AuditRow>[]>(
+    () => [
+      {
+        accessorKey: "eventType",
+        meta: { label: "Event" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Event" />
+        ),
+        cell: ({ row }) => (
+          <Badge variant="outline" className="whitespace-nowrap">
+            {statusLabel(row.original.eventType)}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "actorName",
+        meta: { label: "Actor" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Actor" />
+        ),
+        cell: ({ row }) =>
+          row.original.actorName || row.original.actorEmail ? (
+            <div className="flex flex-col">
+              <span>{row.original.actorName ?? row.original.actorEmail}</span>
+              {row.original.actorName && row.original.actorEmail ? (
+                <span className="text-xs text-muted-foreground">
+                  {row.original.actorEmail}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">System</span>
+          ),
+      },
+      {
+        id: "organizationId",
+        accessorKey: "organizationName",
+        meta: { label: "Organization" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Organization" />
+        ),
+        cell: ({ row }) =>
+          row.original.organizationName ??
+          (row.original.organizationId
+            ? shortId(row.original.organizationId)
+            : "—"),
+      },
+      {
+        id: "deviceId",
+        accessorKey: "deviceName",
+        meta: { label: "Device" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Device" />
+        ),
+        cell: ({ row }) =>
+          row.original.deviceName ??
+          (row.original.deviceId ? shortId(row.original.deviceId) : "—"),
+      },
+      {
+        accessorKey: "createdAt",
+        meta: { label: "Time" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Time" />
+        ),
+        cell: ({ row }) => (
+          <div className="flex flex-col">
+            <span className="text-sm">
+              {formatRelativeTime(row.original.createdAt)}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {formatDate(row.original.createdAt)}
+            </span>
+          </div>
+        ),
+      },
+      {
+        id: "details",
+        enableSorting: false,
+        meta: { label: "Details" },
+        header: "Details",
+        cell: ({ row }) => {
+          const details = Object.entries(row.original.eventData ?? {})
+          if (details.length === 0) {
+            return <span className="text-sm text-muted-foreground">—</span>
+          }
+          return (
+            <div className="flex max-w-md flex-col gap-0.5 text-xs">
+              {details.slice(0, 5).map(([key, value]) => (
+                <div key={key} className="flex gap-1.5">
+                  <span className="text-muted-foreground">
+                    {humanizeDetailKey(key)}:
+                  </span>
+                  <span className="font-medium break-all">
+                    {formatDetailValue(key, value, lookups)}
+                  </span>
+                </div>
+              ))}
+              {details.length > 5 ? (
+                <span className="text-muted-foreground">
+                  +{details.length - 5} more
+                </span>
+              ) : null}
+            </div>
+          )
+        },
+      },
+    ],
+    [lookups]
+  )
+
+  const eventTypeOptions = React.useMemo(
+    () =>
+      (eventTypesQuery.data ?? []).map((eventType) => ({
+        value: eventType,
+        label: statusLabel(eventType),
+      })),
+    [eventTypesQuery.data]
+  )
+
+  const total = pageQuery.data?.total ?? 0
 
   return (
     <div className="flex flex-col gap-6">
@@ -178,131 +363,84 @@ export default function AuditPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>
-            Limit the list to a specific organization or device.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Organization" htmlFor="audit-filter-organization">
-            <NativeSelect
-              id="audit-filter-organization"
-              value={organizationId}
-              onChange={(event) => setOrganizationId(event.target.value)}
-            >
-              <option value="">All organizations</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              ))}
-            </NativeSelect>
-          </FormField>
-          <FormField label="Device" htmlFor="audit-filter-device">
-            <NativeSelect
-              id="audit-filter-device"
-              value={deviceId}
-              onChange={(event) => setDeviceId(event.target.value)}
-            >
-              <option value="">All devices</option>
-              {devices.map((device) => (
-                <option key={device.id} value={device.id}>
-                  {device.displayName}
-                </option>
-              ))}
-            </NativeSelect>
-          </FormField>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Events</CardTitle>
           <CardDescription>
-            Recorded actions for inventory and access changes.
+            {total > 0
+              ? `${total.toLocaleString()} recorded ${total === 1 ? "event" : "events"} match the current view.`
+              : "Recorded actions for inventory and access changes."}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Organization</TableHead>
-                  <TableHead>Device</TableHead>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Details</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {auditQuery.isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="py-10">
-                      <Skeleton className="h-5 w-40" />
-                    </TableCell>
-                  </TableRow>
-                ) : filteredAudit.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="p-0">
-                      <EmptyState
-                        title="No events yet"
-                        description="Operational changes will show up here as they happen."
-                        bordered={false}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredAudit.map((event) => {
-                    const details = Object.entries(event.eventData ?? {})
-                    const organizationName = event.organizationId
-                      ? (lookups.organizationNameById.get(
-                          event.organizationId
-                        ) ?? shortId(event.organizationId))
-                      : "—"
-                    const deviceName = event.deviceId
-                      ? (lookups.deviceNameById.get(event.deviceId) ??
-                        shortId(event.deviceId))
-                      : "—"
-
-                    return (
-                      <TableRow key={event.id}>
-                        <TableCell className="font-medium">
-                          <Badge variant="outline">
-                            {statusLabel(event.eventType)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{organizationName}</TableCell>
-                        <TableCell>{deviceName}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(event.createdAt)}
-                        </TableCell>
-                        <TableCell>
-                          {details.length === 0 ? (
-                            <span className="text-sm text-muted-foreground">
-                              —
-                            </span>
-                          ) : (
-                            <div className="flex flex-col gap-0.5 text-xs">
-                              {details.map(([key, value]) => (
-                                <div key={key} className="flex gap-1.5">
-                                  <span className="text-muted-foreground">
-                                    {humanizeDetailKey(key)}:
-                                  </span>
-                                  <span className="font-medium break-all">
-                                    {formatDetailValue(key, value, lookups)}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          <DataTable
+            columns={columns}
+            data={pageQuery.data?.items}
+            isLoading={pageQuery.isLoading}
+            isFetching={pageQuery.isFetching}
+            getRowId={(row) => row.id}
+            server={{
+              rowCount: total,
+              sorting,
+              onSortingChange: (updater) => {
+                setSorting(updater)
+                resetToFirstPage()
+              },
+              columnFilters,
+              onColumnFiltersChange: (updater) => {
+                setColumnFilters(updater)
+                resetToFirstPage()
+              },
+              pagination,
+              onPaginationChange: setPagination,
+            }}
+            search={search}
+            onSearchChange={(value) => {
+              setSearch(value)
+              resetToFirstPage()
+            }}
+            searchPlaceholder="Search events"
+            toolbarLeading={
+              <SelectField
+                value={range}
+                onValueChange={(value) => {
+                  setRange(value)
+                  resetToFirstPage()
+                }}
+                size="sm"
+                className="h-9 w-40"
+                aria-label="Time range"
+                options={timeRanges.map((entry) => ({
+                  value: entry.value,
+                  label: entry.label,
+                }))}
+              />
+            }
+            facets={[
+              {
+                columnId: "eventType",
+                title: "Event type",
+                options: eventTypeOptions,
+              },
+              {
+                columnId: "organizationId",
+                title: "Organization",
+                options: organizations.map((organization) => ({
+                  value: organization.id,
+                  label: organization.name,
+                })),
+              },
+              {
+                columnId: "deviceId",
+                title: "Device",
+                options: devices.map((device) => ({
+                  value: device.id,
+                  label: device.displayName,
+                })),
+              },
+            ]}
+            pageSizeOptions={[25, 50, 100, 200]}
+            emptyTitle="No events yet"
+            emptyDescription="Operational changes will show up here as they happen."
+          />
         </CardContent>
       </Card>
     </div>

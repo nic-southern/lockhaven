@@ -4,7 +4,6 @@
 import * as React from "react"
 import { toast } from "sonner"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -13,43 +12,57 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Switch } from "@/components/ui/switch"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
-import { EmptyState } from "@/components/dashboard/empty-state"
-import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  DataTableRowActions,
+} from "@/components/dashboard/data-table"
+import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
+import { SelectField } from "@/components/dashboard/select-field"
+import { StatusIndicator } from "@/components/dashboard/status-indicator"
+import { formatRelativeTime } from "@/lib/dashboard"
 import { downloadTextFile } from "@/lib/wireguard"
 import { trpc } from "@/lib/trpc"
+import type { ColumnDef } from "@tanstack/react-table"
+
+type ProfileStatus = "Online" | "Ready" | "Revoked"
 
 function profileStatus(profile: {
   revokedAt: Date | string | null
   serverPeerEnabled: boolean
   lastHandshakeAt: Date | string | null
-}) {
+}): ProfileStatus {
   if (profile.revokedAt || !profile.serverPeerEnabled) {
-    return { label: "Revoked", tone: "secondary" as const }
+    return "Revoked"
   }
 
   if (profile.lastHandshakeAt) {
     const ageMs = Date.now() - new Date(profile.lastHandshakeAt).getTime()
     if (ageMs < 3 * 60 * 1000) {
-      return { label: "Online", tone: "default" as const }
+      return "Online"
     }
   }
 
-  return { label: "Ready", tone: "outline" as const }
+  return "Ready"
+}
+
+type ProfileRow = {
+  id: string
+  label: string
+  organizationName: string
+  userName: string
+  userEmail: string
+  vpnIpv4: string
+  status: ProfileStatus
+  lastHandshakeAt: Date | string | null
+  revokedAt: Date | string | null
+  allowSameUserAccess: boolean
+  isOwnProfile: boolean
 }
 
 export default function AdminVpnPage() {
@@ -144,6 +157,173 @@ export default function AdminVpnPage() {
       !profile.revokedAt
   )
 
+  const rows = React.useMemo<ProfileRow[]>(
+    () =>
+      profiles.map((profile) => ({
+        id: profile.id,
+        label: profile.label || "—",
+        organizationName: profile.organizationName,
+        userName: profile.userName || profile.userEmail,
+        userEmail: profile.userEmail,
+        vpnIpv4: profile.vpnIpv4,
+        status: profileStatus(profile),
+        lastHandshakeAt: profile.lastHandshakeAt,
+        revokedAt: profile.revokedAt,
+        allowSameUserAccess: profile.allowSameUserAccess,
+        isOwnProfile: profile.isOwnProfile,
+      })),
+    [profiles]
+  )
+
+  const updatePending = updateProfile.isPending
+  const columns = React.useMemo<ColumnDef<ProfileRow>[]>(
+    () => [
+      {
+        accessorKey: "label",
+        meta: { label: "Device" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Device" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium">{row.original.label}</span>
+        ),
+      },
+      {
+        accessorKey: "organizationName",
+        meta: { label: "Organization" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Organization" />
+        ),
+      },
+      {
+        accessorKey: "userName",
+        meta: { label: "User" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="User" />
+        ),
+        cell: ({ row }) => (
+          <div className="flex flex-col">
+            <span>{row.original.userName}</span>
+            <span className="text-xs text-muted-foreground">
+              {row.original.userEmail}
+            </span>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "vpnIpv4",
+        meta: { label: "Address" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Address" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-sm">{row.original.vpnIpv4}</span>
+        ),
+      },
+      {
+        accessorKey: "status",
+        meta: { label: "Status" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => (
+          <StatusIndicator
+            tone={
+              row.original.status === "Online"
+                ? "online"
+                : row.original.status === "Revoked"
+                  ? "danger"
+                  : "neutral"
+            }
+            pulse={row.original.status === "Online"}
+            label={row.original.status}
+          />
+        ),
+      },
+      {
+        accessorKey: "lastHandshakeAt",
+        meta: { label: "Last handshake" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Last handshake" />
+        ),
+        sortingFn: (a, b) => {
+          const left = a.original.lastHandshakeAt
+            ? new Date(a.original.lastHandshakeAt).getTime()
+            : 0
+          const right = b.original.lastHandshakeAt
+            ? new Date(b.original.lastHandshakeAt).getTime()
+            : 0
+          return left - right
+        },
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">
+            {formatRelativeTime(row.original.lastHandshakeAt)}
+          </span>
+        ),
+      },
+      {
+        id: "sameUser",
+        accessorFn: (row) => (row.allowSameUserAccess ? "Enabled" : "Disabled"),
+        enableSorting: false,
+        meta: { label: "Same-user access" },
+        header: "Same-user access",
+        cell: ({ row }) =>
+          row.original.revokedAt ? (
+            <span className="text-sm text-muted-foreground">—</span>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`same-user-${row.original.id}`}
+                checked={row.original.allowSameUserAccess}
+                disabled={updatePending}
+                aria-label="Allow my other devices"
+                onCheckedChange={(checked) => {
+                  updateProfile.mutate({
+                    id: row.original.id,
+                    allowSameUserAccess: checked === true,
+                  })
+                }}
+              />
+              <span className="text-xs text-muted-foreground">
+                {row.original.allowSameUserAccess ? "Allowed" : "Off"}
+              </span>
+            </div>
+          ),
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        enableHiding: false,
+        meta: { className: "w-12" },
+        cell: ({ row }) => (
+          <DataTableRowActions
+            label={row.original.label}
+            actions={[
+              {
+                label: row.original.revokedAt ? "Restore" : "Reissue",
+                onSelect: () => setReissueId(row.original.id),
+              },
+              row.original.revokedAt
+                ? {
+                    label: "Delete profile",
+                    destructive: true,
+                    separatorBefore: true,
+                    onSelect: () => setDeleteId(row.original.id),
+                  }
+                : {
+                    label: "Revoke profile",
+                    destructive: true,
+                    separatorBefore: true,
+                    onSelect: () => setRevokeId(row.original.id),
+                  },
+            ]}
+          />
+        ),
+      },
+    ],
+    [updatePending, updateProfile]
+  )
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -162,18 +342,16 @@ export default function AdminVpnPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <FormField label="Organization" htmlFor="admin-vpn-org">
-              <NativeSelect
+              <SelectField
                 id="admin-vpn-org"
                 value={organizationId}
-                onChange={(event) => setOrganizationId(event.target.value)}
+                onValueChange={setOrganizationId}
                 disabled={organizationsQuery.isLoading}
-              >
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </NativeSelect>
+                options={organizations.map((organization) => ({
+                  value: organization.id,
+                  label: organization.name,
+                }))}
+              />
             </FormField>
             <FormField
               label="Device name"
@@ -214,112 +392,35 @@ export default function AdminVpnPage() {
           title="Profiles"
           description="Import each downloaded file on its machine, then connect. Turn on same-user access when you want your other machines to reach that profile."
         >
-          {profilesQuery.isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : profiles.length === 0 ? (
-            <EmptyState
-              title="No admin VPN profiles yet"
-              description="Create a profile for each machine you connect from to download its WireGuard config."
-            />
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Device</TableHead>
-                  <TableHead>Organization</TableHead>
-                  <TableHead>User</TableHead>
-                  <TableHead>Address</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Same-user access</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {profiles.map((profile) => {
-                  const status = profileStatus(profile)
-                  return (
-                    <TableRow key={profile.id}>
-                      <TableCell className="font-medium">
-                        {profile.label || "—"}
-                      </TableCell>
-                      <TableCell>{profile.organizationName}</TableCell>
-                      <TableCell>
-                        <div>{profile.userName || profile.userEmail}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {profile.userEmail}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">
-                        {profile.vpnIpv4}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={status.tone}>{status.label}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {profile.revokedAt ? (
-                          <span className="text-sm text-muted-foreground">
-                            —
-                          </span>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <Checkbox
-                              id={`same-user-${profile.id}`}
-                              checked={profile.allowSameUserAccess}
-                              disabled={updateProfile.isPending}
-                              onCheckedChange={(checked) => {
-                                updateProfile.mutate({
-                                  id: profile.id,
-                                  allowSameUserAccess: checked === true,
-                                })
-                              }}
-                            />
-                            <Label
-                              htmlFor={`same-user-${profile.id}`}
-                              className="text-sm font-normal"
-                            >
-                              Allow my other devices
-                            </Label>
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="space-x-2 text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={reissueProfile.isPending}
-                          onClick={() => setReissueId(profile.id)}
-                        >
-                          {profile.revokedAt ? "Restore" : "Reissue"}
-                        </Button>
-                        {profile.revokedAt ? (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={deleteProfile.isPending}
-                            onClick={() => setDeleteId(profile.id)}
-                          >
-                            Delete
-                          </Button>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={revokeProfile.isPending}
-                            onClick={() => setRevokeId(profile.id)}
-                          >
-                            Revoke
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          )}
+          <DataTable
+            columns={columns}
+            data={rows}
+            isLoading={profilesQuery.isLoading}
+            getRowId={(row) => row.id}
+            searchPlaceholder="Search profiles"
+            facets={[
+              {
+                columnId: "status",
+                title: "Status",
+                options: [
+                  { value: "Online", label: "Online" },
+                  { value: "Ready", label: "Ready" },
+                  { value: "Revoked", label: "Revoked" },
+                ],
+              },
+              {
+                columnId: "organizationName",
+                title: "Organization",
+                options: organizations.map((organization) => ({
+                  value: organization.name,
+                  label: organization.name,
+                })),
+              },
+            ]}
+            initialSorting={[{ id: "status", desc: false }]}
+            emptyTitle="No admin VPN profiles yet"
+            emptyDescription="Create a profile for each machine you connect from to download its config."
+          />
         </SectionCard>
       </div>
 

@@ -16,27 +16,33 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+  DataTable,
+  DataTableColumnHeader,
+  DataTableRowActions,
+} from "@/components/dashboard/data-table"
 import { DetailSheet } from "@/components/dashboard/detail-sheet"
-import { EmptyState } from "@/components/dashboard/empty-state"
-import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
+import { SelectField } from "@/components/dashboard/select-field"
 import { statusLabel } from "@/lib/dashboard"
-import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
+import type { ColumnDef } from "@tanstack/react-table"
 
 const organizationRoles = ["owner", "admin", "operator", "viewer"] as const
 const siteRoles = ["operator", "viewer"] as const
 const membershipStatuses = ["active", "suspended"] as const
+
+type MemberRow = {
+  id: string
+  name: string
+  email: string
+  role: string
+  status: string
+  siteGrants: string
+  siteGrantCount: number
+}
 
 export default function UsersPage() {
   const utils = trpc.useUtils()
@@ -156,6 +162,110 @@ export default function UsersPage() {
     setGrantSiteId(organizationSites[0]?.id ?? "")
   }, [organizationSites])
 
+  const rows = React.useMemo<MemberRow[]>(
+    () =>
+      members.map((member) => ({
+        id: member.id,
+        name: member.name,
+        email: member.email,
+        role: member.membership.role,
+        status: member.membership.status,
+        siteGrants:
+          member.siteMemberships.length > 0
+            ? member.siteMemberships
+                .map((site) => `${site.siteName} (${statusLabel(site.role)})`)
+                .join(", ")
+            : "—",
+        siteGrantCount: member.siteMemberships.length,
+      })),
+    [members]
+  )
+
+  const openMember = React.useCallback((id: string) => {
+    setSelectedMemberId(id)
+    setMobileDetailOpen(true)
+  }, [])
+
+  const columns = React.useMemo<ColumnDef<MemberRow>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        meta: { label: "User" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="User" />
+        ),
+        cell: ({ row }) => (
+          <div className="flex flex-col gap-0.5">
+            <span className="font-medium">{row.original.name}</span>
+            <span className="text-xs text-muted-foreground">
+              {row.original.email}
+            </span>
+          </div>
+        ),
+      },
+      {
+        accessorKey: "email",
+        meta: { label: "Email" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Email" />
+        ),
+      },
+      {
+        accessorKey: "role",
+        meta: { label: "Org role" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Org role" />
+        ),
+        cell: ({ row }) => (
+          <Badge variant="outline">{statusLabel(row.original.role)}</Badge>
+        ),
+      },
+      {
+        accessorKey: "status",
+        meta: { label: "Status" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => (
+          <Badge
+            variant={row.original.status === "active" ? "secondary" : "outline"}
+          >
+            {statusLabel(row.original.status)}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "siteGrants",
+        enableSorting: false,
+        meta: { label: "Site grants" },
+        header: "Site grants",
+        cell: ({ row }) => (
+          <span className="line-clamp-1 max-w-xs text-sm text-muted-foreground">
+            {row.original.siteGrants}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        enableHiding: false,
+        meta: { className: "w-12" },
+        cell: ({ row }) => (
+          <DataTableRowActions
+            label={row.original.name}
+            actions={[
+              {
+                label: "Edit access",
+                onSelect: () => openMember(row.original.id),
+              },
+            ]}
+          />
+        ),
+      },
+    ],
+    [openMember]
+  )
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -171,35 +281,31 @@ export default function UsersPage() {
         contentClassName="grid gap-4 md:grid-cols-2"
       >
         <FormField label="Organization" htmlFor="user-create-organization">
-          <NativeSelect
+          <SelectField
             id="user-create-organization"
             value={selectedOrganizationId}
-            onChange={(event) => setSelectedOrganizationId(event.target.value)}
-          >
-            <option value="">Choose an organization</option>
-            {organizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>
-                {organization.name}
-              </option>
-            ))}
-          </NativeSelect>
+            onValueChange={setSelectedOrganizationId}
+            placeholder="Choose an organization"
+            options={organizations.map((organization) => ({
+              value: organization.id,
+              label: organization.name,
+            }))}
+          />
         </FormField>
         <FormField label="Organization role" htmlFor="user-create-org-role">
-          <NativeSelect
+          <SelectField
             id="user-create-org-role"
             value={createOrganizationRole}
-            onChange={(event) =>
+            onValueChange={(value) =>
               setCreateOrganizationRole(
-                event.target.value as (typeof organizationRoles)[number]
+                value as (typeof organizationRoles)[number]
               )
             }
-          >
-            {organizationRoles.map((role) => (
-              <option key={role} value={role}>
-                {statusLabel(role)}
-              </option>
-            ))}
-          </NativeSelect>
+            options={organizationRoles.map((role) => ({
+              value: role,
+              label: statusLabel(role),
+            }))}
+          />
         </FormField>
         <FormField label="Name" htmlFor="user-create-name">
           <Input
@@ -225,21 +331,17 @@ export default function UsersPage() {
           />
         </FormField>
         <FormField label="Initial site role" htmlFor="user-create-site-role">
-          <NativeSelect
+          <SelectField
             id="user-create-site-role"
             value={createSiteRole}
-            onChange={(event) =>
-              setCreateSiteRole(
-                event.target.value as (typeof siteRoles)[number]
-              )
+            onValueChange={(value) =>
+              setCreateSiteRole(value as (typeof siteRoles)[number])
             }
-          >
-            {siteRoles.map((role) => (
-              <option key={role} value={role}>
-                {statusLabel(role)}
-              </option>
-            ))}
-          </NativeSelect>
+            options={siteRoles.map((role) => ({
+              value: role,
+              label: statusLabel(role),
+            }))}
+          />
         </FormField>
         <div className="flex flex-col gap-3 md:col-span-2">
           <p className="text-sm font-medium">Initial site grants</p>
@@ -309,89 +411,44 @@ export default function UsersPage() {
           <CardHeader>
             <CardTitle>Members</CardTitle>
             <CardDescription>
-              Choose a member to update their role or site access.
+              Sort and filter members, then pick one to update their role or
+              site access.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>Org role</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Site grants</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {membersQuery.isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="py-10">
-                        <Skeleton className="h-5 w-40" />
-                      </TableCell>
-                    </TableRow>
-                  ) : members.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="p-0">
-                        <EmptyState
-                          title="No members yet"
-                          description="Create a user above to add the first member."
-                          bordered={false}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    members.map((member) => (
-                      <TableRow
-                        key={member.id}
-                        className={cn(
-                          "cursor-pointer",
-                          selectedMemberId === member.id && "bg-muted/60"
-                        )}
-                        onClick={() => {
-                          setSelectedMemberId(member.id)
-                          setMobileDetailOpen(true)
-                        }}
-                      >
-                        <TableCell className="font-medium">
-                          <div className="flex flex-col gap-1">
-                            <span>{member.name}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {member.email}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {statusLabel(member.membership.role)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              member.membership.status === "active"
-                                ? "secondary"
-                                : "outline"
-                            }
-                          >
-                            {statusLabel(member.membership.status)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {member.siteMemberships.length > 0
-                            ? member.siteMemberships
-                                .map(
-                                  (site) => `${site.siteName} (${site.role})`
-                                )
-                                .join(", ")
-                            : "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+            <DataTable
+              columns={columns}
+              data={rows}
+              isLoading={
+                membersQuery.isLoading && Boolean(selectedOrganizationId)
+              }
+              getRowId={(row) => row.id}
+              searchPlaceholder="Search members"
+              facets={[
+                {
+                  columnId: "role",
+                  title: "Org role",
+                  options: organizationRoles.map((role) => ({
+                    value: role,
+                    label: statusLabel(role),
+                  })),
+                },
+                {
+                  columnId: "status",
+                  title: "Status",
+                  options: membershipStatuses.map((status) => ({
+                    value: status,
+                    label: statusLabel(status),
+                  })),
+                },
+              ]}
+              initialSorting={[{ id: "name", desc: false }]}
+              initialColumnVisibility={{ email: false }}
+              onRowClick={(row) => openMember(row.id)}
+              isRowActive={(row) => row.id === selectedMemberId}
+              emptyTitle="No members yet"
+              emptyDescription="Create a user above to add the first member."
+            />
           </CardContent>
         </Card>
 
@@ -412,42 +469,36 @@ export default function UsersPage() {
                 label="Organization role"
                 htmlFor={`member-org-role-${selectedMember.id}`}
               >
-                <NativeSelect
+                <SelectField
                   id={`member-org-role-${selectedMember.id}`}
                   value={editOrganizationRole}
-                  onChange={(event) =>
+                  onValueChange={(value) =>
                     setEditOrganizationRole(
-                      event.target.value as (typeof organizationRoles)[number]
+                      value as (typeof organizationRoles)[number]
                     )
                   }
-                >
-                  {organizationRoles.map((role) => (
-                    <option key={role} value={role}>
-                      {statusLabel(role)}
-                    </option>
-                  ))}
-                </NativeSelect>
+                  options={organizationRoles.map((role) => ({
+                    value: role,
+                    label: statusLabel(role),
+                  }))}
+                />
               </FormField>
 
               <FormField
                 label="Status"
                 htmlFor={`member-status-${selectedMember.id}`}
               >
-                <NativeSelect
+                <SelectField
                   id={`member-status-${selectedMember.id}`}
                   value={editStatus}
-                  onChange={(event) =>
-                    setEditStatus(
-                      event.target.value as (typeof membershipStatuses)[number]
-                    )
+                  onValueChange={(value) =>
+                    setEditStatus(value as (typeof membershipStatuses)[number])
                   }
-                >
-                  {membershipStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {statusLabel(status)}
-                    </option>
-                  ))}
-                </NativeSelect>
+                  options={membershipStatuses.map((status) => ({
+                    value: status,
+                    label: statusLabel(status),
+                  }))}
+                />
               </FormField>
 
               <Button
@@ -472,38 +523,32 @@ export default function UsersPage() {
                     label="Site"
                     htmlFor={`member-site-${selectedMember.id}`}
                   >
-                    <NativeSelect
+                    <SelectField
                       id={`member-site-${selectedMember.id}`}
                       value={grantSiteId}
-                      onChange={(event) => setGrantSiteId(event.target.value)}
-                    >
-                      <option value="">Choose a site</option>
-                      {organizationSites.map((site) => (
-                        <option key={site.id} value={site.id}>
-                          {site.name}
-                        </option>
-                      ))}
-                    </NativeSelect>
+                      onValueChange={setGrantSiteId}
+                      placeholder="Choose a site"
+                      options={organizationSites.map((site) => ({
+                        value: site.id,
+                        label: site.name,
+                      }))}
+                    />
                   </FormField>
                   <FormField
                     label="Role"
                     htmlFor={`member-site-role-${selectedMember.id}`}
                   >
-                    <NativeSelect
+                    <SelectField
                       id={`member-site-role-${selectedMember.id}`}
                       value={grantSiteRole}
-                      onChange={(event) =>
-                        setGrantSiteRole(
-                          event.target.value as (typeof siteRoles)[number]
-                        )
+                      onValueChange={(value) =>
+                        setGrantSiteRole(value as (typeof siteRoles)[number])
                       }
-                    >
-                      {siteRoles.map((role) => (
-                        <option key={role} value={role}>
-                          {statusLabel(role)}
-                        </option>
-                      ))}
-                    </NativeSelect>
+                      options={siteRoles.map((role) => ({
+                        value: role,
+                        label: statusLabel(role),
+                      }))}
+                    />
                   </FormField>
                   <Button
                     variant="outline"

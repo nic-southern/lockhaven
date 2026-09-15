@@ -16,25 +16,46 @@ import {
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { CodeBlock } from "@/components/dashboard/code-block"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  DataTableRowActions,
+} from "@/components/dashboard/data-table"
 import { DetailSheet } from "@/components/dashboard/detail-sheet"
-import { EmptyState } from "@/components/dashboard/empty-state"
-import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
-import { formatDate, statusLabel } from "@/lib/dashboard"
-import { cn } from "@/lib/utils"
+import { SelectField } from "@/components/dashboard/select-field"
+import { formatDate, formatRelativeTime, statusLabel } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
+import type { ColumnDef } from "@tanstack/react-table"
+
+type TokenStatus = "active" | "expired" | "exhausted"
+
+type TokenRow = {
+  id: string
+  organizationName: string
+  siteName: string
+  scope: "Shared site" | "Shared imaging" | "Standard"
+  routePolicyName: string
+  status: TokenStatus
+  uses: string
+  expiresAt: Date | string | null
+  createdAt: Date | string
+}
+
+function tokenStatusFor(token: {
+  expiresAt: Date | string | null
+  siteWide: boolean
+  uses: number
+  maxUses: number
+}): TokenStatus {
+  if (isEnrollmentTokenExpired(token.expiresAt)) return "expired"
+  if (!token.siteWide && token.uses >= token.maxUses) return "exhausted"
+  return "active"
+}
 
 function toDatetimeLocal(value: string | Date | null | undefined) {
   if (!value) {
@@ -196,13 +217,164 @@ export default function EnrollmentTokensPage() {
     [editOrganizationId, sites]
   )
 
-  const selectedTokenStatus = selectedToken
-    ? isEnrollmentTokenExpired(selectedToken.expiresAt)
-      ? "expired"
-      : !selectedToken.siteWide && selectedToken.uses >= selectedToken.maxUses
-        ? "exhausted"
-        : "active"
+  const selectedTokenStatus: TokenStatus = selectedToken
+    ? tokenStatusFor(selectedToken)
     : "active"
+
+  const rows = React.useMemo<TokenRow[]>(
+    () =>
+      tokens.map((token) => ({
+        id: token.id,
+        organizationName: token.organizationName ?? "—",
+        siteName: token.siteName ?? "Imaging",
+        scope: token.siteWide
+          ? token.siteId
+            ? "Shared site"
+            : "Shared imaging"
+          : "Standard",
+        routePolicyName: token.routePolicyName ?? "—",
+        status: tokenStatusFor(token),
+        uses: token.siteWide ? "Unlimited" : `${token.uses} / ${token.maxUses}`,
+        expiresAt: token.expiresAt,
+        createdAt: token.createdAt,
+      })),
+    [tokens]
+  )
+
+  const openToken = React.useCallback((id: string) => {
+    setSelectedTokenId(id)
+    setMobileDetailOpen(true)
+  }, [])
+
+  const columns = React.useMemo<ColumnDef<TokenRow>[]>(
+    () => [
+      {
+        accessorKey: "organizationName",
+        meta: { label: "Organization" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Organization" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium">{row.original.organizationName}</span>
+        ),
+      },
+      {
+        accessorKey: "siteName",
+        meta: { label: "Site" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Site" />
+        ),
+      },
+      {
+        accessorKey: "scope",
+        meta: { label: "Scope" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Scope" />
+        ),
+        cell: ({ row }) => (
+          <Badge
+            variant={
+              row.original.scope === "Standard" ? "outline" : "secondary"
+            }
+          >
+            {row.original.scope}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "routePolicyName",
+        meta: { label: "Policy" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Policy" />
+        ),
+      },
+      {
+        accessorKey: "uses",
+        enableSorting: false,
+        meta: { label: "Uses" },
+        header: "Uses",
+        cell: ({ row }) => (
+          <span className="tabular-nums">{row.original.uses}</span>
+        ),
+      },
+      {
+        accessorKey: "status",
+        meta: { label: "Status" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => (
+          <Badge variant={tokenStatusVariant[row.original.status] ?? "outline"}>
+            {statusLabel(row.original.status)}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "expiresAt",
+        meta: { label: "Expires" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Expires" />
+        ),
+        sortingFn: (a, b) => {
+          const left = a.original.expiresAt
+            ? new Date(a.original.expiresAt).getTime()
+            : Number.POSITIVE_INFINITY
+          const right = b.original.expiresAt
+            ? new Date(b.original.expiresAt).getTime()
+            : Number.POSITIVE_INFINITY
+          return left - right
+        },
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">
+            {row.original.expiresAt
+              ? formatRelativeTime(row.original.expiresAt)
+              : "Never"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "createdAt",
+        meta: { label: "Created" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Created" />
+        ),
+        sortingFn: (a, b) =>
+          new Date(a.original.createdAt).getTime() -
+          new Date(b.original.createdAt).getTime(),
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">
+            {formatDate(row.original.createdAt)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        enableHiding: false,
+        meta: { className: "w-12" },
+        cell: ({ row }) => (
+          <DataTableRowActions
+            actions={[
+              {
+                label: "Edit token",
+                onSelect: () => openToken(row.original.id),
+              },
+              {
+                label: "Revoke token",
+                destructive: true,
+                separatorBefore: true,
+                onSelect: () => {
+                  setSelectedTokenId(row.original.id)
+                  setRevokeOpen(true)
+                },
+              },
+            ]}
+          />
+        ),
+      },
+    ],
+    [openToken]
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -221,53 +393,47 @@ export default function EnrollmentTokensPage() {
           contentClassName="flex flex-col gap-4"
         >
           <FormField label="Organization" htmlFor="token-create-organization">
-            <NativeSelect
+            <SelectField
               id="token-create-organization"
               value={createOrganizationId}
-              onChange={(event) => {
-                setCreateOrganizationId(event.target.value)
+              onValueChange={(value) => {
+                setCreateOrganizationId(value)
                 setCreateSiteId("")
               }}
-            >
-              <option value="">Choose an organization</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              ))}
-            </NativeSelect>
+              placeholder="Choose an organization"
+              options={organizations.map((organization) => ({
+                value: organization.id,
+                label: organization.name,
+              }))}
+            />
           </FormField>
           <FormField
             label="Site"
             htmlFor="token-create-site"
             description="Optional. Use no site for mass imaging, then assign the location after install."
           >
-            <NativeSelect
+            <SelectField
               id="token-create-site"
               value={createSiteId}
-              onChange={(event) => setCreateSiteId(event.target.value)}
-            >
-              <option value="">No site (imaging)</option>
-              {createSites.map((site) => (
-                <option key={site.id} value={site.id}>
-                  {site.name}
-                </option>
-              ))}
-            </NativeSelect>
+              onValueChange={setCreateSiteId}
+              emptyLabel="No site (imaging)"
+              options={createSites.map((site) => ({
+                value: site.id,
+                label: site.name,
+              }))}
+            />
           </FormField>
           <FormField label="Route policy" htmlFor="token-create-policy">
-            <NativeSelect
+            <SelectField
               id="token-create-policy"
               value={createRoutePolicyId}
-              onChange={(event) => setCreateRoutePolicyId(event.target.value)}
-            >
-              <option value="">No policy</option>
-              {routePolicies.map((policy) => (
-                <option key={policy.id} value={policy.id}>
-                  {policy.name}
-                </option>
-              ))}
-            </NativeSelect>
+              onValueChange={setCreateRoutePolicyId}
+              emptyLabel="No policy"
+              options={routePolicies.map((policy) => ({
+                value: policy.id,
+                label: policy.name,
+              }))}
+            />
           </FormField>
           <div className="flex items-center gap-2">
             <Checkbox
@@ -359,92 +525,51 @@ export default function EnrollmentTokensPage() {
           <CardHeader>
             <CardTitle>Tokens</CardTitle>
             <CardDescription>
-              Pick a token to edit or revoke it.
+              Sort and filter tokens, then pick one to edit or revoke it.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Org</TableHead>
-                    <TableHead>Site</TableHead>
-                    <TableHead>Scope</TableHead>
-                    <TableHead>Policy</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tokensQuery.isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="py-10">
-                        <Skeleton className="h-5 w-40" />
-                      </TableCell>
-                    </TableRow>
-                  ) : tokens.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="p-0">
-                        <EmptyState
-                          title="No tokens yet"
-                          description="Create a token to enroll the first device."
-                          bordered={false}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    tokens.map((token) => {
-                      const tokenStatus = isEnrollmentTokenExpired(
-                        token.expiresAt
-                      )
-                        ? "expired"
-                        : !token.siteWide && token.uses >= token.maxUses
-                          ? "exhausted"
-                          : "active"
-
-                      return (
-                        <TableRow
-                          key={token.id}
-                          className={cn(
-                            "cursor-pointer",
-                            selectedTokenId === token.id && "bg-muted/60"
-                          )}
-                          onClick={() => {
-                            setSelectedTokenId(token.id)
-                            setMobileDetailOpen(true)
-                          }}
-                        >
-                          <TableCell className="font-medium">
-                            {token.organizationName ?? "—"}
-                          </TableCell>
-                          <TableCell>{token.siteName ?? "Imaging"}</TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={token.siteWide ? "secondary" : "outline"}
-                            >
-                              {token.siteWide
-                                ? token.siteId
-                                  ? "Shared site"
-                                  : "Shared imaging"
-                                : "Standard"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{token.routePolicyName ?? "—"}</TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                tokenStatusVariant[tokenStatus] ?? "outline"
-                              }
-                            >
-                              {statusLabel(tokenStatus)}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+            <DataTable
+              columns={columns}
+              data={rows}
+              isLoading={tokensQuery.isLoading}
+              getRowId={(row) => row.id}
+              searchPlaceholder="Search tokens"
+              facets={[
+                {
+                  columnId: "status",
+                  title: "Status",
+                  options: [
+                    { value: "active", label: "Active" },
+                    { value: "expired", label: "Expired" },
+                    { value: "exhausted", label: "Exhausted" },
+                  ],
+                },
+                {
+                  columnId: "scope",
+                  title: "Scope",
+                  options: [
+                    { value: "Shared site", label: "Shared site" },
+                    { value: "Shared imaging", label: "Shared imaging" },
+                    { value: "Standard", label: "Standard" },
+                  ],
+                },
+                {
+                  columnId: "organizationName",
+                  title: "Organization",
+                  options: organizations.map((organization) => ({
+                    value: organization.name,
+                    label: organization.name,
+                  })),
+                },
+              ]}
+              initialSorting={[{ id: "createdAt", desc: true }]}
+              initialColumnVisibility={{ createdAt: false }}
+              onRowClick={(row) => openToken(row.id)}
+              isRowActive={(row) => row.id === selectedTokenId}
+              emptyTitle="No tokens yet"
+              emptyDescription="Create a token to enroll the first device."
+            />
           </CardContent>
         </Card>
       </div>
@@ -459,52 +584,46 @@ export default function EnrollmentTokensPage() {
         >
           <div className="grid gap-4 md:grid-cols-2">
             <FormField label="Organization" htmlFor="token-edit-organization">
-              <NativeSelect
+              <SelectField
                 id="token-edit-organization"
                 value={editOrganizationId}
-                onChange={(event) => {
-                  setEditOrganizationId(event.target.value)
+                onValueChange={(value) => {
+                  setEditOrganizationId(value)
                   setEditSiteId("")
                 }}
-              >
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
-              </NativeSelect>
+                options={organizations.map((organization) => ({
+                  value: organization.id,
+                  label: organization.name,
+                }))}
+              />
             </FormField>
             <FormField
               label="Site"
               htmlFor="token-edit-site"
               description="Optional. Leave empty for imaging tokens assigned later."
             >
-              <NativeSelect
+              <SelectField
                 id="token-edit-site"
                 value={editSiteId}
-                onChange={(event) => setEditSiteId(event.target.value)}
-              >
-                <option value="">No site (imaging)</option>
-                {editSites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name}
-                  </option>
-                ))}
-              </NativeSelect>
+                onValueChange={setEditSiteId}
+                emptyLabel="No site (imaging)"
+                options={editSites.map((site) => ({
+                  value: site.id,
+                  label: site.name,
+                }))}
+              />
             </FormField>
             <FormField label="Route policy" htmlFor="token-edit-policy">
-              <NativeSelect
+              <SelectField
                 id="token-edit-policy"
                 value={editRoutePolicyId}
-                onChange={(event) => setEditRoutePolicyId(event.target.value)}
-              >
-                <option value="">No policy</option>
-                {routePolicies.map((policy) => (
-                  <option key={policy.id} value={policy.id}>
-                    {policy.name}
-                  </option>
-                ))}
-              </NativeSelect>
+                onValueChange={setEditRoutePolicyId}
+                emptyLabel="No policy"
+                options={routePolicies.map((policy) => ({
+                  value: policy.id,
+                  label: policy.name,
+                }))}
+              />
             </FormField>
             <div className="flex items-center gap-2">
               <Checkbox

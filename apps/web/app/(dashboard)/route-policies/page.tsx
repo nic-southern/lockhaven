@@ -12,25 +12,32 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  DataTableRowActions,
+} from "@/components/dashboard/data-table"
 import { DetailSheet } from "@/components/dashboard/detail-sheet"
-import { EmptyState } from "@/components/dashboard/empty-state"
-import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
-import { cn } from "@/lib/utils"
+import { SelectField } from "@/components/dashboard/select-field"
 import { trpc } from "@/lib/trpc"
+import type { ColumnDef } from "@tanstack/react-table"
+
+type RoutePolicyRow = {
+  id: string
+  organizationId: string | null
+  organizationName: string
+  name: string
+  routes: string[]
+  routeCount: number
+  description: string | null
+}
 
 export default function RoutePoliciesPage() {
   const utils = trpc.useUtils()
@@ -121,6 +128,126 @@ export default function RoutePoliciesPage() {
     }
   }, [selectedPolicy])
 
+  const rows = React.useMemo<RoutePolicyRow[]>(
+    () =>
+      routePolicies.map((policy) => ({
+        id: policy.id,
+        organizationId: policy.organizationId,
+        organizationName:
+          organizations.find((entry) => entry.id === policy.organizationId)
+            ?.name ?? "Shared",
+        name: policy.name,
+        routes: policy.routes,
+        routeCount: policy.routes.length,
+        description: policy.description,
+      })),
+    [organizations, routePolicies]
+  )
+
+  const openPolicy = React.useCallback((id: string) => {
+    setSelectedPolicyId(id)
+    setMobileDetailOpen(true)
+  }, [])
+
+  const columns = React.useMemo<ColumnDef<RoutePolicyRow>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        meta: { label: "Name" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Name" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium">{row.original.name}</span>
+        ),
+      },
+      {
+        accessorKey: "organizationName",
+        meta: { label: "Organization" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Organization" />
+        ),
+      },
+      {
+        id: "routes",
+        accessorFn: (row) => row.routes.join(" "),
+        enableSorting: false,
+        meta: { label: "Routes" },
+        header: "Routes",
+        cell: ({ row }) => (
+          <div className="flex max-w-md flex-wrap gap-1">
+            {row.original.routes.slice(0, 4).map((route) => (
+              <Badge
+                key={route}
+                variant="outline"
+                className="font-mono text-[11px]"
+              >
+                {route}
+              </Badge>
+            ))}
+            {row.original.routes.length > 4 ? (
+              <Badge variant="secondary" className="text-[11px]">
+                +{row.original.routes.length - 4} more
+              </Badge>
+            ) : null}
+            {row.original.routes.length === 0 ? (
+              <span className="text-sm text-muted-foreground">—</span>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "routeCount",
+        meta: { label: "Count", align: "right" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Count" align="right" />
+        ),
+        cell: ({ row }) => (
+          <span className="tabular-nums">{row.original.routeCount}</span>
+        ),
+      },
+      {
+        accessorKey: "description",
+        meta: { label: "Description" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Description" />
+        ),
+        cell: ({ row }) => (
+          <span className="line-clamp-1 max-w-xs text-muted-foreground">
+            {row.original.description ?? "—"}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        enableHiding: false,
+        meta: { className: "w-12" },
+        cell: ({ row }) => (
+          <DataTableRowActions
+            label={row.original.name}
+            actions={[
+              {
+                label: "Edit policy",
+                onSelect: () => openPolicy(row.original.id),
+              },
+              {
+                label: "Remove policy",
+                destructive: true,
+                separatorBefore: true,
+                onSelect: () => {
+                  setSelectedPolicyId(row.original.id)
+                  setDeleteOpen(true)
+                },
+              },
+            ]}
+          />
+        ),
+      },
+    ],
+    [openPolicy]
+  )
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -138,18 +265,16 @@ export default function RoutePoliciesPage() {
           contentClassName="flex flex-col gap-4"
         >
           <FormField label="Organization" htmlFor="policy-create-organization">
-            <NativeSelect
+            <SelectField
               id="policy-create-organization"
               value={createOrganizationId}
-              onChange={(event) => setCreateOrganizationId(event.target.value)}
-            >
-              <option value="">Choose an organization</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              ))}
-            </NativeSelect>
+              onValueChange={setCreateOrganizationId}
+              placeholder="Choose an organization"
+              options={organizations.map((organization) => ({
+                value: organization.id,
+                label: organization.name,
+              }))}
+            />
           </FormField>
           <FormField label="Name" htmlFor="policy-create-name">
             <Input
@@ -204,62 +329,35 @@ export default function RoutePoliciesPage() {
           <CardHeader>
             <CardTitle>Policies</CardTitle>
             <CardDescription>
-              Choose a policy to edit or remove it.
+              Sort, filter, and pick a policy to edit or remove it.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Routes</TableHead>
-                    <TableHead>Description</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {routePoliciesQuery.isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="py-10">
-                        <Skeleton className="h-5 w-40" />
-                      </TableCell>
-                    </TableRow>
-                  ) : routePolicies.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="p-0">
-                        <EmptyState
-                          title="No route policies yet"
-                          description="Create a policy to control what a device can reach."
-                          bordered={false}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    routePolicies.map((policy) => (
-                      <TableRow
-                        key={policy.id}
-                        className={cn(
-                          "cursor-pointer",
-                          selectedPolicyId === policy.id && "bg-muted/60"
-                        )}
-                        onClick={() => {
-                          setSelectedPolicyId(policy.id)
-                          setMobileDetailOpen(true)
-                        }}
-                      >
-                        <TableCell className="font-medium">
-                          {policy.name}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs break-words">
-                          {policy.routes.join(", ")}
-                        </TableCell>
-                        <TableCell>{policy.description ?? "—"}</TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+            <DataTable
+              columns={columns}
+              data={rows}
+              isLoading={routePoliciesQuery.isLoading}
+              getRowId={(row) => row.id}
+              searchPlaceholder="Search policies or routes"
+              facets={[
+                {
+                  columnId: "organizationName",
+                  title: "Organization",
+                  options: [
+                    ...organizations.map((organization) => ({
+                      value: organization.name,
+                      label: organization.name,
+                    })),
+                    { value: "Shared", label: "Shared" },
+                  ],
+                },
+              ]}
+              initialSorting={[{ id: "name", desc: false }]}
+              onRowClick={(row) => openPolicy(row.id)}
+              isRowActive={(row) => row.id === selectedPolicyId}
+              emptyTitle="No route policies yet"
+              emptyDescription="Create a policy to control what a device can reach."
+            />
           </CardContent>
         </Card>
       </div>

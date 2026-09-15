@@ -1,7 +1,19 @@
 import { createHash, randomUUID } from "node:crypto"
 
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm"
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm"
 import { z } from "zod"
 
 import {
@@ -11,6 +23,14 @@ import {
   publicProcedure,
 } from "./trpc"
 import { actorOrganizationIds, actorSiteIds, assertAuthorized } from "./access"
+import {
+  buildOrderBy,
+  likePattern,
+  listQuerySchema,
+  paginate,
+  resolveListQuery,
+} from "./list"
+import { combineConditions, deviceScopeCondition } from "./scope"
 import { hashPassword } from "@nms/auth"
 import {
   adminVpnProfiles,
@@ -42,9 +62,12 @@ import {
   type EncryptedSecret,
 } from "@nms/remote-access"
 import {
+  deviceStatuses,
   enrollmentTokenCreateSchema,
   enrollmentTokenUpdateSchema,
   remoteSessionRequestSchema,
+  type DeviceStatus,
+  type ServiceType,
 } from "@nms/shared"
 import {
   allocateVpnIpv4,
@@ -698,6 +721,134 @@ const accessRouter = createTRPCRouter({
         })),
       }
     }),
+  organizationMembersPage: adminProcedure
+    .input(accessOrganizationMembersInput.extend({ query: listQuerySchema }))
+    .query(async ({ ctx, input }) => {
+      assertAuthorized(ctx.actor, "organization:admin", {
+        kind: "organization",
+        organizationId: input.organizationId,
+      })
+
+      const query = resolveListQuery(input.query, { defaultLimit: 25 })
+      const conditions = combineConditions([
+        eq(organizationMemberships.organizationId, input.organizationId),
+        query.filters.role
+          ? inArray(
+              organizationMemberships.role,
+              query.filters.role.filter((value) =>
+                (organizationRoleValues as readonly string[]).includes(value)
+              ) as (typeof organizationRoleValues)[number][]
+            )
+          : undefined,
+        query.filters.status
+          ? inArray(
+              organizationMemberships.status,
+              query.filters.status.filter((value) =>
+                (membershipStatusValues as readonly string[]).includes(value)
+              ) as (typeof membershipStatusValues)[number][]
+            )
+          : undefined,
+        query.search
+          ? or(
+              ilike(user.name, likePattern(query.search)),
+              ilike(user.email, likePattern(query.search))
+            )
+          : undefined,
+      ])
+      const where = and(...conditions)
+
+      const [[totalRow], rows] = await Promise.all([
+        ctx.db
+          .select({ total: count() })
+          .from(organizationMemberships)
+          .innerJoin(user, eq(user.id, organizationMemberships.userId))
+          .where(where),
+        ctx.db
+          .select({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            platformRole: user.role,
+            status: user.status,
+            createdAt: user.createdAt,
+            membershipId: organizationMemberships.id,
+            membershipRole: organizationMemberships.role,
+            membershipStatus: organizationMemberships.status,
+          })
+          .from(organizationMemberships)
+          .innerJoin(user, eq(user.id, organizationMemberships.userId))
+          .where(where)
+          .orderBy(
+            ...buildOrderBy(
+              query.sort,
+              {
+                name: user.name,
+                email: user.email,
+                role: organizationMemberships.role,
+                status: organizationMemberships.status,
+                createdAt: organizationMemberships.createdAt,
+              },
+              [desc(organizationMemberships.createdAt), desc(user.id)]
+            )
+          )
+          .limit(query.limit + 1)
+          .offset(query.offset),
+      ])
+
+      const userIds = rows.map((row) => row.id)
+      const siteRows =
+        userIds.length > 0
+          ? await ctx.db
+              .select({
+                userId: siteMemberships.userId,
+                siteId: siteMemberships.siteId,
+                siteName: sites.name,
+                role: siteMemberships.role,
+                status: siteMemberships.status,
+              })
+              .from(siteMemberships)
+              .innerJoin(sites, eq(sites.id, siteMemberships.siteId))
+              .where(
+                and(
+                  eq(sites.organizationId, input.organizationId),
+                  inArray(siteMemberships.userId, userIds)
+                )
+              )
+          : []
+
+      const siteMembershipsByUserId = new Map<string, typeof siteRows>()
+      for (const row of siteRows) {
+        const entries = siteMembershipsByUserId.get(row.userId) ?? []
+        entries.push(row)
+        siteMembershipsByUserId.set(row.userId, entries)
+      }
+
+      return paginate(
+        rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          platformRole: row.platformRole,
+          status: row.status,
+          createdAt: row.createdAt,
+          membership: {
+            id: row.membershipId,
+            role: row.membershipRole,
+            status: row.membershipStatus,
+          },
+          siteMemberships: (siteMembershipsByUserId.get(row.id) ?? []).map(
+            (entry) => ({
+              siteId: entry.siteId,
+              siteName: entry.siteName,
+              role: entry.role,
+              status: entry.status,
+            })
+          ),
+        })),
+        query,
+        Number(totalRow?.total ?? 0)
+      )
+    }),
   createUser: adminProcedure
     .input(accessCreateUserInput)
     .mutation(async ({ ctx, input }) => {
@@ -1317,6 +1468,139 @@ export const appRouter = createTRPCRouter({
         .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
         .orderBy(desc(devices.createdAt))
     }),
+    page: permissionProcedure("device:view")
+      .input(listQuerySchema.optional())
+      .query(async ({ ctx, input }) => {
+        const query = resolveListQuery(input, { defaultLimit: 50 })
+        const scope = deviceScopeCondition(ctx.actor)
+
+        if (scope.kind === "none") {
+          return paginate([], query, 0)
+        }
+
+        const statusFilter = query.filters.status?.filter((value) =>
+          (deviceStatuses as readonly string[]).includes(value)
+        ) as DeviceStatus[] | undefined
+
+        const conditions = combineConditions([
+          scope.kind === "where" ? scope.condition : undefined,
+          query.filters.organizationId
+            ? inArray(devices.organizationId, query.filters.organizationId)
+            : undefined,
+          query.filters.siteId
+            ? query.filters.siteId.includes("none")
+              ? or(
+                  isNull(devices.siteId),
+                  inArray(
+                    devices.siteId,
+                    query.filters.siteId.filter((value) => value !== "none")
+                  )
+                )
+              : inArray(devices.siteId, query.filters.siteId)
+            : undefined,
+          statusFilter && statusFilter.length > 0
+            ? inArray(devices.status, statusFilter)
+            : undefined,
+          query.filters.osFamily
+            ? inArray(devices.osFamily, query.filters.osFamily)
+            : undefined,
+          query.filters.routePolicyId
+            ? query.filters.routePolicyId.includes("none")
+              ? or(
+                  isNull(vpnIdentities.routePolicyId),
+                  inArray(
+                    vpnIdentities.routePolicyId,
+                    query.filters.routePolicyId.filter(
+                      (value) => value !== "none"
+                    )
+                  )
+                )
+              : inArray(
+                  vpnIdentities.routePolicyId,
+                  query.filters.routePolicyId
+                )
+            : undefined,
+          query.search
+            ? or(
+                ilike(devices.displayName, likePattern(query.search)),
+                ilike(devices.hostname, likePattern(query.search)),
+                ilike(devices.serialNumber, likePattern(query.search)),
+                ilike(sites.name, likePattern(query.search)),
+                ilike(
+                  sql`host(${vpnIdentities.vpnIpv4})`,
+                  likePattern(query.search)
+                )
+              )
+            : undefined,
+        ])
+        const where = conditions.length > 0 ? and(...conditions) : undefined
+
+        const base = () =>
+          ctx.db
+            .select({
+              id: devices.id,
+              organizationId: devices.organizationId,
+              siteId: devices.siteId,
+              siteName: sites.name,
+              hostname: devices.hostname,
+              displayName: devices.displayName,
+              osFamily: devices.osFamily,
+              osVersion: devices.osVersion,
+              architecture: devices.architecture,
+              serialNumber: devices.serialNumber,
+              status: devices.status,
+              lastSeenAt: devices.lastSeenAt,
+              createdAt: devices.createdAt,
+              vpnIpv4: vpnIdentities.vpnIpv4,
+              vpnRoutePolicyId: vpnIdentities.routePolicyId,
+              vpnRoutePolicyName: routePolicies.name,
+              vpnLastHandshakeAt: vpnIdentities.lastHandshakeAt,
+              vpnLatestEndpoint: vpnIdentities.latestEndpoint,
+              vpnRxBytes: vpnIdentities.rxBytes,
+              vpnTxBytes: vpnIdentities.txBytes,
+              vpnRevokedAt: vpnIdentities.revokedAt,
+            })
+            .from(devices)
+            .leftJoin(sites, eq(sites.id, devices.siteId))
+            .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+            .leftJoin(
+              routePolicies,
+              eq(routePolicies.id, vpnIdentities.routePolicyId)
+            )
+
+        const [[totalRow], rows] = await Promise.all([
+          ctx.db
+            .select({ total: count() })
+            .from(devices)
+            .leftJoin(sites, eq(sites.id, devices.siteId))
+            .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+            .where(where),
+          base()
+            .where(where)
+            .orderBy(
+              ...buildOrderBy(
+                query.sort,
+                {
+                  displayName: devices.displayName,
+                  hostname: devices.hostname,
+                  siteName: sites.name,
+                  osFamily: devices.osFamily,
+                  status: devices.status,
+                  lastSeenAt: devices.lastSeenAt,
+                  createdAt: devices.createdAt,
+                  vpnIpv4: vpnIdentities.vpnIpv4,
+                  vpnLastHandshakeAt: vpnIdentities.lastHandshakeAt,
+                  vpnRoutePolicyName: routePolicies.name,
+                },
+                [desc(devices.createdAt), desc(devices.id)]
+              )
+            )
+            .limit(query.limit + 1)
+            .offset(query.offset),
+        ])
+
+        return paginate(rows, query, Number(totalRow?.total ?? 0))
+      }),
     byId: permissionProcedure("device:view")
       .input(z.object({ id: z.string().uuid() }))
       .query(async ({ ctx, input }) => {
@@ -1687,6 +1971,123 @@ export const appRouter = createTRPCRouter({
           ...service,
           hasSavedPassword: Boolean(credential),
         }))
+      }),
+    page: permissionProcedure("device:view")
+      .input(listQuerySchema.optional())
+      .query(async ({ ctx, input }) => {
+        const query = resolveListQuery(input, { defaultLimit: 50 })
+        const scope = deviceScopeCondition(ctx.actor)
+
+        if (scope.kind === "none") {
+          return paginate([], query, 0)
+        }
+
+        const serviceTypeFilter = query.filters.serviceType?.filter((value) =>
+          (serviceTypes as readonly string[]).includes(value)
+        ) as ServiceType[] | undefined
+
+        const conditions = combineConditions([
+          scope.kind === "where" ? scope.condition : undefined,
+          query.filters.deviceId
+            ? inArray(managementServices.deviceId, query.filters.deviceId)
+            : undefined,
+          query.filters.siteId
+            ? inArray(devices.siteId, query.filters.siteId)
+            : undefined,
+          serviceTypeFilter && serviceTypeFilter.length > 0
+            ? inArray(managementServices.serviceType, serviceTypeFilter)
+            : undefined,
+          query.filters.enabled
+            ? inArray(
+                managementServices.enabled,
+                query.filters.enabled.map((value) => value === "true")
+              )
+            : undefined,
+          query.filters.healthStatus
+            ? inArray(
+                managementServices.healthStatus,
+                query.filters.healthStatus
+              )
+            : undefined,
+          query.search
+            ? or(
+                ilike(devices.displayName, likePattern(query.search)),
+                ilike(devices.hostname, likePattern(query.search)),
+                ilike(sites.name, likePattern(query.search))
+              )
+            : undefined,
+        ])
+        const where = conditions.length > 0 ? and(...conditions) : undefined
+
+        const [[totalRow], rows] = await Promise.all([
+          ctx.db
+            .select({ total: count() })
+            .from(managementServices)
+            .innerJoin(devices, eq(devices.id, managementServices.deviceId))
+            .leftJoin(sites, eq(sites.id, devices.siteId))
+            .where(where),
+          ctx.db
+            .select({
+              service: managementServices,
+              credentialId: managementServiceCredentials.id,
+              deviceName: devices.displayName,
+              deviceHostname: devices.hostname,
+              deviceStatus: devices.status,
+              organizationId: devices.organizationId,
+              siteId: devices.siteId,
+              siteName: sites.name,
+              vpnIpv4: vpnIdentities.vpnIpv4,
+            })
+            .from(managementServices)
+            .innerJoin(devices, eq(devices.id, managementServices.deviceId))
+            .leftJoin(sites, eq(sites.id, devices.siteId))
+            .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+            .leftJoin(
+              managementServiceCredentials,
+              eq(
+                managementServiceCredentials.managementServiceId,
+                managementServices.id
+              )
+            )
+            .where(where)
+            .orderBy(
+              ...buildOrderBy(
+                query.sort,
+                {
+                  deviceName: devices.displayName,
+                  siteName: sites.name,
+                  serviceType: managementServices.serviceType,
+                  port: managementServices.port,
+                  enabled: managementServices.enabled,
+                  healthStatus: managementServices.healthStatus,
+                  lastCheckedAt: managementServices.lastCheckedAt,
+                  createdAt: managementServices.createdAt,
+                },
+                [
+                  desc(managementServices.createdAt),
+                  desc(managementServices.id),
+                ]
+              )
+            )
+            .limit(query.limit + 1)
+            .offset(query.offset),
+        ])
+
+        return paginate(
+          rows.map((row) => ({
+            ...row.service,
+            hasSavedPassword: Boolean(row.credentialId),
+            deviceName: row.deviceName,
+            deviceHostname: row.deviceHostname,
+            deviceStatus: row.deviceStatus,
+            organizationId: row.organizationId,
+            siteId: row.siteId,
+            siteName: row.siteName,
+            vpnIpv4: row.vpnIpv4 ? normalizeVpnIpv4(String(row.vpnIpv4)) : null,
+          })),
+          query,
+          Number(totalRow?.total ?? 0)
+        )
       }),
     create: permissionProcedure("device:update")
       .input(managementServiceCreateInput)
@@ -2524,6 +2925,132 @@ export const appRouter = createTRPCRouter({
               .where(or(...filters))
               .orderBy(desc(auditEvents.createdAt))
       }),
+    page: permissionProcedure("audit:view")
+      .input(listQuerySchema.optional())
+      .query(async ({ ctx, input }) => {
+        const query = resolveListQuery(input, { defaultLimit: 50 })
+        const organizationIds = actorOrganizationIds(ctx.actor)
+        const siteIds = actorSiteIds(ctx.actor) ?? []
+
+        let scopeCondition: ReturnType<typeof or> | undefined
+        if (organizationIds !== null) {
+          const scopeFilters = []
+          if (organizationIds.length > 0) {
+            scopeFilters.push(
+              inArray(auditEvents.organizationId, organizationIds)
+            )
+          }
+          if (siteIds.length > 0) {
+            const accessibleDeviceIds = await ctx.db
+              .select({ id: devices.id })
+              .from(devices)
+              .where(inArray(devices.siteId, siteIds))
+            const deviceIds = accessibleDeviceIds.map((entry) => entry.id)
+            if (deviceIds.length > 0) {
+              scopeFilters.push(inArray(auditEvents.deviceId, deviceIds))
+            }
+          }
+          if (scopeFilters.length === 0) {
+            return paginate([], query, 0)
+          }
+          scopeCondition =
+            scopeFilters.length === 1 ? scopeFilters[0] : or(...scopeFilters)
+        }
+
+        const parseDate = (value: string[] | undefined) => {
+          if (!value?.[0]) return undefined
+          const date = new Date(value[0])
+          return Number.isNaN(date.getTime()) ? undefined : date
+        }
+        const from = parseDate(query.filters.from)
+        const to = parseDate(query.filters.to)
+
+        const conditions = combineConditions([
+          scopeCondition,
+          query.filters.eventType
+            ? inArray(auditEvents.eventType, query.filters.eventType)
+            : undefined,
+          query.filters.organizationId
+            ? inArray(auditEvents.organizationId, query.filters.organizationId)
+            : undefined,
+          query.filters.deviceId
+            ? inArray(auditEvents.deviceId, query.filters.deviceId)
+            : undefined,
+          query.filters.actorUserId
+            ? inArray(auditEvents.actorUserId, query.filters.actorUserId)
+            : undefined,
+          from ? gte(auditEvents.createdAt, from) : undefined,
+          to ? lte(auditEvents.createdAt, to) : undefined,
+          query.search
+            ? or(
+                ilike(auditEvents.eventType, likePattern(query.search)),
+                ilike(
+                  sql`${auditEvents.eventData}::text`,
+                  likePattern(query.search)
+                ),
+                ilike(user.name, likePattern(query.search)),
+                ilike(user.email, likePattern(query.search)),
+                ilike(devices.displayName, likePattern(query.search))
+              )
+            : undefined,
+        ])
+        const where = conditions.length > 0 ? and(...conditions) : undefined
+
+        const [[totalRow], rows] = await Promise.all([
+          ctx.db
+            .select({ total: count() })
+            .from(auditEvents)
+            .leftJoin(user, eq(user.id, auditEvents.actorUserId))
+            .leftJoin(devices, eq(devices.id, auditEvents.deviceId))
+            .where(where),
+          ctx.db
+            .select({
+              id: auditEvents.id,
+              actorUserId: auditEvents.actorUserId,
+              actorName: user.name,
+              actorEmail: user.email,
+              organizationId: auditEvents.organizationId,
+              organizationName: organizations.name,
+              deviceId: auditEvents.deviceId,
+              deviceName: devices.displayName,
+              eventType: auditEvents.eventType,
+              eventData: auditEvents.eventData,
+              createdAt: auditEvents.createdAt,
+            })
+            .from(auditEvents)
+            .leftJoin(user, eq(user.id, auditEvents.actorUserId))
+            .leftJoin(devices, eq(devices.id, auditEvents.deviceId))
+            .leftJoin(
+              organizations,
+              eq(organizations.id, auditEvents.organizationId)
+            )
+            .where(where)
+            .orderBy(
+              ...buildOrderBy(
+                query.sort,
+                {
+                  createdAt: auditEvents.createdAt,
+                  eventType: auditEvents.eventType,
+                  actorName: user.name,
+                  organizationName: organizations.name,
+                  deviceName: devices.displayName,
+                },
+                [desc(auditEvents.createdAt), desc(auditEvents.id)]
+              )
+            )
+            .limit(query.limit + 1)
+            .offset(query.offset),
+        ])
+
+        return paginate(rows, query, Number(totalRow?.total ?? 0))
+      }),
+    eventTypes: permissionProcedure("audit:view").query(async ({ ctx }) => {
+      const rows = await ctx.db
+        .selectDistinct({ eventType: auditEvents.eventType })
+        .from(auditEvents)
+        .orderBy(auditEvents.eventType)
+      return rows.map((row) => row.eventType)
+    }),
   }),
   sessions: createTRPCRouter({
     create: permissionProcedure("device:view")

@@ -13,26 +13,33 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { CodeBlock } from "@/components/dashboard/code-block"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  DataTableRowActions,
+} from "@/components/dashboard/data-table"
 import { DetailSheet } from "@/components/dashboard/detail-sheet"
 import { EmptyState } from "@/components/dashboard/empty-state"
-import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
+import { SelectField } from "@/components/dashboard/select-field"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
 import { trpc } from "@/lib/trpc"
+import type { ColumnDef } from "@tanstack/react-table"
+
+type SiteRow = {
+  id: string
+  organizationId: string
+  organizationName: string
+  name: string
+  timezone: string | null
+  deviceCount: number
+  hasSshCredential: boolean
+}
 
 export default function SitesPage() {
   const utils = trpc.useUtils()
@@ -139,6 +146,118 @@ export default function SitesPage() {
     }
   }, [selectedSite])
 
+  const rows = React.useMemo<SiteRow[]>(
+    () =>
+      sites.map((site) => ({
+        id: site.id,
+        organizationId: site.organizationId,
+        organizationName:
+          organizations.find((entry) => entry.id === site.organizationId)
+            ?.name ?? "—",
+        name: site.name,
+        timezone: site.timezone,
+        deviceCount: deviceCountBySite.get(site.id) ?? 0,
+        hasSshCredential: site.hasSshCredential,
+      })),
+    [deviceCountBySite, organizations, sites]
+  )
+
+  const openSite = React.useCallback((id: string) => {
+    setSelectedSiteId(id)
+    setMobileDetailOpen(true)
+  }, [])
+
+  const columns = React.useMemo<ColumnDef<SiteRow>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        meta: { label: "Name" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Name" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium">{row.original.name}</span>
+        ),
+      },
+      {
+        accessorKey: "organizationName",
+        meta: { label: "Organization" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Organization" />
+        ),
+      },
+      {
+        accessorKey: "deviceCount",
+        meta: { label: "Devices", align: "right" },
+        header: ({ column }) => (
+          <DataTableColumnHeader
+            column={column}
+            title="Devices"
+            align="right"
+          />
+        ),
+        cell: ({ row }) => (
+          <span className="tabular-nums">{row.original.deviceCount}</span>
+        ),
+      },
+      {
+        id: "ssh",
+        accessorFn: (row) => (row.hasSshCredential ? "Ready" : "None"),
+        meta: { label: "SSH" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="SSH" />
+        ),
+        cell: ({ row }) =>
+          row.original.hasSshCredential ? (
+            <Badge variant="secondary">Ready</Badge>
+          ) : (
+            <Badge variant="outline">None</Badge>
+          ),
+      },
+      {
+        accessorKey: "timezone",
+        meta: { label: "Timezone" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Timezone" />
+        ),
+        cell: ({ row }) => row.original.timezone ?? "—",
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        enableHiding: false,
+        meta: { className: "w-12" },
+        cell: ({ row }) => (
+          <DataTableRowActions
+            label={row.original.name}
+            actions={[
+              { label: "Edit site", onSelect: () => openSite(row.original.id) },
+              {
+                label: "Remove site",
+                destructive: true,
+                separatorBefore: true,
+                onSelect: () => {
+                  setSelectedSiteId(row.original.id)
+                  setDeleteOpen(true)
+                },
+              },
+            ]}
+          />
+        ),
+      },
+    ],
+    [openSite]
+  )
+
+  const organizationFacetOptions = React.useMemo(
+    () =>
+      organizations.map((organization) => ({
+        value: organization.name,
+        label: organization.name,
+      })),
+    [organizations]
+  )
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -156,18 +275,16 @@ export default function SitesPage() {
           contentClassName="flex flex-col gap-4"
         >
           <FormField label="Organization" htmlFor="site-create-organization">
-            <NativeSelect
+            <SelectField
               id="site-create-organization"
               value={createOrganizationId}
-              onChange={(event) => setCreateOrganizationId(event.target.value)}
-            >
-              <option value="">Choose an organization</option>
-              {organizations.map((organization) => (
-                <option key={organization.id} value={organization.id}>
-                  {organization.name}
-                </option>
-              ))}
-            </NativeSelect>
+              onValueChange={setCreateOrganizationId}
+              placeholder="Choose an organization"
+              options={organizations.map((organization) => ({
+                value: organization.id,
+                label: organization.name,
+              }))}
+            />
           </FormField>
           <FormField label="Name" htmlFor="site-create-name">
             <Input
@@ -211,76 +328,38 @@ export default function SitesPage() {
         <Card className="order-1 lg:order-2">
           <CardHeader>
             <CardTitle>Sites</CardTitle>
-            <CardDescription>Choose a site to edit it inline.</CardDescription>
+            <CardDescription>
+              Sort, filter, and pick a site to edit it.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Org</TableHead>
-                    <TableHead>Devices</TableHead>
-                    <TableHead>SSH</TableHead>
-                    <TableHead>Timezone</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sitesQuery.isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="py-10">
-                        <Skeleton className="h-5 w-40" />
-                      </TableCell>
-                    </TableRow>
-                  ) : sites.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="p-0">
-                        <EmptyState
-                          title="No sites yet"
-                          description="Create a site to start assigning devices to a location."
-                          bordered={false}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    sites.map((site) => {
-                      const organization = organizations.find(
-                        (entry) => entry.id === site.organizationId
-                      )
-                      const deviceCount = deviceCountBySite.get(site.id) ?? 0
-
-                      return (
-                        <TableRow
-                          key={site.id}
-                          className={cn(
-                            "cursor-pointer",
-                            selectedSiteId === site.id && "bg-muted/60"
-                          )}
-                          onClick={() => {
-                            setSelectedSiteId(site.id)
-                            setMobileDetailOpen(true)
-                          }}
-                        >
-                          <TableCell className="font-medium">
-                            {site.name}
-                          </TableCell>
-                          <TableCell>{organization?.name ?? "—"}</TableCell>
-                          <TableCell>{deviceCount}</TableCell>
-                          <TableCell>
-                            {site.hasSshCredential ? (
-                              <Badge variant="secondary">Ready</Badge>
-                            ) : (
-                              <Badge variant="outline">None</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell>{site.timezone ?? "—"}</TableCell>
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+            <DataTable
+              columns={columns}
+              data={rows}
+              isLoading={sitesQuery.isLoading}
+              getRowId={(row) => row.id}
+              searchPlaceholder="Search sites"
+              facets={[
+                {
+                  columnId: "organizationName",
+                  title: "Organization",
+                  options: organizationFacetOptions,
+                },
+                {
+                  columnId: "ssh",
+                  title: "SSH",
+                  options: [
+                    { value: "Ready", label: "Ready" },
+                    { value: "None", label: "None" },
+                  ],
+                },
+              ]}
+              initialSorting={[{ id: "name", desc: false }]}
+              onRowClick={(row) => openSite(row.id)}
+              isRowActive={(row) => row.id === selectedSiteId}
+              emptyTitle="No sites yet"
+              emptyDescription="Create a site to start assigning devices to a location."
+            />
           </CardContent>
         </Card>
       </div>
