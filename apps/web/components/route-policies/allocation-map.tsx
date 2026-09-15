@@ -76,10 +76,10 @@ export function AllocationMap({
                 return (
                   <li
                     key={site.siteId ?? "none"}
-                    className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col gap-2 px-3 py-2.5"
                   >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-sm font-medium">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 text-sm font-medium break-words">
                         {site.siteName ?? "No site"}
                       </span>
                       <span className="text-xs text-muted-foreground tabular-nums">

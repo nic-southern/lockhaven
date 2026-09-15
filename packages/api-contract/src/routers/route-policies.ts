@@ -353,10 +353,15 @@ export const routePoliciesRouter = createTRPCRouter({
       return { organizations: [] }
     }
 
+    // Revoked peers get no routes, so they don't count toward a policy.
+    const activePeer = or(
+      isNull(vpnIdentities.id),
+      isNull(vpnIdentities.revokedAt)
+    )
     const scope =
       organizationIds === null
-        ? undefined
-        : inArray(devices.organizationId, organizationIds)
+        ? activePeer
+        : and(inArray(devices.organizationId, organizationIds), activePeer)
 
     const [rows, siteRows, organizationRows] = await Promise.all([
       ctx.db
