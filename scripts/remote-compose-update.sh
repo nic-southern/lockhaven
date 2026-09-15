@@ -61,6 +61,15 @@ for _ in $(seq 1 60); do
 done
 compose exec -T redis redis-cli ping
 
+if ! grep -q '^WEB_DB_PASSWORD=' "$ENV_FILE"; then
+  echo "Adding restricted web database credentials..."
+  web_db_password="$(openssl rand -hex 16)"
+  {
+    echo "WEB_DB_PASSWORD=${web_db_password}"
+    echo "WEB_DATABASE_URL=postgresql://lockhaven_web:${web_db_password}@postgres:5432/nms_vpn"
+  } >> "$ENV_FILE"
+fi
+
 echo "Applying database migrations..."
 compose run --rm migrate
 

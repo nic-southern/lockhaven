@@ -83,6 +83,7 @@ else
   admin_password_generated=1
 fi
 postgres_password="${POSTGRES_PASSWORD:-$(openssl rand -hex 16)}"
+web_db_password="${WEB_DB_PASSWORD:-$(openssl rand -hex 16)}"
 guacamole_db_password="${GUACAMOLE_DB_PASSWORD:-$(openssl rand -hex 16)}"
 better_auth_secret="${BETTER_AUTH_SECRET:-$(openssl rand -hex 32)}"
 remote_credentials_key="${REMOTE_CREDENTIALS_KEY:-$(openssl rand -hex 32)}"
@@ -112,6 +113,8 @@ WIREGUARD_INTERFACE=wg0
 VPNCTL_PATH=/usr/local/sbin/vpnctl
 REMOTE_ACCESS_PROVIDER=guacamole
 POSTGRES_PASSWORD=${postgres_password}
+WEB_DB_PASSWORD=${web_db_password}
+WEB_DATABASE_URL=postgresql://lockhaven_web:${web_db_password}@postgres:5432/nms_vpn
 GUACAMOLE_DB_PASSWORD=${guacamole_db_password}
 BETTER_AUTH_SECRET=${better_auth_secret}
 REMOTE_CREDENTIALS_KEY=${remote_credentials_key}
