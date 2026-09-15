@@ -96,10 +96,10 @@ function ConnectionsContent() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList variant="line" className="w-full justify-start border-b">
-          <TabsTrigger value="sessions" className="px-3">
+          <TabsTrigger value="sessions" className="flex-none px-3">
             Session history
           </TabsTrigger>
-          <TabsTrigger value="services" className="px-3">
+          <TabsTrigger value="services" className="flex-none px-3">
             Published services
           </TabsTrigger>
         </TabsList>

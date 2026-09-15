@@ -35,6 +35,7 @@ export function useInvalidateDevice(deviceId: string) {
       utils.managementServices.list.invalidate(),
       utils.managementServices.page.invalidate(),
       utils.dashboard.summary.invalidate(),
+      utils.audit.page.invalidate(),
     ])
   }, [utils, deviceId])
 }
