@@ -55,39 +55,48 @@ export async function raiseAlert(input: RaiseAlertInput) {
     return { id: existing.id, created: false as const }
   }
 
-  const [created] = await db
-    .insert(alerts)
-    .values({
-      organizationId: input.organizationId ?? null,
-      siteId: input.siteId ?? null,
-      deviceId: input.deviceId ?? null,
-      kind: input.kind,
-      severity,
-      status: "open",
-      title,
-      detail,
-      dedupeKey: input.dedupeKey,
-      firstSeenAt: now,
-      lastSeenAt: now,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing()
-    .returning({ id: alerts.id })
+  const created = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(alerts)
+      .values({
+        organizationId: input.organizationId ?? null,
+        siteId: input.siteId ?? null,
+        deviceId: input.deviceId ?? null,
+        kind: input.kind,
+        severity,
+        status: "open",
+        title,
+        detail,
+        dedupeKey: input.dedupeKey,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning({ id: alerts.id })
+
+    if (!row) return null
+
+    await recordEvent(
+      {
+        eventType: "alert_raised",
+        organizationId: input.organizationId ?? null,
+        siteId: input.siteId ?? null,
+        deviceId: input.deviceId ?? null,
+        severity,
+        eventData: { alertId: row.id, kind: input.kind, title, ...detail },
+      },
+      tx
+    )
+
+    return row
+  })
 
   if (!created) {
     // Lost a race with another writer; treat as a repeat occurrence.
     return raiseAlert(input)
   }
-
-  await recordEvent({
-    eventType: "alert_raised",
-    organizationId: input.organizationId ?? null,
-    siteId: input.siteId ?? null,
-    deviceId: input.deviceId ?? null,
-    severity,
-    eventData: { alertId: created.id, kind: input.kind, title, ...detail },
-  })
 
   return { id: created.id, created: true as const }
 }

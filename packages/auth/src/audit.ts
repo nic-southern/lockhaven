@@ -1,5 +1,11 @@
 import { auditEvents } from "@nms/db"
 import { db } from "@nms/db/client"
+import { severityForEvent } from "@nms/shared"
+
+/** The `inet` column rejects anything that is not an address literal. */
+function isPlausibleIp(value: string) {
+  return /^[0-9a-fA-F:.]+$/.test(value) && value.length <= 45
+}
 
 export type AuthAuditEventType =
   | "admin_login"
@@ -48,15 +54,20 @@ export async function recordAuthEvent(input: {
   request?: AuthRequestContext
 }) {
   try {
+    const ipAddress = input.request?.ipAddress ?? null
+    const userAgent = input.request?.userAgent?.slice(0, 512) ?? null
     await db.insert(auditEvents).values({
       actorUserId: input.actorUserId ?? null,
       organizationId: null,
       deviceId: null,
       eventType: input.eventType,
+      severity: severityForEvent(input.eventType),
+      actorIp: ipAddress && isPlausibleIp(ipAddress) ? ipAddress : null,
+      userAgent,
       eventData: {
         ...(input.eventData ?? {}),
-        ipAddress: input.request?.ipAddress ?? null,
-        userAgent: input.request?.userAgent ?? null,
+        ipAddress,
+        userAgent,
       },
     })
   } catch (error) {

@@ -16,12 +16,18 @@ export type WorkerAuditInput = {
   eventData?: Record<string, unknown>
 }
 
+/** Accepts the shared client or a transaction handle. */
+export type AuditWriter = Pick<typeof db, "insert">
+
 /**
  * Worker-originated events have no signed-in actor; `actor_user_id` stays
  * null so the Activity log can render them as system events.
  */
-export async function recordEvent(input: WorkerAuditInput) {
-  await db.insert(auditEvents).values({
+export async function recordEvent(
+  input: WorkerAuditInput,
+  writer: AuditWriter = db
+) {
+  await writer.insert(auditEvents).values({
     actorUserId: input.actorUserId ?? null,
     organizationId: input.organizationId ?? null,
     siteId: input.siteId ?? null,

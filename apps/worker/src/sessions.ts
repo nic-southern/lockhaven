@@ -94,32 +94,40 @@ async function endSession(
     durationSeconds,
   }
 
-  await db
-    .update(remoteSessions)
-    .set({
-      status: args.status,
-      endedAt: args.endedAt,
-      auditMetadata: sql`${remoteSessions.auditMetadata} || ${JSON.stringify(metadataPatch)}::jsonb`,
-    })
-    .where(
-      and(eq(remoteSessions.id, session.id), isNull(remoteSessions.endedAt))
-    )
+  await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(remoteSessions)
+      .set({
+        status: args.status,
+        endedAt: args.endedAt,
+        auditMetadata: sql`${remoteSessions.auditMetadata} || ${JSON.stringify(metadataPatch)}::jsonb`,
+      })
+      .where(
+        and(eq(remoteSessions.id, session.id), isNull(remoteSessions.endedAt))
+      )
+      .returning({ id: remoteSessions.id })
 
-  await recordEvent({
-    eventType: "remote_session_ended",
-    actorUserId: session.adminUserId,
-    organizationId: session.organizationId,
-    siteId: session.siteId,
-    deviceId: session.deviceId,
-    eventData: {
-      remoteSessionId: session.id,
-      serviceId: session.managementServiceId,
-      serviceType: session.auditMetadata.serviceType ?? null,
-      connectionMethod: session.connectionMethod,
-      reason: args.reason,
-      observed: args.observed,
-      durationSeconds,
-    },
+    if (!updated) return
+
+    await recordEvent(
+      {
+        eventType: "remote_session_ended",
+        actorUserId: session.adminUserId,
+        organizationId: session.organizationId,
+        siteId: session.siteId,
+        deviceId: session.deviceId,
+        eventData: {
+          remoteSessionId: session.id,
+          serviceId: session.managementServiceId,
+          serviceType: session.auditMetadata.serviceType ?? null,
+          connectionMethod: session.connectionMethod,
+          reason: args.reason,
+          observed: args.observed,
+          durationSeconds,
+        },
+      },
+      tx
+    )
   })
 }
 
