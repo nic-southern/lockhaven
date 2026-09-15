@@ -28,9 +28,12 @@ function groupSecret(secret: string) {
 export function TotpEnrollment({
   onComplete,
   onCancel,
+  onStarted,
 }: {
   onComplete: () => void
   onCancel?: () => void
+  /** Fired once a secret has been issued, before verification. */
+  onStarted?: () => void
 }) {
   const productName = getClientProductName()
   const [stage, setStage] = React.useState<Stage>("password")
@@ -64,6 +67,7 @@ export function TotpEnrollment({
       setBackupCodes(result.data.backupCodes)
       setStage("scan")
       setPassword("")
+      onStarted?.()
     } finally {
       setPending(false)
     }

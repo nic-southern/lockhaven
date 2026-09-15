@@ -50,11 +50,14 @@ export default function SetupSecurityPage() {
     | undefined
 
   const [passwordDone, setPasswordDone] = React.useState(false)
+  // Verifying the code flips the session flag immediately; keep the step open
+  // until the user has acknowledged their backup codes.
+  const [totpStarted, setTotpStarted] = React.useState(false)
   const [totpDone, setTotpDone] = React.useState(false)
   const [passkeyCount, setPasskeyCount] = React.useState(0)
 
   const needsPassword = Boolean(user?.mustChangePassword) && !passwordDone
-  const needsTotp = !(user?.twoFactorEnabled || totpDone)
+  const needsTotp = !totpDone && (totpStarted || !user?.twoFactorEnabled)
 
   const steps: Array<{ id: StepId; label: string; required: boolean }> = [
     ...(user?.mustChangePassword
@@ -164,6 +167,7 @@ export default function SetupSecurityPage() {
               Connect an authenticator app
             </div>
             <TotpEnrollment
+              onStarted={() => setTotpStarted(true)}
               onComplete={() => {
                 setTotpDone(true)
                 void refetch()

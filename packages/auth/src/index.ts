@@ -24,6 +24,29 @@ export { hashPassword, verifyPassword } from "./password"
 export const SESSION_MAX_AGE_SECONDS = 12 * 60 * 60
 export const SESSION_REFRESH_AGE_SECONDS = 60 * 60
 
+/** Auth endpoints that can complete a sign-in and issue a session. */
+const LOGIN_COMPLETION_PATHS = new Set([
+  "/sign-in/email",
+  "/two-factor/verify-totp",
+  "/two-factor/verify-backup-code",
+  "/passkey/verify-authentication",
+])
+
+const LOGIN_METHOD_BY_PATH: Record<string, string> = {
+  "/sign-in/email": "password",
+  "/two-factor/verify-totp": "password+totp",
+  "/two-factor/verify-backup-code": "password+backup_code",
+  "/passkey/verify-authentication": "passkey",
+}
+
+type AuthHookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]
+
+/** True when the request carried the two-factor challenge cookie. */
+function hasTwoFactorChallenge(ctx: AuthHookContext) {
+  const cookie = ctx.context.createAuthCookie("two_factor")
+  return Boolean(ctx.getCookie(cookie.name))
+}
+
 function isLocalhostHost(hostname: string) {
   return (
     hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
@@ -169,28 +192,6 @@ export const auth = betterAuth({
       },
     },
   },
-  databaseHooks: {
-    session: {
-      create: {
-        after: async (session) => {
-          await db
-            .update(schema.user)
-            .set({ lastLoginAt: new Date(), updatedAt: new Date() })
-            .where(eq(schema.user.id, session.userId))
-
-          await recordAuthEvent({
-            eventType: "admin_login",
-            actorUserId: session.userId,
-            eventData: { sessionId: session.id },
-            request: {
-              ipAddress: session.ipAddress ?? null,
-              userAgent: session.userAgent ?? null,
-            },
-          })
-        },
-      },
-    },
-  },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path === "/sign-out") {
@@ -210,11 +211,12 @@ export const auth = betterAuth({
       const returned = ctx.context.returned
       const failed = returned instanceof APIError
 
-      if (ctx.path === "/sign-in/email" && failed) {
+      if (LOGIN_COMPLETION_PATHS.has(ctx.path) && failed) {
         await recordAuthEvent({
           eventType: "admin_login_failed",
           eventData: {
             email: bodyEmail(ctx.body),
+            method: LOGIN_METHOD_BY_PATH[ctx.path] ?? "password",
             reason: returned.body?.code ?? returned.status,
           },
           request,
@@ -224,6 +226,42 @@ export const auth = betterAuth({
 
       if (failed) {
         return
+      }
+
+      if (LOGIN_COMPLETION_PATHS.has(ctx.path)) {
+        const newSession = ctx.context.newSession
+        // For password sign-in, the two-factor plugin discards the session
+        // created here and issues a challenge cookie instead (its hook runs
+        // after ours), so the login is only complete for users without 2FA.
+        // For the TOTP/backup-code endpoints, a session is also re-issued
+        // during enrollment while already signed in; only count it as a login
+        // when the request was answering a challenge.
+        const completed =
+          newSession &&
+          (ctx.path === "/sign-in/email"
+            ? !newSession.user.twoFactorEnabled
+            : ctx.path.startsWith("/two-factor/")
+              ? hasTwoFactorChallenge(ctx)
+              : true)
+        if (completed) {
+          const now = new Date()
+          await db
+            .update(schema.user)
+            .set({ lastLoginAt: now, updatedAt: now })
+            .where(eq(schema.user.id, newSession.user.id))
+          await recordAuthEvent({
+            eventType: "admin_login",
+            actorUserId: newSession.user.id,
+            eventData: {
+              sessionId: newSession.session.id,
+              method: LOGIN_METHOD_BY_PATH[ctx.path] ?? "password",
+            },
+            request,
+          })
+        }
+        if (ctx.path !== "/two-factor/verify-totp") {
+          return
+        }
       }
 
       if (
