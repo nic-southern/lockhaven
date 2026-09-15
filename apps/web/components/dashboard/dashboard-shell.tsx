@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   CableIcon,
+  ChevronDownIcon,
   KeyRoundIcon,
   LayoutDashboardIcon,
   LogOutIcon,
@@ -14,6 +15,7 @@ import {
   RouteIcon,
   ScrollTextIcon,
   ShieldIcon,
+  UserRoundIcon,
   UsersIcon,
   type LucideIcon,
 } from "lucide-react"
@@ -21,7 +23,17 @@ import {
 import { signOut, useSession } from "@/lib/auth-client"
 import { trpc } from "@/lib/trpc"
 import { ThemeToggle } from "@/components/theme-provider"
+import { AccessDenied } from "@/components/dashboard/access-denied"
+import { SelectField } from "@/components/dashboard/select-field"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Sheet,
   SheetContent,
@@ -29,14 +41,23 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import { Skeleton } from "@/components/ui/skeleton"
 import { getClientProductName, getProductInitials } from "@/lib/product-name"
+import { SiteScopeProvider, useSiteScope } from "@/lib/site-scope"
 import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
 import { cn } from "@/lib/utils"
+import type { Permission, UiScope } from "@nms/shared"
 
 type NavItem = {
   href: string
   label: string
   icon: LucideIcon
+  /** Any one of these permissions unlocks the item. Omit for everyone. */
+  permissions?: Permission[]
+  /** Restrict to a particular console experience. */
+  scopes?: UiScope[]
+  /** Uses `canManageUsers` from `access.me` instead of a permission. */
+  requiresUserManagement?: boolean
 }
 
 type NavSection = {
@@ -49,16 +70,44 @@ const navSections: NavSection[] = [
     label: "Operate",
     items: [
       { href: "/", label: "Overview", icon: LayoutDashboardIcon },
-      { href: "/devices", label: "Devices", icon: MonitorIcon },
-      { href: "/sites", label: "Sites", icon: MapPinIcon },
-      { href: "/connections", label: "Connections", icon: CableIcon },
+      {
+        href: "/devices",
+        label: "Devices",
+        icon: MonitorIcon,
+        permissions: ["device:view"],
+      },
+      {
+        href: "/sites",
+        label: "Sites",
+        icon: MapPinIcon,
+        permissions: ["site:admin", "organization:admin"],
+        scopes: ["admin"],
+      },
+      {
+        href: "/connections",
+        label: "Connections",
+        icon: CableIcon,
+        permissions: ["device:view"],
+      },
     ],
   },
   {
     label: "Network",
     items: [
-      { href: "/admin-vpn", label: "Admin VPN", icon: ShieldIcon },
-      { href: "/route-policies", label: "Route policies", icon: RouteIcon },
+      {
+        href: "/admin-vpn",
+        label: "Admin VPN",
+        icon: ShieldIcon,
+        permissions: ["vpn:admin_profile"],
+        scopes: ["admin"],
+      },
+      {
+        href: "/route-policies",
+        label: "Route policies",
+        icon: RouteIcon,
+        permissions: ["organization:admin"],
+        scopes: ["admin"],
+      },
     ],
   },
   {
@@ -68,12 +117,58 @@ const navSections: NavSection[] = [
         href: "/enrollment-tokens",
         label: "Enrollment tokens",
         icon: KeyRoundIcon,
+        permissions: ["device:enroll"],
+        scopes: ["admin"],
       },
-      { href: "/users", label: "Users", icon: UsersIcon },
-      { href: "/audit", label: "Audit", icon: ScrollTextIcon },
+      {
+        href: "/users",
+        label: "Users",
+        icon: UsersIcon,
+        requiresUserManagement: true,
+        scopes: ["admin"],
+      },
+      {
+        href: "/audit",
+        label: "Audit",
+        icon: ScrollTextIcon,
+        permissions: ["audit:view"],
+      },
     ],
   },
 ]
+
+/** Routes that are always available to a signed-in user. */
+const alwaysAllowedPrefixes = ["/account"]
+
+type AccessInfo = {
+  permissions: Permission[]
+  uiScope: UiScope
+  canManageUsers: boolean
+}
+
+function itemAllowed(item: NavItem, access: AccessInfo) {
+  if (item.scopes && !item.scopes.includes(access.uiScope)) {
+    return false
+  }
+  if (item.requiresUserManagement) {
+    return access.canManageUsers
+  }
+  if (!item.permissions || item.permissions.length === 0) {
+    return true
+  }
+  return item.permissions.some((permission) =>
+    access.permissions.includes(permission)
+  )
+}
+
+function findNavItem(pathname: string) {
+  const items = navSections.flatMap((section) => section.items)
+  return (
+    items.find((item) => item.href !== "/" && pathname.startsWith(item.href)) ??
+    items.find((item) => item.href === "/" && pathname === "/") ??
+    null
+  )
+}
 
 function NavLinks({
   sections,
@@ -188,12 +283,106 @@ function handleSignOut() {
   })
 }
 
-export function DashboardShell({
+function SiteSwitcher({
+  sites,
+  className,
+}: {
+  sites: Array<{ id: string; name: string }>
+  className?: string
+}) {
+  const { siteId, setSiteId } = useSiteScope()
+
+  if (sites.length <= 1) {
+    return sites.length === 1 ? (
+      <div
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-md border border-border/80 bg-muted/40 px-2.5 py-1 text-xs font-medium text-muted-foreground",
+          className
+        )}
+      >
+        <MapPinIcon className="size-3.5" />
+        <span className="truncate">{sites[0].name}</span>
+      </div>
+    ) : null
+  }
+
+  const selected =
+    siteId && sites.some((site) => site.id === siteId) ? siteId : "__all"
+
+  return (
+    <SelectField
+      value={selected}
+      onValueChange={(value) => setSiteId(value === "__all" ? null : value)}
+      size="sm"
+      className={cn("h-8 w-44", className)}
+      aria-label="Site"
+      options={[
+        { value: "__all", label: "All my sites" },
+        ...sites.map((site) => ({ value: site.id, label: site.name })),
+      ]}
+    />
+  )
+}
+
+function UserMenu({
+  label,
+  email,
+  scopeLabel,
+}: {
+  label: string
+  email: string | null
+  scopeLabel: string
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="hidden max-w-[16rem] gap-2 lg:inline-flex"
+        >
+          <span className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-semibold uppercase">
+            {label.slice(0, 2)}
+          </span>
+          <span className="truncate text-sm font-normal">{label}</span>
+          <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuLabel className="flex flex-col gap-0.5">
+          <span className="truncate font-medium">{label}</span>
+          {email ? (
+            <span className="truncate text-xs font-normal text-muted-foreground">
+              {email}
+            </span>
+          ) : null}
+          <span className="text-[11px] font-normal tracking-wide text-muted-foreground uppercase">
+            {scopeLabel}
+          </span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/account">
+            <UserRoundIcon />
+            Account &amp; security
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={handleSignOut}>
+          <LogOutIcon />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function ShellContent({
   children,
-  hideHeader = false,
+  hideHeader,
 }: {
   children: React.ReactNode
-  hideHeader?: boolean
+  hideHeader: boolean
 }) {
   const pathname = usePathname()
   const { data: session } = useSession()
@@ -203,18 +392,58 @@ export function DashboardShell({
   const productName = getClientProductName()
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const userLabel = session?.user?.name ?? session?.user?.email ?? "—"
-  const visibleNavSections = React.useMemo(() => {
-    if (accessQuery.data?.canManageUsers === false) {
-      return navSections
-        .map((section) => ({
-          ...section,
-          items: section.items.filter((item) => item.href !== "/users"),
-        }))
-        .filter((section) => section.items.length > 0)
-    }
+  const userEmail = session?.user?.email ?? null
 
+  const accessData = accessQuery.data
+  const access = React.useMemo<AccessInfo | null>(
+    () =>
+      accessData
+        ? {
+            permissions: accessData.permissions,
+            uiScope: accessData.uiScope,
+            canManageUsers: accessData.canManageUsers,
+          }
+        : null,
+    [accessData]
+  )
+
+  const visibleNavSections = React.useMemo(() => {
+    if (!access) {
+      return []
+    }
     return navSections
-  }, [accessQuery.data?.canManageUsers])
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => itemAllowed(item, access)),
+      }))
+      .filter((section) => section.items.length > 0)
+  }, [access])
+
+  const technicianSites = React.useMemo(() => {
+    const memberships = accessQuery.data?.siteMemberships ?? []
+    const seen = new Map<string, string>()
+    for (const membership of memberships) {
+      if (membership.status !== "active") continue
+      seen.set(membership.siteId, membership.siteName ?? "Site")
+    }
+    return [...seen.entries()].map(([id, name]) => ({ id, name }))
+  }, [accessQuery.data?.siteMemberships])
+
+  const currentItem = findNavItem(pathname)
+  const alwaysAllowed = alwaysAllowedPrefixes.some((prefix) =>
+    pathname.startsWith(prefix)
+  )
+  const pageAllowed =
+    alwaysAllowed || !access || !currentItem || itemAllowed(currentItem, access)
+
+  const isTechnician = access?.uiScope === "technician"
+  const scopeLabel = isTechnician
+    ? "Technician"
+    : accessQuery.data?.platformRole === "owner"
+      ? "Platform owner"
+      : accessQuery.data?.platformRole === "admin"
+        ? "Platform admin"
+        : "Administrator"
 
   const vpnStatus = (
     <AdminVpnStatusIndicator
@@ -222,6 +451,21 @@ export function DashboardShell({
       checked={adminVpnChecked}
     />
   )
+
+  const navContent =
+    accessQuery.isLoading && !access ? (
+      <div className="flex flex-col gap-2 px-1">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <Skeleton key={index} className="h-8 w-full" />
+        ))}
+      </div>
+    ) : (
+      <NavLinks
+        sections={visibleNavSections}
+        pathname={pathname}
+        onNavigate={() => setMobileOpen(false)}
+      />
+    )
 
   return (
     <div className="relative min-h-svh bg-background">
@@ -259,16 +503,28 @@ export function DashboardShell({
                     <p className="truncate text-sm text-muted-foreground">
                       {userLabel}
                     </p>
-                    <div className="pt-1">{vpnStatus}</div>
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {vpnStatus}
+                      {isTechnician ? (
+                        <SiteSwitcher sites={technicianSites} />
+                      ) : null}
+                    </div>
                   </SheetHeader>
-                  <div className="flex-1 overflow-y-auto p-3">
-                    <NavLinks
-                      sections={visibleNavSections}
-                      pathname={pathname}
-                      onNavigate={() => setMobileOpen(false)}
-                    />
-                  </div>
+                  <div className="flex-1 overflow-y-auto p-3">{navContent}</div>
                   <div className="mt-auto flex flex-col gap-2 border-t border-sidebar-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+                    <Button
+                      asChild
+                      variant="ghost"
+                      className="w-full justify-start gap-2"
+                    >
+                      <Link
+                        href="/account"
+                        onClick={() => setMobileOpen(false)}
+                      >
+                        <UserRoundIcon className="size-4" />
+                        Account &amp; security
+                      </Link>
+                    </Button>
                     <div className="flex items-center justify-between gap-2 px-1">
                       <span className="text-sm text-muted-foreground">
                         Appearance
@@ -296,28 +552,28 @@ export function DashboardShell({
                     {productName}
                   </p>
                   <p className="hidden text-xs text-muted-foreground sm:block">
-                    Console
+                    {isTechnician ? "Technician console" : "Console"}
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">
+              {isTechnician ? (
+                <SiteSwitcher
+                  sites={technicianSites}
+                  className="hidden md:inline-flex"
+                />
+              ) : null}
               {vpnStatus}
-              <p className="hidden max-w-[14rem] truncate text-sm text-muted-foreground lg:block">
-                {userLabel}
-              </p>
+              <UserMenu
+                label={userLabel}
+                email={userEmail}
+                scopeLabel={scopeLabel}
+              />
               <div className="hidden lg:block">
                 <ThemeToggle />
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="hidden lg:inline-flex"
-                onClick={handleSignOut}
-              >
-                Sign out
-              </Button>
             </div>
           </div>
         </header>
@@ -326,12 +582,28 @@ export function DashboardShell({
       <div className="relative flex w-full gap-6 px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-8">
         <aside className="hidden w-56 shrink-0 lg:block xl:w-60">
           <div className="sticky top-20 flex flex-col gap-4 rounded-2xl border border-sidebar-border/80 bg-sidebar/80 p-3 backdrop-blur-sm">
-            <NavLinks sections={visibleNavSections} pathname={pathname} />
+            {navContent}
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 animate-fade-up">{children}</main>
+        <main className="min-w-0 flex-1 animate-fade-up">
+          {pageAllowed ? children : <AccessDenied />}
+        </main>
       </div>
     </div>
+  )
+}
+
+export function DashboardShell({
+  children,
+  hideHeader = false,
+}: {
+  children: React.ReactNode
+  hideHeader?: boolean
+}) {
+  return (
+    <SiteScopeProvider>
+      <ShellContent hideHeader={hideHeader}>{children}</ShellContent>
+    </SiteScopeProvider>
   )
 }

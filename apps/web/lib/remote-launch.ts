@@ -1,7 +1,8 @@
 export type RemoteLaunchResult = {
   url: string | null
   nativeUrl: string | null
-  clipboardSecret?: string | null
+  /** One-time ticket that can be exchanged for the session secret. */
+  launchTicket?: string | null
   mode: "guacamole" | "native"
 } | null
 
@@ -10,8 +11,17 @@ export type RemoteLaunchOpenResult = {
   copiedSecret: boolean
 }
 
+export type RemoteLaunchOptions = {
+  /**
+   * Exchanges a one-time launch ticket for the secret to place on the
+   * clipboard. Resolves to `null` when the ticket is invalid or expired.
+   */
+  redeemTicket?: (ticket: string) => Promise<string | null>
+}
+
 export async function openRemoteLaunchResult(
-  result: RemoteLaunchResult
+  result: RemoteLaunchResult,
+  options: RemoteLaunchOptions = {}
 ): Promise<RemoteLaunchOpenResult | null> {
   if (!result) {
     return null
@@ -19,10 +29,13 @@ export async function openRemoteLaunchResult(
 
   if (result.mode === "native" && result.nativeUrl) {
     let copiedSecret = false
-    if (result.clipboardSecret) {
+    if (result.launchTicket && options.redeemTicket) {
       try {
-        await navigator.clipboard.writeText(result.clipboardSecret)
-        copiedSecret = true
+        const secret = await options.redeemTicket(result.launchTicket)
+        if (secret) {
+          await navigator.clipboard.writeText(secret)
+          copiedSecret = true
+        }
       } catch {
         copiedSecret = false
       }

@@ -92,6 +92,20 @@
       "when": 1780600000000,
       "tag": "0012_admin_vpn_same_user_access",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1780700000000,
+      "tag": "0013_identity_rbac",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1780800000000,
+      "tag": "0014_member_default_role",
+      "breakpoints": true
     }
   ]
 }

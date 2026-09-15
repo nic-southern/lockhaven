@@ -28,9 +28,62 @@ export const permissions = [
   "site:admin",
   "audit:view",
   "vpn:admin_profile",
+  "credential:reveal",
+  "device:delete",
+  "user:manage",
 ] as const
 
 export type Permission = (typeof permissions)[number]
+
+export const platformRoles = ["owner", "admin", "member"] as const
+export type PlatformRole = (typeof platformRoles)[number]
+
+export const organizationRoles = [
+  "owner",
+  "admin",
+  "operator",
+  "technician",
+  "viewer",
+] as const
+export type OrganizationRole = (typeof organizationRoles)[number]
+
+export const siteRoles = ["operator", "technician", "viewer"] as const
+export type SiteRole = (typeof siteRoles)[number]
+
+export const membershipStatuses = ["active", "suspended"] as const
+export type MembershipStatus = (typeof membershipStatuses)[number]
+
+export const uiScopes = ["admin", "technician"] as const
+export type UiScope = (typeof uiScopes)[number]
+
+export const MIN_PASSWORD_LENGTH = 12
+
+export const passwordSchema = z
+  .string()
+  .min(MIN_PASSWORD_LENGTH, "Use at least 12 characters.")
+  .max(256)
+
+export const siteGrantSchema = z.object({
+  siteId: z.string().uuid(),
+  role: z.enum(siteRoles),
+})
+export type SiteGrant = z.infer<typeof siteGrantSchema>
+
+export const userInviteSchema = z.object({
+  email: z.string().email().max(320),
+  name: z.string().trim().min(1).max(120),
+  platformRole: z.enum(platformRoles).default("member"),
+  organizationId: z.string().uuid().nullable().default(null),
+  organizationRole: z.enum(organizationRoles).nullable().default(null),
+  siteGrants: z.array(siteGrantSchema).max(200).default([]),
+})
+export type UserInviteInput = z.infer<typeof userInviteSchema>
+
+export const invitationAcceptSchema = z.object({
+  token: z.string().min(20).max(200),
+  name: z.string().trim().min(1).max(120),
+  password: passwordSchema,
+})
 
 export const routePolicySchema = z.object({
   name: z.string().min(1),
@@ -203,6 +256,24 @@ export const permissionSetSchema = z.array(z.enum(permissions))
 
 export const auditEventTypeSchema = z.enum([
   "admin_login",
+  "admin_login_failed",
+  "admin_logout",
+  "two_factor_enrolled",
+  "two_factor_reset",
+  "passkey_added",
+  "passkey_removed",
+  "password_changed",
+  "session_revoked",
+  "user_invited",
+  "user_invitation_accepted",
+  "user_invitation_revoked",
+  "user_role_changed",
+  "user_membership_changed",
+  "user_site_access_changed",
+  "user_suspended",
+  "user_reactivated",
+  "user_password_reset_forced",
+  "credential_revealed",
   "organization_created",
   "device_created",
   "device_updated",
@@ -227,6 +298,9 @@ export const auditEventTypeSchema = z.enum([
   "route_policy_updated",
   "route_policy_deleted",
 ])
+
+export type AuditEventType = z.infer<typeof auditEventTypeSchema>
+export const auditEventTypes = auditEventTypeSchema.options
 
 export const routePolicyNames = {
   managementOnly: "management-only",

@@ -1,9 +1,13 @@
-import type { Permission } from "@nms/shared"
+import type {
+  MembershipStatus,
+  OrganizationRole,
+  Permission,
+  PlatformRole,
+  SiteRole,
+  UiScope,
+} from "@nms/shared"
 
-export type PlatformRole = "owner" | "admin"
-export type OrganizationRole = "owner" | "admin" | "operator" | "viewer"
-export type SiteRole = "operator" | "viewer"
-export type MembershipStatus = "active" | "suspended"
+export type { MembershipStatus, OrganizationRole, PlatformRole, SiteRole }
 
 export type OrganizationMembership = {
   id: string
@@ -15,9 +19,17 @@ export type OrganizationMembership = {
 export type SiteMembership = {
   id: string
   siteId: string
+  siteName?: string
   organizationId: string
   role: SiteRole
   status: MembershipStatus
+}
+
+export type ActorSecurityState = {
+  twoFactorEnabled: boolean
+  mustChangePassword: boolean
+  passkeyCount: number
+  lastLoginAt: Date | null
 }
 
 export type ActorPrincipal = {
@@ -29,6 +41,8 @@ export type ActorPrincipal = {
   permissions: Permission[]
   organizationMemberships: OrganizationMembership[]
   siteMemberships: SiteMembership[]
+  security?: ActorSecurityState
+  uiScope?: UiScope
 }
 
 export type AdminPrincipal = ActorPrincipal
@@ -66,91 +80,125 @@ export type AuthorizationDecision =
   | { allowed: true; reason: string }
   | { allowed: false; reason: string }
 
-const platformOwnerPermissions: Permission[] = [
+const fullAccessPermissions: Permission[] = [
   "device:view",
   "device:create",
   "device:update",
+  "device:delete",
   "device:enroll",
   "device:revoke_vpn",
   "device:start_vnc",
   "device:start_rdp",
   "device:start_ssh",
+  "credential:reveal",
   "organization:admin",
   "site:admin",
+  "user:manage",
   "audit:view",
   "vpn:admin_profile",
 ]
 
-const platformAdminPermissions: Permission[] = [
+const platformOwnerPermissions: Permission[] = [...fullAccessPermissions]
+
+const platformAdminPermissions: Permission[] = [...fullAccessPermissions]
+
+// Members hold no platform-wide permissions; everything comes from memberships.
+const platformMemberPermissions: Permission[] = []
+
+const technicianPermissions: Permission[] = [
   "device:view",
-  "device:create",
   "device:update",
-  "device:enroll",
+  "device:start_vnc",
+  "device:start_rdp",
+  "device:start_ssh",
+  "audit:view",
+]
+
+const operatorPermissions: Permission[] = [
+  "device:view",
+  "device:update",
   "device:revoke_vpn",
   "device:start_vnc",
   "device:start_rdp",
   "device:start_ssh",
-  "organization:admin",
-  "site:admin",
+  "credential:reveal",
   "audit:view",
-  "vpn:admin_profile",
 ]
+
+const viewerPermissions: Permission[] = ["device:view", "audit:view"]
 
 const organizationRolePermissions: Record<OrganizationRole, Permission[]> = {
-  owner: [
-    "device:view",
-    "device:create",
-    "device:update",
-    "device:enroll",
-    "device:revoke_vpn",
-    "device:start_vnc",
-    "device:start_rdp",
-    "device:start_ssh",
-    "organization:admin",
-    "site:admin",
-    "audit:view",
-    "vpn:admin_profile",
-  ],
+  owner: [...fullAccessPermissions],
   admin: [
     "device:view",
     "device:create",
     "device:update",
+    "device:delete",
     "device:enroll",
     "device:revoke_vpn",
     "device:start_vnc",
     "device:start_rdp",
     "device:start_ssh",
+    "credential:reveal",
     "organization:admin",
     "site:admin",
+    "user:manage",
     "audit:view",
   ],
-  operator: [
-    "device:view",
-    "device:update",
-    "device:revoke_vpn",
-    "device:start_vnc",
-    "device:start_rdp",
-    "device:start_ssh",
-    "audit:view",
-  ],
-  viewer: ["device:view", "audit:view"],
+  operator: [...operatorPermissions],
+  technician: [...technicianPermissions],
+  viewer: [...viewerPermissions],
 }
 
 const siteRolePermissions: Record<SiteRole, Permission[]> = {
-  operator: [
-    "device:view",
-    "device:update",
-    "device:revoke_vpn",
-    "device:start_vnc",
-    "device:start_rdp",
-    "device:start_ssh",
-    "audit:view",
-  ],
-  viewer: ["device:view", "audit:view"],
+  operator: [...operatorPermissions],
+  technician: [...technicianPermissions],
+  viewer: [...viewerPermissions],
+}
+
+const platformRolePermissions: Record<PlatformRole, Permission[]> = {
+  owner: platformOwnerPermissions,
+  admin: platformAdminPermissions,
+  member: platformMemberPermissions,
 }
 
 export function permissionsForRole(role: PlatformRole): Permission[] {
-  return role === "owner" ? platformOwnerPermissions : platformAdminPermissions
+  return platformRolePermissions[role] ?? platformMemberPermissions
+}
+
+/**
+ * Platform owners and admins see every organization; members are scoped to
+ * their memberships.
+ */
+export function hasPlatformWideAccess(actor: ActorPrincipal): boolean {
+  return actor.platformRole === "owner" || actor.platformRole === "admin"
+}
+
+/**
+ * Decides which console experience a user should get. Anyone with a
+ * management-level permission anywhere gets the full admin shell; users whose
+ * only grants are technician or viewer roles get the simplified scoped shell.
+ */
+export function uiScopeFor(actor: ActorPrincipal): UiScope {
+  if (hasPlatformWideAccess(actor)) {
+    return "admin"
+  }
+
+  const managementPermissions: Permission[] = [
+    "organization:admin",
+    "site:admin",
+    "user:manage",
+    "device:enroll",
+    "device:create",
+    "device:delete",
+    "vpn:admin_profile",
+  ]
+
+  return managementPermissions.some((permission) =>
+    actor.permissions.includes(permission)
+  )
+    ? "admin"
+    : "technician"
 }
 
 export function permissionsForOrganizationRole(

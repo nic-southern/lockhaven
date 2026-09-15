@@ -37,12 +37,10 @@ import {
   buildWindowsUninstallCommand,
 } from "@/lib/enrollment-commands"
 import { getClientVpnBaseUrl } from "@/lib/product-name"
-import {
-  openRemoteLaunchResult,
-  preferredConnectionMethod,
-} from "@/lib/remote-launch"
+import { preferredConnectionMethod } from "@/lib/remote-launch"
 import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
 import { trpc } from "@/lib/trpc"
+import { useRemoteLaunch } from "@/lib/use-remote-launch"
 import { serviceDefaults, type ServiceType } from "@nms/shared"
 
 const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
@@ -195,17 +193,7 @@ export default function DeviceConfigPage() {
       toast.error("We couldn't clear the credential.")
     },
   })
-  const launchSession = trpc.sessions.create.useMutation({
-    async onSuccess(result) {
-      const opened = await openRemoteLaunchResult(result)
-      if (opened?.mode === "native" && opened.copiedSecret) {
-        toast.success("VNC password copied — paste it when prompted")
-      }
-    },
-    onError() {
-      toast.error("Couldn't start the session.")
-    },
-  })
+  const launchSession = useRemoteLaunch()
 
   const [deviceName, setDeviceName] = React.useState("")
   const [deviceHostname, setDeviceHostname] = React.useState("")

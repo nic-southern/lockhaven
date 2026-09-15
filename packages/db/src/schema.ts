@@ -13,23 +13,30 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
-import { deviceStatuses, permissions, serviceTypes } from "@nms/shared"
+import {
+  deviceStatuses,
+  membershipStatuses,
+  organizationRoles,
+  permissions,
+  platformRoles,
+  serviceTypes,
+  siteRoles,
+  type SiteGrant,
+} from "@nms/shared"
 
 export const statusEnum = pgEnum("device_status", deviceStatuses)
 export const serviceTypeEnum = pgEnum("service_type", serviceTypes)
 export const permissionEnum = pgEnum("permission", permissions)
-export const platformRoleEnum = pgEnum("platform_role", ["owner", "admin"])
-export const organizationRoleEnum = pgEnum("organization_role", [
-  "owner",
-  "admin",
-  "operator",
-  "viewer",
-])
-export const siteRoleEnum = pgEnum("site_role", ["operator", "viewer"])
-export const membershipStatusEnum = pgEnum("membership_status", [
-  "active",
-  "suspended",
-])
+export const platformRoleEnum = pgEnum("platform_role", platformRoles)
+export const organizationRoleEnum = pgEnum(
+  "organization_role",
+  organizationRoles
+)
+export const siteRoleEnum = pgEnum("site_role", siteRoles)
+export const membershipStatusEnum = pgEnum(
+  "membership_status",
+  membershipStatuses
+)
 
 export const organizations = pgTable("organizations", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -75,8 +82,16 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
-  role: platformRoleEnum("role").notNull().default("admin"),
+  role: platformRoleEnum("role").notNull().default("member"),
   status: text("status").notNull().default("active"),
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  twoFactorEnforcedAt: timestamp("two_factor_enforced_at", {
+    withTimezone: true,
+  }),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  invitedBy: text("invited_by"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -84,6 +99,94 @@ export const user = pgTable("user", {
     .notNull()
     .defaultNow(),
 })
+
+export const twoFactor = pgTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    verified: boolean("verified").notNull().default(true),
+  },
+  (table) => [
+    index("two_factor_user_id_idx").on(table.userId),
+    index("two_factor_secret_idx").on(table.secret),
+  ]
+)
+
+export const passkey = pgTable(
+  "passkey",
+  {
+    id: text("id").primaryKey(),
+    name: text("name"),
+    publicKey: text("public_key").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    credentialID: text("credential_id").notNull(),
+    counter: integer("counter").notNull(),
+    deviceType: text("device_type").notNull(),
+    backedUp: boolean("backed_up").notNull(),
+    transports: text("transports"),
+    aaguid: text("aaguid"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("passkey_user_id_idx").on(table.userId),
+    uniqueIndex("passkey_credential_id_idx").on(table.credentialID),
+  ]
+)
+
+export const rateLimit = pgTable(
+  "rate_limit",
+  {
+    id: text("id").primaryKey(),
+    key: text("key"),
+    count: integer("count"),
+    lastRequest: bigint("last_request", { mode: "number" }),
+  },
+  (table) => [index("rate_limit_key_idx").on(table.key)]
+)
+
+export const userInvitations = pgTable(
+  "user_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    platformRole: platformRoleEnum("platform_role").notNull().default("member"),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    organizationRole: organizationRoleEnum("organization_role"),
+    siteGrants: jsonb("site_grants")
+      .$type<SiteGrant[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    invitedByUserId: text("invited_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    acceptedUserId: text("accepted_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("user_invitations_email_idx").on(table.email),
+    index("user_invitations_organization_id_idx").on(table.organizationId),
+  ]
+)
 
 export const session = pgTable(
   "session",
@@ -453,6 +556,9 @@ export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
 export type SiteMembership = typeof siteMemberships.$inferSelect
 export type AuthUser = typeof user.$inferSelect
+export type AuthSession = typeof session.$inferSelect
+export type Passkey = typeof passkey.$inferSelect
+export type UserInvitation = typeof userInvitations.$inferSelect
 export type Device = typeof devices.$inferSelect
 export type RoutePolicy = typeof routePolicies.$inferSelect
 export type VpnIdentity = typeof vpnIdentities.$inferSelect

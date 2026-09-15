@@ -1,8 +1,11 @@
 import type { IncomingMessage } from "node:http"
 
+import { count } from "drizzle-orm"
+
 import {
   eq,
   organizationMemberships,
+  passkey,
   siteMemberships,
   sites,
   user,
@@ -15,6 +18,7 @@ import {
   permissionsForOrganizationRole,
   permissionsForRole,
   permissionsForSiteRole,
+  uiScopeFor,
 } from "./index"
 
 export async function resolveAdminPrincipalFromRequest(
@@ -48,31 +52,37 @@ export async function resolveAdminPrincipalByEmail(
     .from(user)
     .where(eq(user.email, email.toLowerCase()))
 
-  if (!record || record.status !== "active") {
+  if (!record || record.status !== "active" || record.disabledAt) {
     return null
   }
 
-  const [organizationMembershipRows, siteMembershipRows] = await Promise.all([
-    db
-      .select()
-      .from(organizationMemberships)
-      .where(eq(organizationMemberships.userId, record.id)),
-    db
-      .select({
-        id: siteMemberships.id,
-        siteId: siteMemberships.siteId,
-        organizationId: sites.organizationId,
-        userId: siteMemberships.userId,
-        role: siteMemberships.role,
-        status: siteMemberships.status,
-        createdByUserId: siteMemberships.createdByUserId,
-        createdAt: siteMemberships.createdAt,
-        updatedAt: siteMemberships.updatedAt,
-      })
-      .from(siteMemberships)
-      .innerJoin(sites, eq(sites.id, siteMemberships.siteId))
-      .where(eq(siteMemberships.userId, record.id)),
-  ])
+  const [organizationMembershipRows, siteMembershipRows, [passkeyCountRow]] =
+    await Promise.all([
+      db
+        .select()
+        .from(organizationMemberships)
+        .where(eq(organizationMemberships.userId, record.id)),
+      db
+        .select({
+          id: siteMemberships.id,
+          siteId: siteMemberships.siteId,
+          siteName: sites.name,
+          organizationId: sites.organizationId,
+          userId: siteMemberships.userId,
+          role: siteMemberships.role,
+          status: siteMemberships.status,
+          createdByUserId: siteMemberships.createdByUserId,
+          createdAt: siteMemberships.createdAt,
+          updatedAt: siteMemberships.updatedAt,
+        })
+        .from(siteMemberships)
+        .innerJoin(sites, eq(sites.id, siteMemberships.siteId))
+        .where(eq(siteMemberships.userId, record.id)),
+      db
+        .select({ total: count() })
+        .from(passkey)
+        .where(eq(passkey.userId, record.id)),
+    ])
 
   const platformPermissions = permissionsForRole(record.role)
   const effectivePermissions = new Set(platformPermissions)
@@ -97,7 +107,7 @@ export async function resolveAdminPrincipalByEmail(
     }
   }
 
-  return {
+  const principal: ActorPrincipal = {
     id: record.id,
     email: record.email,
     name: record.name,
@@ -106,5 +116,15 @@ export async function resolveAdminPrincipalByEmail(
     permissions: [...effectivePermissions],
     organizationMemberships: organizationMembershipRows,
     siteMemberships: siteMembershipRows,
+    security: {
+      twoFactorEnabled: record.twoFactorEnabled,
+      mustChangePassword: record.mustChangePassword,
+      passkeyCount: Number(passkeyCountRow?.total ?? 0),
+      lastLoginAt: record.lastLoginAt,
+    },
+    uiScope: "admin",
   }
+  principal.uiScope = uiScopeFor(principal)
+
+  return principal
 }

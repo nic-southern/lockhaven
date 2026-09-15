@@ -22,7 +22,15 @@ import {
   permissionProcedure,
   publicProcedure,
 } from "./trpc"
-import { actorOrganizationIds, actorSiteIds, assertAuthorized } from "./access"
+import {
+  actorOrganizationIds,
+  actorSiteIds,
+  assertAuthorized,
+  manageableOrganizationIds,
+} from "./access"
+import { writeAuditEvent } from "./audit"
+import { issueLaunchTicket, redeemLaunchTicket } from "./launch-ticket"
+import { usersRouter } from "./routers/users"
 import {
   buildOrderBy,
   likePattern,
@@ -31,11 +39,9 @@ import {
   resolveListQuery,
 } from "./list"
 import { combineConditions, deviceScopeCondition } from "./scope"
-import { hashPassword } from "@nms/auth"
 import {
   adminVpnProfiles,
   auditEvents,
-  account,
   devices,
   enrollmentTokens,
   managementServiceCredentials,
@@ -65,7 +71,10 @@ import {
   deviceStatuses,
   enrollmentTokenCreateSchema,
   enrollmentTokenUpdateSchema,
+  membershipStatuses,
+  organizationRoles,
   remoteSessionRequestSchema,
+  siteRoles,
   type DeviceStatus,
   type ServiceType,
 } from "@nms/shared"
@@ -578,22 +587,12 @@ const sessionCreateInput = remoteSessionRequestSchema.extend({
   deviceId: z.string().uuid(),
 })
 
-const organizationRoleValues = ["owner", "admin", "operator", "viewer"] as const
-const siteRoleValues = ["operator", "viewer"] as const
-const membershipStatusValues = ["active", "suspended"] as const
+const organizationRoleValues = organizationRoles
+const siteRoleValues = siteRoles
+const membershipStatusValues = membershipStatuses
 
 const accessOrganizationMembersInput = z.object({
   organizationId: z.string().uuid(),
-})
-
-const accessCreateUserInput = z.object({
-  organizationId: z.string().uuid(),
-  name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(8),
-  organizationRole: z.enum(organizationRoleValues),
-  siteIds: z.array(z.string().uuid()).default([]),
-  siteRole: z.enum(siteRoleValues).default("viewer"),
 })
 
 const accessOrganizationMembershipInput = z.object({
@@ -626,14 +625,17 @@ const accessRouter = createTRPCRouter({
       permissions: actor.permissions,
       organizationMemberships: actor.organizationMemberships,
       siteMemberships: actor.siteMemberships,
-      canManageUsers:
-        actor.platformRole === "owner" ||
-        actor.platformRole === "admin" ||
-        actor.organizationMemberships.some(
-          (membership) =>
-            membership.status === "active" &&
-            (membership.role === "owner" || membership.role === "admin")
-        ),
+      uiScope: actor.uiScope ?? "admin",
+      security: actor.security ?? {
+        twoFactorEnabled: false,
+        mustChangePassword: false,
+        passkeyCount: 0,
+        lastLoginAt: null,
+      },
+      canManageUsers: (() => {
+        const manageable = manageableOrganizationIds(actor)
+        return manageable === null || manageable.length > 0
+      })(),
     }
   }),
   organizationMembers: adminProcedure
@@ -849,102 +851,6 @@ const accessRouter = createTRPCRouter({
         Number(totalRow?.total ?? 0)
       )
     }),
-  createUser: adminProcedure
-    .input(accessCreateUserInput)
-    .mutation(async ({ ctx, input }) => {
-      assertAuthorized(ctx.actor, "organization:admin", {
-        kind: "userManagement",
-        organizationId: input.organizationId,
-      })
-
-      const [existingUser] = await ctx.db
-        .select({ id: user.id })
-        .from(user)
-        .where(eq(user.email, input.email.toLowerCase()))
-
-      if (existingUser) {
-        throw new TRPCError({ code: "CONFLICT" })
-      }
-
-      const now = new Date()
-      const userId = randomUUID()
-      const passwordHash = await hashPassword(input.password)
-      const [createdUser] = await ctx.db
-        .insert(user)
-        .values({
-          id: userId,
-          name: input.name,
-          email: input.email.toLowerCase(),
-          emailVerified: true,
-          role: "admin",
-          status: "active",
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-
-      await ctx.db.insert(account).values({
-        id: randomUUID(),
-        userId: createdUser.id,
-        accountId: createdUser.id,
-        providerId: "credential",
-        password: passwordHash,
-        createdAt: now,
-        updatedAt: now,
-      })
-
-      await ctx.db.insert(organizationMemberships).values({
-        id: randomUUID(),
-        organizationId: input.organizationId,
-        userId: createdUser.id,
-        role: input.organizationRole,
-        status: "active",
-        createdByUserId: ctx.actor?.id ?? null,
-        createdAt: now,
-        updatedAt: now,
-      })
-
-      const uniqueSiteIds = [...new Set(input.siteIds)]
-
-      if (uniqueSiteIds.length > 0) {
-        const [matchedSites] = await Promise.all([
-          ctx.db
-            .select({
-              id: sites.id,
-              organizationId: sites.organizationId,
-            })
-            .from(sites)
-            .where(inArray(sites.id, uniqueSiteIds)),
-        ])
-
-        if (matchedSites.length !== uniqueSiteIds.length) {
-          throw new TRPCError({ code: "BAD_REQUEST" })
-        }
-
-        if (
-          matchedSites.some(
-            (site) => site.organizationId !== input.organizationId
-          )
-        ) {
-          throw new TRPCError({ code: "BAD_REQUEST" })
-        }
-
-        await ctx.db.insert(siteMemberships).values(
-          uniqueSiteIds.map((siteId) => ({
-            id: randomUUID(),
-            siteId,
-            userId: createdUser.id,
-            role: input.siteRole,
-            status: "active" as const,
-            createdByUserId: ctx.actor?.id ?? null,
-            createdAt: now,
-            updatedAt: now,
-          }))
-        )
-      }
-
-      return createdUser
-    }),
   updateOrganizationMembership: adminProcedure
     .input(accessOrganizationMembershipInput)
     .mutation(async ({ ctx, input }) => {
@@ -978,6 +884,16 @@ const accessRouter = createTRPCRouter({
           },
         })
         .returning()
+
+      await writeAuditEvent(ctx, {
+        eventType: "user_membership_changed",
+        organizationId: input.organizationId,
+        eventData: {
+          targetUserId: input.userId,
+          role: input.role,
+          status: input.status,
+        },
+      })
 
       return record
     }),
@@ -1021,12 +937,23 @@ const accessRouter = createTRPCRouter({
         })
         .returning()
 
+      await writeAuditEvent(ctx, {
+        eventType: "user_site_access_changed",
+        organizationId: site.organizationId,
+        eventData: {
+          targetUserId: input.userId,
+          grants: [{ siteId: input.siteId, role: input.role }],
+          status: input.status,
+        },
+      })
+
       return record
     }),
 })
 
 export const appRouter = createTRPCRouter({
   access: accessRouter,
+  users: usersRouter,
   health: publicProcedure.query(() => ({ ok: true })),
   organizations: createTRPCRouter({
     list: adminProcedure.query(async ({ ctx }) => {
@@ -3229,12 +3156,39 @@ export const appRouter = createTRPCRouter({
             })
             .returning()
 
+          const launchTicket =
+            service.serviceType === "vnc" && password
+              ? await issueLaunchTicket(
+                  {
+                    userId: actor.id,
+                    remoteSessionId: record.id,
+                    deviceId: device.id,
+                    serviceId: service.id,
+                    serviceType: service.serviceType,
+                    secretKind: "vnc_password",
+                    secret: password,
+                  },
+                  getCredentialSecret()
+                )
+              : null
+
+          await writeAuditEvent(ctx, {
+            eventType: "remote_session_started",
+            organizationId: device.organizationId,
+            deviceId: device.id,
+            eventData: {
+              remoteSessionId: record.id,
+              serviceId: service.id,
+              serviceType: service.serviceType,
+              connectionMethod: "native",
+            },
+          })
+
           return {
             session: record,
             url: null,
             nativeUrl,
-            clipboardSecret:
-              service.serviceType === "vnc" ? (password ?? null) : null,
+            launchTicket,
             mode: "native" as const,
           }
         }
@@ -3291,13 +3245,69 @@ export const appRouter = createTRPCRouter({
           })
           .returning()
 
+        await writeAuditEvent(ctx, {
+          eventType: "remote_session_started",
+          organizationId: device.organizationId,
+          deviceId: device.id,
+          eventData: {
+            remoteSessionId: record.id,
+            serviceId: service.id,
+            serviceType: service.serviceType,
+            connectionMethod: "guacamole",
+          },
+        })
+
         return {
           session: record,
           url: launchUrl.toString(),
           nativeUrl: null,
-          clipboardSecret: null,
+          launchTicket: null,
           mode: "guacamole" as const,
         }
+      }),
+    redeemLaunchTicket: adminProcedure
+      .input(z.object({ ticket: z.string().min(20).max(200) }))
+      .mutation(async ({ ctx, input }) => {
+        const actor = requireActor(ctx.actor)
+        const payload = await redeemLaunchTicket(
+          input.ticket,
+          getCredentialSecret()
+        )
+
+        if (!payload || payload.userId !== actor.id) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This launch link has expired.",
+          })
+        }
+
+        const [device] = await ctx.db
+          .select({
+            id: devices.id,
+            organizationId: devices.organizationId,
+            siteId: devices.siteId,
+          })
+          .from(devices)
+          .where(eq(devices.id, payload.deviceId))
+
+        if (!device) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        await writeAuditEvent(ctx, {
+          eventType: "credential_revealed",
+          organizationId: device.organizationId,
+          deviceId: device.id,
+          eventData: {
+            remoteSessionId: payload.remoteSessionId,
+            serviceId: payload.serviceId,
+            serviceType: payload.serviceType,
+            secretKind: payload.secretKind,
+            via: "launch_ticket",
+          },
+        })
+
+        return { secret: payload.secret, secretKind: payload.secretKind }
       }),
   }),
   adminVpn: createTRPCRouter({

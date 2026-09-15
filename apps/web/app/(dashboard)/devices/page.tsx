@@ -37,6 +37,7 @@ import {
   statusLabel,
   statusVariant,
 } from "@/lib/dashboard"
+import { applySiteScope, useSiteScope } from "@/lib/site-scope"
 import { trpc } from "@/lib/trpc"
 
 const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
@@ -44,9 +45,10 @@ const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
 export default function DevicesPage() {
   const utils = trpc.useUtils()
   const devicesQuery = trpc.devices.list.useQuery()
+  const { siteId: scopedSiteId } = useSiteScope()
   const deviceIds = React.useMemo(
-    () => devicesQuery.data ?? [],
-    [devicesQuery.data]
+    () => applySiteScope(devicesQuery.data ?? [], scopedSiteId),
+    [devicesQuery.data, scopedSiteId]
   )
   const [selectedDeviceId, setSelectedDeviceId] = React.useState("")
   const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)

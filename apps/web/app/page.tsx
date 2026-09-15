@@ -49,12 +49,11 @@ import {
   buildWindowsInstallCommand,
 } from "@/lib/enrollment-commands"
 import { getClientProductName, getClientVpnBaseUrl } from "@/lib/product-name"
-import {
-  openRemoteLaunchResult,
-  preferredConnectionMethod,
-} from "@/lib/remote-launch"
+import { preferredConnectionMethod } from "@/lib/remote-launch"
 import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
+import { applySiteScope, useSiteScope } from "@/lib/site-scope"
 import { getApiBaseUrl, trpc } from "@/lib/trpc"
+import { useRemoteLaunch } from "@/lib/use-remote-launch"
 
 type HealthResponse = {
   ok: boolean
@@ -148,7 +147,7 @@ export default function Page() {
       ),
     [routePolicies]
   )
-  const devices = React.useMemo(
+  const allDevices = React.useMemo(
     () =>
       (devicesQuery.data ?? []) as Array<{
         id: string
@@ -168,6 +167,11 @@ export default function Page() {
         vpnRevokedAt: string | Date | null
       }>,
     [devicesQuery.data]
+  )
+  const { siteId: scopedSiteId } = useSiteScope()
+  const devices = React.useMemo(
+    () => applySiteScope(allDevices, scopedSiteId),
+    [allDevices, scopedSiteId]
   )
 
   const firstEnabledVncServiceByDeviceId = React.useMemo(() => {
@@ -237,23 +241,8 @@ export default function Page() {
       ).length,
     [devices]
   )
-  const launchVncSession = trpc.sessions.create.useMutation({
-    onSuccess(result) {
-      openRemoteLaunchResult(result)
-    },
-    onError() {
-      toast.error("Couldn't start the session.")
-    },
-  })
-
-  const launchSshSession = trpc.sessions.create.useMutation({
-    onSuccess(result) {
-      openRemoteLaunchResult(result)
-    },
-    onError() {
-      toast.error("Couldn't start the session.")
-    },
-  })
+  const launchVncSession = useRemoteLaunch()
+  const launchSshSession = useRemoteLaunch()
 
   const siteNameById = React.useMemo(() => {
     return new Map<string, string>(sites.map((site) => [site.id, site.name]))

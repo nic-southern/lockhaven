@@ -22,12 +22,11 @@ import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField, NativeSelect } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { formatDate, statusLabel } from "@/lib/dashboard"
-import {
-  openRemoteLaunchResult,
-  preferredConnectionMethod,
-} from "@/lib/remote-launch"
+import { preferredConnectionMethod } from "@/lib/remote-launch"
 import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
+import { applySiteScope, useSiteScope } from "@/lib/site-scope"
 import { trpc } from "@/lib/trpc"
+import { useRemoteLaunch } from "@/lib/use-remote-launch"
 import { serviceDefaults, type ServiceType } from "@nms/shared"
 
 const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
@@ -136,25 +135,16 @@ export default function ConnectionsPage() {
       toast.error("We couldn't remove the service.")
     },
   })
-  const launchSession = trpc.sessions.create.useMutation({
-    async onSuccess(result) {
-      const opened = await openRemoteLaunchResult(result)
-      if (opened?.mode === "native" && opened.copiedSecret) {
-        toast.success("VNC password copied — paste it when prompted")
-      }
-    },
-    onError() {
-      toast.error("Couldn't start the session.")
-    },
-  })
+  const launchSession = useRemoteLaunch()
 
   const services = React.useMemo(
     () => servicesQuery.data ?? [],
     [servicesQuery.data]
   )
+  const { siteId: scopedSiteId } = useSiteScope()
   const devices = React.useMemo(
-    () => devicesQuery.data ?? [],
-    [devicesQuery.data]
+    () => applySiteScope(devicesQuery.data ?? [], scopedSiteId),
+    [devicesQuery.data, scopedSiteId]
   )
 
   React.useEffect(() => {
