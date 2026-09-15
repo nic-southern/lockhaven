@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { CopyableText } from "@/components/dashboard/copyable-text"
 import { SectionCard } from "@/components/dashboard/section-card"
 import { ConnectivityBadge } from "@/components/devices/connectivity-badge"
+import { DeviceConnectionsCard } from "@/components/network/device-connections-card"
 import { PolicyBadge, RouteChip } from "@/components/route-policies/policy-chip"
 import { SessionsTable } from "@/components/sessions/sessions-table"
 import { formatBytes, formatDate, formatRelativeTime } from "@/lib/dashboard"
@@ -114,6 +115,8 @@ export function NetworkTab({ device }: { device: DeviceDetail }) {
           canManage={can("organization:admin")}
         />
       </div>
+
+      <DeviceConnectionsCard deviceId={device.id} />
 
       <SectionCard
         title="Session history"

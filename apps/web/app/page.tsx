@@ -8,6 +8,7 @@ import {
   ActivityIcon,
   AlertTriangleIcon,
   ArrowRightIcon,
+  BellRingIcon,
   WifiIcon,
   WifiOffIcon,
 } from "lucide-react"
@@ -15,11 +16,13 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { kindLabel } from "@/components/alerts/alerts-table"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { EnrollDeviceCard } from "@/components/dashboard/enroll-device-card"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
+import { SeverityBadge } from "@/components/dashboard/severity-badge"
 import { StatusIndicator } from "@/components/dashboard/status-indicator"
 import { ConnectivityBadge } from "@/components/devices/connectivity-badge"
 import {
@@ -80,7 +83,7 @@ function Metric({
   value: number | undefined
   hint?: string
   icon: React.ComponentType<{ className?: string }>
-  tone?: "neutral" | "online" | "warning" | "offline"
+  tone?: "neutral" | "online" | "warning" | "danger" | "offline"
   href?: string
   loading: boolean
 }) {
@@ -95,6 +98,7 @@ function Metric({
             "size-4",
             tone === "online" && "text-emerald-500",
             tone === "warning" && "text-amber-500",
+            tone === "danger" && "text-red-500",
             tone === "offline" && "text-muted-foreground",
             tone === "neutral" && "text-muted-foreground"
           )}
@@ -145,6 +149,10 @@ function Overview() {
   const summaryQuery = trpc.dashboard.summary.useQuery(undefined, {
     refetchInterval: 30_000,
   })
+  const alertsQuery = trpc.alerts.summary.useQuery(undefined, {
+    refetchInterval: 30_000,
+  })
+  const alertSummary = alertsQuery.data
   const healthQuery = useQuery<HealthResponse>({
     queryKey: ["api-health"],
     queryFn: async () => {
@@ -189,7 +197,7 @@ function Overview() {
         <EnrollDeviceCard onClose={() => setEnrollmentOpen(false)} />
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <Metric
           label="Online now"
           value={devices?.online}
@@ -229,6 +237,29 @@ function Overview() {
           loading={loading}
         />
         <Metric
+          label="Open alerts"
+          value={alertSummary?.open}
+          hint={
+            alertSummary
+              ? alertSummary.critical > 0
+                ? `${alertSummary.critical} critical`
+                : alertSummary.acknowledged > 0
+                  ? `${alertSummary.acknowledged} acknowledged`
+                  : "Nothing waiting on you"
+              : undefined
+          }
+          icon={BellRingIcon}
+          tone={
+            alertSummary && alertSummary.critical > 0
+              ? "danger"
+              : alertSummary && alertSummary.open > 0
+                ? "warning"
+                : "neutral"
+          }
+          href="/alerts"
+          loading={alertsQuery.isLoading}
+        />
+        <Metric
           label="Sessions · 24h"
           value={summary?.sessions.last24h}
           hint={
@@ -247,34 +278,76 @@ function Overview() {
       <div className="grid gap-6 lg:grid-cols-2">
         <SectionCard
           title="Needs attention"
-          description="Enrolled devices that are unreachable or have a service down."
+          description="Open alerts, then devices that are unreachable or have a service down."
           contentClassName="p-0"
           actions={
             <Button variant="ghost" size="sm" asChild>
-              <Link href="/devices?f.connectivity=offline%2Cnever">
+              <Link
+                href={
+                  alertSummary && alertSummary.open > 0
+                    ? "/alerts"
+                    : "/devices?f.connectivity=offline%2Cnever"
+                }
+              >
                 View all
                 <ArrowRightIcon />
               </Link>
             </Button>
           }
         >
-          {loading ? (
+          {loading || alertsQuery.isLoading ? (
             <div className="flex flex-col gap-3 p-6">
               <Skeleton className="h-5 w-3/4" />
               <Skeleton className="h-5 w-2/3" />
               <Skeleton className="h-5 w-1/2" />
             </div>
-          ) : !summary || summary.attention.length === 0 ? (
+          ) : (!summary || summary.attention.length === 0) &&
+            (!alertSummary || alertSummary.items.length === 0) ? (
             <div className="p-6">
               <EmptyState
                 title="All clear"
-                description="Every enrolled device is reachable and its services are up."
+                description="No open alerts, and every enrolled device is reachable."
                 bordered={false}
               />
             </div>
           ) : (
             <ul className="divide-y">
-              {summary.attention.map((device) => (
+              {alertSummary?.items.map((alert) => (
+                <li key={alert.id}>
+                  <Link
+                    href={
+                      alert.deviceId
+                        ? `/devices/${alert.deviceId}?tab=network`
+                        : `/alerts?f.kind=${encodeURIComponent(alert.kind)}`
+                    }
+                    className="flex items-center justify-between gap-3 px-6 py-3 text-sm transition-colors hover:bg-muted/40"
+                  >
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <SeverityBadge severity={alert.severity} compact />
+                        <span className="truncate font-medium">
+                          {alert.title}
+                        </span>
+                      </div>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {kindLabel(alert.kind)}
+                        {alert.deviceName ? ` · ${alert.deviceName}` : ""}
+                        {alert.siteName ? ` · ${alert.siteName}` : ""}
+                        {alert.occurrences > 1
+                          ? ` · ${alert.occurrences} times`
+                          : ""}
+                      </span>
+                    </div>
+                    <span
+                      className="shrink-0 text-xs text-muted-foreground"
+                      title={formatDate(alert.lastSeenAt)}
+                    >
+                      {formatRelativeTime(alert.lastSeenAt)}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+              {summary?.attention.map((device) => (
                 <li key={device.id}>
                   <Link
                     href={`/devices/${device.id}`}
@@ -310,7 +383,7 @@ function Overview() {
           actions={
             canViewAudit ? (
               <Button variant="ghost" size="sm" asChild>
-                <Link href="/audit">
+                <Link href="/activity">
                   Activity log
                   <ArrowRightIcon />
                 </Link>

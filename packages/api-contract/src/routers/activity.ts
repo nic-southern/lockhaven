@@ -99,9 +99,13 @@ const sortColumns = {
   eventType: auditEvents.eventType,
   severity: sql`case ${auditEvents.severity} when 'critical' then 0 when 'warning' then 1 when 'notice' then 2 else 3 end`,
   actorName: user.name,
+  actorUserId: user.name,
   organizationName: organizations.name,
+  organizationId: organizations.name,
   siteName: sites.name,
+  siteId: sites.name,
   deviceName: devices.displayName,
+  deviceId: devices.displayName,
 }
 
 function auditBase(ctx: ApiContext) {

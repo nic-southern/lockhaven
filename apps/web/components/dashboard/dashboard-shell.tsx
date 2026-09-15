@@ -4,6 +4,8 @@ import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
+  ActivityIcon,
+  BellRingIcon,
   CableIcon,
   ChevronDownIcon,
   KeyRoundIcon,
@@ -12,8 +14,8 @@ import {
   MapPinIcon,
   MenuIcon,
   MonitorIcon,
+  NetworkIcon,
   RouteIcon,
-  ScrollTextIcon,
   ShieldIcon,
   UserRoundIcon,
   UsersIcon,
@@ -89,11 +91,29 @@ const navSections: NavSection[] = [
         icon: CableIcon,
         permissions: ["device:view"],
       },
+      {
+        href: "/alerts",
+        label: "Alerts",
+        icon: BellRingIcon,
+        permissions: ["device:view"],
+      },
+      {
+        href: "/activity",
+        label: "Activity",
+        icon: ActivityIcon,
+        permissions: ["audit:view"],
+      },
     ],
   },
   {
     label: "Network",
     items: [
+      {
+        href: "/network",
+        label: "Connections",
+        icon: NetworkIcon,
+        permissions: ["device:view"],
+      },
       {
         href: "/admin-vpn",
         label: "Admin VPN",
@@ -126,12 +146,6 @@ const navSections: NavSection[] = [
         icon: UsersIcon,
         requiresUserManagement: true,
         scopes: ["admin"],
-      },
-      {
-        href: "/audit",
-        label: "Audit",
-        icon: ScrollTextIcon,
-        permissions: ["audit:view"],
       },
     ],
   },

@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   type ColumnDef,
   type ColumnFiltersState,
+  type ExpandedState,
   type OnChangeFn,
   type PaginationState,
   type Row,
@@ -20,6 +21,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
+import { ChevronRightIcon } from "lucide-react"
 
 import { Checkbox } from "@/components/ui/checkbox"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -93,6 +95,11 @@ export type DataTableProps<TData, TValue> = {
     table: TanstackTable<TData>
   ) => React.ReactNode
   onRowClick?: (row: TData) => void
+  /**
+   * Provide to make rows expandable. Clicking a row (or its chevron) toggles
+   * a full-width detail row rendered by this function.
+   */
+  renderExpanded?: (row: TData) => React.ReactNode
   rowClassName?: (row: TData) => string | undefined
   isRowActive?: (row: TData) => boolean
   emptyTitle?: string
@@ -141,6 +148,7 @@ export function DataTable<TData, TValue>({
   onRowSelectionChange,
   bulkActions,
   onRowClick,
+  renderExpanded,
   rowClassName,
   isRowActive,
   emptyTitle = "Nothing here yet",
@@ -169,8 +177,24 @@ export function DataTable<TData, TValue>({
   const [internalRowSelection, setInternalRowSelection] =
     React.useState<RowSelectionState>({})
   const [internalSearch, setInternalSearch] = React.useState("")
+  const [expanded, setExpanded] = React.useState<ExpandedState>({})
 
   const isServer = Boolean(server)
+  const expandable = typeof renderExpanded === "function"
+
+  // Server mode swaps the whole row set on navigation, so stale expansion
+  // keys would point at rows that no longer exist.
+  const serverViewKey = server
+    ? JSON.stringify([
+        server.pagination,
+        server.sorting,
+        server.columnFilters,
+        search ?? "",
+      ])
+    : null
+  React.useEffect(() => {
+    setExpanded({})
+  }, [serverViewKey])
   const rowSelection = controlledRowSelection ?? internalRowSelection
   const handleRowSelectionChange =
     onRowSelectionChange ?? setInternalRowSelection
@@ -192,8 +216,40 @@ export function DataTable<TData, TValue>({
       return column
     })
 
+    const leading: ColumnDef<TData, TValue>[] = []
+
+    if (expandable) {
+      leading.push({
+        id: "__expand",
+        header: () => <span className="sr-only">Details</span>,
+        cell: ({ row }) => (
+          <button
+            type="button"
+            className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label={row.getIsExpanded() ? "Hide details" : "Show details"}
+            aria-expanded={row.getIsExpanded()}
+            onClick={(event) => {
+              event.stopPropagation()
+              row.toggleExpanded()
+            }}
+          >
+            <ChevronRightIcon
+              className={cn(
+                "size-4 transition-transform",
+                row.getIsExpanded() && "rotate-90"
+              )}
+            />
+          </button>
+        ),
+        enableSorting: false,
+        enableHiding: false,
+        size: 36,
+        meta: { className: "w-9 pr-0" },
+      })
+    }
+
     if (!enableRowSelection) {
-      return base
+      return leading.length > 0 ? [...leading, ...base] : base
     }
 
     const selectColumn: ColumnDef<TData, TValue> = {
@@ -225,8 +281,8 @@ export function DataTable<TData, TValue>({
       meta: { className: "w-10 pr-0" },
     }
 
-    return [selectColumn, ...base]
-  }, [columns, enableRowSelection, facetColumnIds])
+    return [...leading, selectColumn, ...base]
+  }, [columns, enableRowSelection, expandable, facetColumnIds])
 
   const table = useReactTable<TData>({
     data: data ?? EMPTY_ROWS,
@@ -238,9 +294,13 @@ export function DataTable<TData, TValue>({
       columnVisibility,
       pagination: server ? server.pagination : pagination,
       rowSelection,
+      expanded,
       globalFilter: isServer ? undefined : searchValue,
     },
     enableRowSelection,
+    enableExpanding: expandable,
+    getRowCanExpand: expandable ? () => true : undefined,
+    onExpandedChange: setExpanded,
     onSortingChange: server ? server.onSortingChange : setSorting,
     onColumnFiltersChange: server
       ? server.onColumnFiltersChange
@@ -385,41 +445,57 @@ export function DataTable<TData, TValue>({
             ) : (
               rows.map((row) => {
                 const active = isRowActive?.(row.original) ?? false
+                const isExpanded = expandable && row.getIsExpanded()
+                const handleRowClick = onRowClick
+                  ? () => onRowClick(row.original)
+                  : expandable
+                    ? () => row.toggleExpanded()
+                    : undefined
                 return (
-                  <TableRow
-                    key={row.id}
-                    data-state={
-                      row.getIsSelected()
-                        ? "selected"
-                        : active
-                          ? "active"
-                          : undefined
-                    }
-                    className={cn(
-                      onRowClick && "cursor-pointer",
-                      active && "bg-muted/60",
-                      rowClassName?.(row.original)
-                    )}
-                    onClick={
-                      onRowClick ? () => onRowClick(row.original) : undefined
-                    }
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className={cn(
-                          cell.column.columnDef.meta?.className,
-                          cell.column.columnDef.meta?.align === "right" &&
-                            "text-right"
-                        )}
+                  <React.Fragment key={row.id}>
+                    <TableRow
+                      data-state={
+                        row.getIsSelected()
+                          ? "selected"
+                          : active || isExpanded
+                            ? "active"
+                            : undefined
+                      }
+                      className={cn(
+                        handleRowClick && "cursor-pointer",
+                        (active || isExpanded) && "bg-muted/60",
+                        isExpanded && "border-b-0",
+                        rowClassName?.(row.original)
+                      )}
+                      onClick={handleRowClick}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={cn(
+                            cell.column.columnDef.meta?.className,
+                            cell.column.columnDef.meta?.align === "right" &&
+                              "text-right"
+                          )}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    {isExpanded ? (
+                      <TableRow
+                        data-state="expanded"
+                        className="bg-muted/30 hover:bg-muted/30"
                       >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
-                  </TableRow>
+                        <TableCell colSpan={visibleColumnCount} className="p-0">
+                          {renderExpanded(row.original)}
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </React.Fragment>
                 )
               })
             )}
