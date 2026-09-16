@@ -25,6 +25,9 @@ import {
   type AlertKind,
   type AlertStatus,
   type AuditSeverity,
+  type NotificationChannelType,
+  type NotificationDeliveryEvent,
+  type NotificationDeliveryStatus,
   type ConnectionDirection,
   type ConnectionProtocol,
   type ConnectionVerdict,
@@ -852,6 +855,96 @@ export const connectionDaily = pgTable(
   })
 )
 
+export const notificationChannels = pgTable(
+  "notification_channels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: text("type").$type<NotificationChannelType>().notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    config: jsonb("config")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    minSeverity: text("min_severity")
+      .$type<AuditSeverity>()
+      .notNull()
+      .default("info"),
+    alertKinds: jsonb("alert_kinds")
+      .$type<AlertKind[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    siteIds: jsonb("site_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationIdx: index("notification_channels_organization_idx").on(
+      table.organizationId
+    ),
+  })
+)
+
+export const notificationDeliveries = pgTable(
+  "notification_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => notificationChannels.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    alertId: uuid("alert_id").references(() => alerts.id, {
+      onDelete: "set null",
+    }),
+    event: text("event").$type<NotificationDeliveryEvent>().notNull(),
+    status: text("status")
+      .$type<NotificationDeliveryStatus>()
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastResponse: text("last_response"),
+    payload: jsonb("payload")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (table) => ({
+    dueIdx: index("notification_deliveries_due_idx").on(
+      table.status,
+      table.nextAttemptAt
+    ),
+    organizationCreatedIdx: index(
+      "notification_deliveries_organization_created_idx"
+    ).on(table.organizationId, table.createdAt),
+    channelCreatedIdx: index("notification_deliveries_channel_created_idx").on(
+      table.channelId,
+      table.createdAt
+    ),
+  })
+)
+
 export type Organization = typeof organizations.$inferSelect
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
@@ -875,6 +968,8 @@ export type RemoteSession = typeof remoteSessions.$inferSelect
 export type AuditEvent = typeof auditEvents.$inferSelect
 export type VpnPeerSample = typeof vpnPeerSamples.$inferSelect
 export type Alert = typeof alerts.$inferSelect
+export type NotificationChannel = typeof notificationChannels.$inferSelect
+export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
 export type ConnectionEvent = typeof connectionEvents.$inferSelect
 export type ConnectionDailyRow = typeof connectionDaily.$inferSelect
 

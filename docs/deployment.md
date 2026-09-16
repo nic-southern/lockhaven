@@ -77,7 +77,7 @@ Copy [`deploy/production.compose.yml`](../deploy/production.compose.yml) into
 the `deploy` directory, then create `.env.deploy` beside it. Start from
 `/.env.example`, set `APP_ENV=production`, and include production values for
 hostnames, secrets, database passwords, admin credentials, `PRODUCT_NAME`,
-`WEB_IMAGE`, and `WORKER_IMAGE`.
+`MAIL_FROM`, `RESEND_API_KEY` or `SMTP_URL`, `WEB_IMAGE`, and `WORKER_IMAGE`.
 
 You can use the published Lockhaven images directly; build and publish your own
 images only when customizing the app. Point `WEB_IMAGE` and `WORKER_IMAGE` at
@@ -121,6 +121,22 @@ Optional worker settings:
 
 Both deploy scripts, Terraform, and the auto-deploy job run the installer; it is
 idempotent and only restarts `ulogd2` when its config changes.
+
+### Outbound mail
+
+Invitations, password resets, and alert messages are sent through the Hub:
+
+- `MAIL_FROM` — From address, for example `Lockhaven <noreply@example.com>`.
+- `RESEND_API_KEY` — preferred provider. When set, the Hub uses Resend.
+- `SMTP_URL` — fallback when `RESEND_API_KEY` is empty, for example
+  `smtps://user:pass@smtp.example.com:465`.
+
+Leave both provider variables empty to skip delivery. Invitations still create a
+one-time link that an administrator can copy from the Console.
+
+Webhook channels POST a versioned JSON body and sign it with
+`X-Lockhaven-Signature: sha256=…` over `{timestamp}.{body}`, using
+`X-Lockhaven-Timestamp` and the per-channel secret shown once at creation.
 
 ### Production Expectations
 

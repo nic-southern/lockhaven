@@ -53,6 +53,7 @@ import {
   pruneConnectionHistory,
   rollupConnections,
 } from "./flows"
+import { processNotificationDeliveries } from "./notify"
 import { PeerStateStore, type StoredPeerState } from "./peer-state"
 import { refreshRemoteSessions } from "./sessions"
 
@@ -763,6 +764,7 @@ const schedules: Array<{ name: string; everyMs: number }> = [
   { name: "refresh-services", everyMs: 30_000 },
   { name: "refresh-sessions", everyMs: 15_000 },
   { name: "flow-ingest", everyMs: 15_000 },
+  { name: "notify", everyMs: 15_000 },
   { name: "rollup-connections", everyMs: 10 * 60 * 1000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ]
@@ -825,6 +827,9 @@ async function main() {
           break
         case "flow-ingest":
           await ingestFlows(flowCursorStore)
+          break
+        case "notify":
+          await processNotificationDeliveries()
           break
         case "rollup-connections":
           await rollupConnections()

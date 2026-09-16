@@ -14,6 +14,11 @@ import type {} from "@simplewebauthn/server"
 import { MIN_PASSWORD_LENGTH } from "@nms/shared"
 import { db } from "@nms/db/client"
 import * as schema from "@nms/db/schema"
+import {
+  getProductName as mailProductName,
+  renderPasswordResetEmail,
+  sendTransactionalMail,
+} from "@nms/notifications"
 
 import { recordAuthEvent, requestContextFromHeaders } from "./audit"
 import { hashPassword, verifyPassword } from "./password"
@@ -158,6 +163,24 @@ export const auth = betterAuth({
     minPasswordLength: MIN_PASSWORD_LENGTH,
     maxPasswordLength: 256,
     revokeSessionsOnPasswordReset: true,
+    resetPasswordTokenExpiresIn: 60 * 60,
+    sendResetPassword: async ({ user, url }) => {
+      const mail = renderPasswordResetEmail({
+        resetUrl: url,
+        productName: mailProductName(),
+      })
+      const sent = await sendTransactionalMail({
+        to: user.email,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      })
+      if (!sent) {
+        console.warn("password reset mail was not delivered", {
+          userId: user.id,
+        })
+      }
+    },
     password: {
       hash: hashPassword,
       verify: ({ password, hash }) => verifyPassword(password, hash),

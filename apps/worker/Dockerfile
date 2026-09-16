@@ -11,6 +11,7 @@ COPY packages/api-contract/package.json packages/api-contract/package.json
 COPY packages/auth/package.json packages/auth/package.json
 COPY packages/vpn/package.json packages/vpn/package.json
 COPY packages/remote-access/package.json packages/remote-access/package.json
+COPY packages/notifications/package.json packages/notifications/package.json
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS build

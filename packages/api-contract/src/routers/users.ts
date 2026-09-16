@@ -43,6 +43,12 @@ import {
   userInviteSchema,
   type PlatformRole,
 } from "@nms/shared"
+import {
+  getAppBaseUrl,
+  getProductName,
+  inviteMailFromToken,
+  sendTransactionalMail,
+} from "@nms/notifications"
 
 import { manageableOrganizationIds } from "../access"
 import { writeAuditEvent } from "../audit"
@@ -606,10 +612,29 @@ export const usersRouter = createTRPCRouter({
         },
       })
 
+      let emailSent = false
+      try {
+        const mail = inviteMailFromToken({
+          name: input.name,
+          token,
+          baseUrl: getAppBaseUrl(),
+          productName: getProductName(),
+        })
+        emailSent = await sendTransactionalMail({
+          to: email,
+          subject: mail.subject,
+          text: mail.text,
+          html: mail.html,
+        })
+      } catch (error) {
+        console.error("invite mail failed", error)
+      }
+
       return {
         invitationId: invitation.id,
         token,
         expiresAt,
+        emailSent,
       }
     }),
 

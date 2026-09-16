@@ -150,6 +150,13 @@
       "breakpoints": true
     },
     {
+      "idx": 21,
+      "version": "7",
+      "when": 1781400000000,
+      "tag": "0021_notification_channels",
+      "breakpoints": true
+    },
+    {
       "idx": 40,
       "version": "7",
       "when": 1781400000000,

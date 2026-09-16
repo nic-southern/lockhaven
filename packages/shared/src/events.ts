@@ -45,6 +45,9 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   route_policy_deleted: "notice",
   route_policy_devices_reassigned: "notice",
   alert_raised: "warning",
+  notification_channel_created: "notice",
+  notification_channel_updated: "notice",
+  notification_channel_deleted: "notice",
 }
 
 /** Default severity for an event type; explicit overrides win at write time. */
@@ -88,6 +91,34 @@ export const alertKindDefaultSeverity: Record<AlertKind, AuditSeverity> = {
   concentrator_probe: "warning",
   check_in_secret_mismatch: "critical",
 }
+
+export const notificationChannelTypes = ["email", "webhook"] as const
+export type NotificationChannelType = (typeof notificationChannelTypes)[number]
+export const notificationChannelTypeSchema = z.enum(notificationChannelTypes)
+
+export const notificationDeliveryEvents = [
+  "alert.opened",
+  "alert.resolved",
+  "alert.escalated",
+  "channel.test",
+] as const
+export type NotificationDeliveryEvent =
+  (typeof notificationDeliveryEvents)[number]
+export const notificationDeliveryEventSchema = z.enum(
+  notificationDeliveryEvents
+)
+
+export const notificationDeliveryStatuses = [
+  "pending",
+  "sending",
+  "sent",
+  "failed",
+] as const
+export type NotificationDeliveryStatus =
+  (typeof notificationDeliveryStatuses)[number]
+export const notificationDeliveryStatusSchema = z.enum(
+  notificationDeliveryStatuses
+)
 
 /** Hours a device must be silent before an offline alert opens. */
 export const DEVICE_OFFLINE_ALERT_HOURS = 24

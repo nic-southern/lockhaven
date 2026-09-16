@@ -27,6 +27,7 @@
       "@nms/auth/server": ["./packages/auth/src/server"],
       "@nms/vpn": ["./packages/vpn/src/index"],
       "@nms/remote-access": ["./packages/remote-access/src/index"],
+      "@nms/notifications": ["./packages/notifications/src/index"],
       "@nms/web/*": ["./apps/web/*"],
       "@nms/worker/*": ["./apps/worker/*"],
       "@nms/db/*": ["./packages/db/*"],
@@ -34,7 +35,8 @@
       "@nms/api-contract/*": ["./packages/api-contract/*"],
       "@nms/auth/*": ["./packages/auth/*"],
       "@nms/vpn/*": ["./packages/vpn/*"],
-      "@nms/remote-access/*": ["./packages/remote-access/*"]
+      "@nms/remote-access/*": ["./packages/remote-access/*"],
+      "@nms/notifications/*": ["./packages/notifications/*"]
     }
   }
 }

@@ -136,6 +136,8 @@ Key `.env.stage` values:
 - `ACME_EMAIL` - contact email used for certificate issuance.
 - `ADMIN_EMAIL` and `ADMIN_PASSWORD` - admin account refreshed after each
   production deploy.
+- `MAIL_FROM` plus `RESEND_API_KEY` or `SMTP_URL` - outbound invitations,
+  password resets, and alert messages.
 - `DO_TOKEN` - DigitalOcean API token, or export the same value as
   `TF_VAR_do_token`.
 
@@ -211,10 +213,12 @@ Compose file and containers need:
 - `DATABASE_URL` and `REDIS_URL`
 - `POSTGRES_PASSWORD` and `GUACAMOLE_DB_PASSWORD`
 - `BETTER_AUTH_SECRET` and `REMOTE_CREDENTIALS_KEY`
+- `MAIL_FROM`, plus `RESEND_API_KEY` or `SMTP_URL`
 - `VPN_PUBLIC_HOSTNAME`, `VPN_PUBLIC_PORT`, `VPN_SERVER_IP`,
   `VPN_DEFAULT_ALLOWED_IPS`, `WIREGUARD_INTERFACE`, and `VPNCTL_PATH`
 - `REMOTE_ACCESS_PROVIDER`
 - `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`, and `ADMIN_ROLE`
+- `MAIL_FROM`, plus `RESEND_API_KEY` or `SMTP_URL` for outbound mail
 - `WEB_IMAGE` and `WORKER_IMAGE`
 
 You can use the published Lockhaven images directly; you only need to build and

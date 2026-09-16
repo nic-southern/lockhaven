@@ -3,7 +3,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { buildContentSecurityPolicy } from "@/lib/security-headers"
 
-const PUBLIC_PREFIXES = ["/sign-in", "/accept-invite"]
+const PUBLIC_PREFIXES = ["/sign-in", "/accept-invite", "/reset-password"]
 const SECURITY_SETUP_PATH = "/setup-security"
 const CSP_HEADER = "Content-Security-Policy"
 

@@ -12,6 +12,7 @@
   "dependencies": {
     "@nms/api-contract": "workspace:*",
     "@nms/db": "workspace:*",
+    "@nms/notifications": "workspace:*",
     "@nms/remote-access": "workspace:*",
     "@nms/shared": "workspace:*",
     "@nms/vpn": "workspace:*",

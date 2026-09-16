@@ -70,7 +70,10 @@ export function InviteUserDialog({
   )
   const [defaultSiteRole, setDefaultSiteRole] =
     React.useState<SiteRole>("technician")
-  const [result, setResult] = React.useState<{ token: string } | null>(null)
+  const [result, setResult] = React.useState<{
+    token: string
+    emailSent: boolean
+  } | null>(null)
   const [copied, setCopied] = React.useState(false)
 
   const organizations = organizationsQuery.data ?? []
@@ -119,7 +122,10 @@ export function InviteUserDialog({
             : organizationRole,
         siteGrants: isPlatformWide ? [] : grants,
       })
-      setResult({ token: response.token })
+      setResult({
+        token: response.token,
+        emailSent: response.emailSent,
+      })
       onInvited?.()
     } catch (error) {
       toast.error(
@@ -156,9 +162,9 @@ export function InviteUserDialog({
             <DialogHeader>
               <DialogTitle>Invitation ready</DialogTitle>
               <DialogDescription>
-                Share this link with {name.trim() || email}. It works once and
-                expires in 7 days. They&apos;ll create a password and set up
-                two-step verification when they open it.
+                {result.emailSent
+                  ? `We sent an invitation to ${email}. You can also copy the link below. It works once and expires in 7 days.`
+                  : `Share this link with ${name.trim() || email}. It works once and expires in 7 days. They'll create a password and set up two-step verification when they open it.`}
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-3">
@@ -392,7 +398,7 @@ export function InviteUserDialog({
               </Button>
               <Button type="submit" disabled={!canSubmit || invite.isPending}>
                 <MailPlusIcon />
-                {invite.isPending ? "Creating…" : "Create invitation"}
+                {invite.isPending ? "Sending…" : "Send invitation"}
               </Button>
             </DialogFooter>
           </form>
