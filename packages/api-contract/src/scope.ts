@@ -86,3 +86,34 @@ export function eventScopeCondition(
 export function combineConditions(conditions: Array<SQL | undefined>) {
   return conditions.filter((entry): entry is SQL => Boolean(entry))
 }
+
+/**
+ * Org/site scope for inventory rows that are not devices (assets, and similar).
+ * Organization memberships cover the whole org; site memberships add those sites.
+ */
+export function inventoryScopeCondition(
+  actor: ActorPrincipal | null,
+  columns: { organizationId: AnyPgColumn; siteId: AnyPgColumn }
+): ScopeCondition {
+  const organizationIds = actorOrganizationIds(actor)
+  const siteIds = actorSiteIds(actor) ?? []
+
+  if (organizationIds === null) {
+    return { kind: "all" }
+  }
+
+  const filters: SQL[] = []
+  if (organizationIds.length > 0) {
+    filters.push(inArray(columns.organizationId, organizationIds))
+  }
+  if (siteIds.length > 0) {
+    filters.push(inArray(columns.siteId, siteIds))
+  }
+
+  if (filters.length === 0) {
+    return { kind: "none" }
+  }
+
+  const condition = filters.length === 1 ? filters[0] : or(...filters)
+  return condition ? { kind: "where", condition } : { kind: "none" }
+}

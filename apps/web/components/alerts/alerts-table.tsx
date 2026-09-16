@@ -323,6 +323,19 @@ export function AlertsTable({
                 {row.original.siteName ?? row.original.organizationName ?? "—"}
               </span>
             </div>
+          ) : row.original.assetId ? (
+            <div className="flex min-w-0 flex-col">
+              <Link
+                href={`/assets?id=${row.original.assetId}`}
+                className="truncate hover:underline"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {row.original.assetTag ?? "Asset"}
+              </Link>
+              <span className="truncate text-xs text-muted-foreground">
+                {row.original.siteName ?? row.original.organizationName ?? "—"}
+              </span>
+            </div>
           ) : (
             <span className="text-sm text-muted-foreground">
               {row.original.siteName ??

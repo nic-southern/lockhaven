@@ -28,6 +28,10 @@ export type RestV1Caller = {
   audit: {
     page: (input?: Record<string, unknown>) => Promise<unknown>
   }
+  assets: {
+    page: (input?: Record<string, unknown>) => Promise<unknown>
+    byId: (input: { id: string }) => Promise<unknown>
+  }
 }
 
 export type RestV1Result = {
@@ -240,6 +244,27 @@ export async function dispatchRestV1(options: {
       listQueryFromSearch(options.searchParams)
     )
     return { status: 200, body: page }
+  }
+
+  if (method === "GET" && path.length === 1 && path[0] === "assets") {
+    const page = await options.caller.assets.page(
+      listQueryFromSearch(options.searchParams)
+    )
+    return { status: 200, body: page }
+  }
+
+  if (
+    method === "GET" &&
+    path.length === 2 &&
+    path[0] === "assets" &&
+    path[1] &&
+    isUuid(path[1])
+  ) {
+    const asset = await options.caller.assets.byId({ id: path[1] })
+    if (!asset) {
+      return { status: 404, body: { error: "Asset not found." } }
+    }
+    return { status: 200, body: asset }
   }
 
   return { status: 404, body: { error: "Not found." } }

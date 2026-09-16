@@ -28,7 +28,7 @@ import { ServicesTab } from "@/components/devices/detail/services-tab"
 import { SettingsTab } from "@/components/devices/detail/settings-tab"
 import { SoftwareTab } from "@/components/devices/detail/software-tab"
 import { type DeviceTab, isDeviceTab } from "@/components/devices/detail/shared"
-import { statusLabel, statusVariant } from "@/lib/dashboard"
+import { statusLabel, statusVariant, formatRelativeTime } from "@/lib/dashboard"
 import { osFamilyLabel } from "@/lib/devices"
 import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
@@ -196,7 +196,22 @@ function DeviceDetail() {
                   />
                 </>
               ) : null}
+              {device.assetTag ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <Link href="/assets" className="hover:underline">
+                    Asset {device.assetTag}
+                  </Link>
+                </>
+              ) : null}
             </div>
+            {device.lastTouched ? (
+              <p className="text-xs text-muted-foreground">
+                Last touched by{" "}
+                {device.lastTouched.name || device.lastTouched.email} ·{" "}
+                {formatRelativeTime(device.lastTouched.at)}
+              </p>
+            ) : null}
             {device.tags.length > 0 ? (
               <TagChips
                 tags={device.tags}

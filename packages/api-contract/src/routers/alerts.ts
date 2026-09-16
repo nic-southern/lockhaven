@@ -15,7 +15,7 @@ import {
 import { alias } from "drizzle-orm/pg-core"
 import { z } from "zod"
 
-import { alerts, devices, organizations, sites, user } from "@nms/db"
+import { alerts, assets, devices, organizations, sites, user } from "@nms/db"
 import { alertKindLabels, isAlertSnoozed, type AlertKind } from "@nms/shared"
 
 import { assertAuthorized, requireActor } from "../access"
@@ -141,6 +141,8 @@ function alertBase(ctx: ApiContext) {
       deviceId: alerts.deviceId,
       deviceName: devices.displayName,
       deviceHostname: devices.hostname,
+      assetId: alerts.assetId,
+      assetTag: assets.tag,
       acknowledgedAt: alerts.acknowledgedAt,
       acknowledgedByName: acknowledgedBy.name,
       acknowledgedByEmail: acknowledgedBy.email,
@@ -154,6 +156,7 @@ function alertBase(ctx: ApiContext) {
     })
     .from(alerts)
     .leftJoin(devices, eq(devices.id, alerts.deviceId))
+    .leftJoin(assets, eq(assets.id, alerts.assetId))
     .leftJoin(sites, eq(sites.id, alerts.siteId))
     .leftJoin(organizations, eq(organizations.id, alerts.organizationId))
     .leftJoin(

@@ -11,6 +11,7 @@ import {
   CableIcon,
   CalendarClockIcon,
   ChevronDownIcon,
+  PackageIcon,
   FileBarChartIcon,
   KeyRoundIcon,
   KeySquareIcon,
@@ -26,6 +27,7 @@ import {
   ShieldCheckIcon,
   ShieldIcon,
   SlidersHorizontalIcon,
+  TagIcon,
   UserRoundIcon,
   UsersIcon,
   type LucideIcon,
@@ -93,6 +95,12 @@ const navSections: NavSection[] = [
         href: "/fleet",
         label: "Fleet",
         icon: BoxesIcon,
+        permissions: ["device:view"],
+      },
+      {
+        href: "/assets",
+        label: "Assets",
+        icon: PackageIcon,
         permissions: ["device:view"],
       },
       {
@@ -213,6 +221,13 @@ const navSections: NavSection[] = [
         href: "/settings/alerts",
         label: "Alert policies",
         icon: SlidersHorizontalIcon,
+        permissions: ["organization:admin"],
+        scopes: ["admin"],
+      },
+      {
+        href: "/settings/fields",
+        label: "Custom fields",
+        icon: TagIcon,
         permissions: ["organization:admin"],
         scopes: ["admin"],
       },
@@ -668,6 +683,7 @@ function ShellContent({
                 />
               ) : null}
               {vpnStatus}
+              <ThemeToggle />
               <UserMenu
                 label={userLabel}
                 email={userEmail}

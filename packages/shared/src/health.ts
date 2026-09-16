@@ -22,6 +22,7 @@ export const WORKER_JOB_SCHEDULES = [
   { name: "rollup-uptime", everyMs: 60 * 60 * 1000 },
   { name: "send-report-schedules", everyMs: 60 * 60 * 1000 },
   { name: "evaluate-agent-versions", everyMs: 60_000 },
+  { name: "evaluate-warranties", everyMs: 60 * 60 * 1000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ] as const
 

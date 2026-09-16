@@ -124,6 +124,22 @@ export function OverviewTab({
                 mono: true,
               },
               {
+                label: "Asset",
+                value: device.assetTag ? (
+                  <span>{device.assetTag}</span>
+                ) : (
+                  <span className="text-muted-foreground">Not linked</span>
+                ),
+              },
+              {
+                label: "Notes",
+                value: device.notes ? (
+                  <span className="whitespace-pre-wrap">{device.notes}</span>
+                ) : (
+                  <span className="text-muted-foreground">None</span>
+                ),
+              },
+              {
                 label: "Agent version",
                 value: device.agentVersion,
                 mono: true,

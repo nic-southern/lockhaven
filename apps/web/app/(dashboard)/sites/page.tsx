@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { CsvImportDialog } from "@/components/dashboard/csv-import-dialog"
 import { CodeBlock } from "@/components/dashboard/code-block"
 import {
   DataTable,
@@ -55,11 +56,24 @@ export default function SitesPage() {
   const [createName, setCreateName] = React.useState("")
   const [createTimezone, setCreateTimezone] = React.useState("")
   const [createNotes, setCreateNotes] = React.useState("")
+  const [createAddress, setCreateAddress] = React.useState("")
+  const [createContactName, setCreateContactName] = React.useState("")
+  const [createContactEmail, setCreateContactEmail] = React.useState("")
+  const [createContactPhone, setCreateContactPhone] = React.useState("")
   const [editName, setEditName] = React.useState("")
   const [editTimezone, setEditTimezone] = React.useState("")
   const [editNotes, setEditNotes] = React.useState("")
+  const [editAddress, setEditAddress] = React.useState("")
+  const [editContactName, setEditContactName] = React.useState("")
+  const [editContactEmail, setEditContactEmail] = React.useState("")
+  const [editContactPhone, setEditContactPhone] = React.useState("")
+  const [editWeekdaysOpen, setEditWeekdaysOpen] = React.useState("09:00")
+  const [editWeekdaysClose, setEditWeekdaysClose] = React.useState("17:00")
+  const [editWeekdaysEnabled, setEditWeekdaysEnabled] = React.useState(false)
   const [editRequireReason, setEditRequireReason] = React.useState(false)
   const [editRequireApproval, setEditRequireApproval] = React.useState(false)
+  const [importOpen, setImportOpen] = React.useState(false)
+  const [importOrgId, setImportOrgId] = React.useState("")
 
   const createSite = trpc.sites.create.useMutation({
     async onSuccess() {
@@ -70,6 +84,10 @@ export default function SitesPage() {
       setCreateName("")
       setCreateTimezone("")
       setCreateNotes("")
+      setCreateAddress("")
+      setCreateContactName("")
+      setCreateContactEmail("")
+      setCreateContactPhone("")
       toast.success("Site created")
     },
     onError() {
@@ -104,11 +122,14 @@ export default function SitesPage() {
     },
   })
 
+  const importCsv = trpc.sites.importCsv.useMutation()
+
   const sites = React.useMemo(() => sitesQuery.data ?? [], [sitesQuery.data])
   const organizations = React.useMemo(
     () => organizationsQuery.data ?? [],
     [organizationsQuery.data]
   )
+  const resolvedImportOrgId = importOrgId || organizations[0]?.id || ""
   const devices = React.useMemo(
     () => devicesQuery.data ?? [],
     [devicesQuery.data]
@@ -146,6 +167,15 @@ export default function SitesPage() {
       setEditName(selectedSite.name)
       setEditTimezone(selectedSite.timezone ?? "")
       setEditNotes(selectedSite.notes ?? "")
+      setEditAddress(selectedSite.address ?? "")
+      const contact = selectedSite.contacts?.[0]
+      setEditContactName(contact?.name ?? "")
+      setEditContactEmail(contact?.email ?? "")
+      setEditContactPhone(contact?.phone ?? "")
+      const weekdays = selectedSite.businessHours?.weekdays
+      setEditWeekdaysEnabled(Boolean(weekdays))
+      setEditWeekdaysOpen(weekdays?.open ?? "09:00")
+      setEditWeekdaysClose(weekdays?.close ?? "17:00")
       setEditRequireReason(Boolean(selectedSite.requireAccessReason))
       setEditRequireApproval(Boolean(selectedSite.requireApproval))
     }
@@ -269,6 +299,11 @@ export default function SitesPage() {
         badge="Sites"
         title="Locations"
         description="Create and update sites, then assign devices to the right location."
+        actions={
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            Import
+          </Button>
+        }
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
@@ -312,6 +347,35 @@ export default function SitesPage() {
               onChange={(event) => setCreateNotes(event.target.value)}
             />
           </FormField>
+          <FormField label="Address" htmlFor="site-create-address">
+            <Textarea
+              id="site-create-address"
+              value={createAddress}
+              onChange={(event) => setCreateAddress(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Contact" htmlFor="site-create-contact">
+            <Input
+              id="site-create-contact"
+              value={createContactName}
+              onChange={(event) => setCreateContactName(event.target.value)}
+              placeholder="Name"
+            />
+          </FormField>
+          <FormField label="Contact email" htmlFor="site-create-email">
+            <Input
+              id="site-create-email"
+              value={createContactEmail}
+              onChange={(event) => setCreateContactEmail(event.target.value)}
+            />
+          </FormField>
+          <FormField label="Contact phone" htmlFor="site-create-phone">
+            <Input
+              id="site-create-phone"
+              value={createContactPhone}
+              onChange={(event) => setCreateContactPhone(event.target.value)}
+            />
+          </FormField>
           <Button
             className="w-full sm:w-fit"
             onClick={() => {
@@ -320,6 +384,16 @@ export default function SitesPage() {
                 name: createName,
                 timezone: createTimezone || null,
                 notes: createNotes || null,
+                address: createAddress || null,
+                contacts: createContactName
+                  ? [
+                      {
+                        name: createContactName,
+                        email: createContactEmail || null,
+                        phone: createContactPhone || null,
+                      },
+                    ]
+                  : [],
               })
             }}
             disabled={
@@ -403,6 +477,74 @@ export default function SitesPage() {
                 onChange={(event) => setEditNotes(event.target.value)}
               />
             </FormField>
+            <FormField
+              label="Address"
+              htmlFor="site-edit-address"
+              className="md:col-span-2"
+            >
+              <Textarea
+                id="site-edit-address"
+                value={editAddress}
+                onChange={(event) => setEditAddress(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Contact" htmlFor="site-edit-contact">
+              <Input
+                id="site-edit-contact"
+                value={editContactName}
+                onChange={(event) => setEditContactName(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Contact email" htmlFor="site-edit-email">
+              <Input
+                id="site-edit-email"
+                value={editContactEmail}
+                onChange={(event) => setEditContactEmail(event.target.value)}
+              />
+            </FormField>
+            <FormField label="Contact phone" htmlFor="site-edit-phone">
+              <Input
+                id="site-edit-phone"
+                value={editContactPhone}
+                onChange={(event) => setEditContactPhone(event.target.value)}
+              />
+            </FormField>
+            <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 md:col-span-2">
+              <div>
+                <p className="text-sm font-medium">Weekday hours</p>
+                <p className="text-xs text-muted-foreground">
+                  Used later for maintenance windows and reports.
+                </p>
+              </div>
+              <Switch
+                checked={editWeekdaysEnabled}
+                onCheckedChange={setEditWeekdaysEnabled}
+              />
+            </div>
+            {editWeekdaysEnabled ? (
+              <>
+                <FormField label="Opens" htmlFor="site-edit-open">
+                  <Input
+                    id="site-edit-open"
+                    type="time"
+                    value={editWeekdaysOpen}
+                    onChange={(event) =>
+                      setEditWeekdaysOpen(event.target.value)
+                    }
+                  />
+                </FormField>
+                <FormField label="Closes" htmlFor="site-edit-close">
+                  <Input
+                    id="site-edit-close"
+                    type="time"
+                    value={editWeekdaysClose}
+                    onChange={(event) =>
+                      setEditWeekdaysClose(event.target.value)
+                    }
+                  />
+                </FormField>
+              </>
+            ) : null}
             <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 md:col-span-2">
               <div>
                 <p className="text-sm font-medium">Require a reason</p>
@@ -436,6 +578,24 @@ export default function SitesPage() {
                     name: editName,
                     timezone: editTimezone || null,
                     notes: editNotes || null,
+                    address: editAddress || null,
+                    contacts: editContactName
+                      ? [
+                          {
+                            name: editContactName,
+                            email: editContactEmail || null,
+                            phone: editContactPhone || null,
+                          },
+                        ]
+                      : [],
+                    businessHours: editWeekdaysEnabled
+                      ? {
+                          weekdays: {
+                            open: editWeekdaysOpen,
+                            close: editWeekdaysClose,
+                          },
+                        }
+                      : null,
                     requireAccessReason: editRequireReason,
                     requireApproval: editRequireApproval,
                   })
@@ -499,6 +659,25 @@ export default function SitesPage() {
           if (!selectedSite) return
           void deleteSite.mutateAsync({ id: selectedSite.id })
         }}
+      />
+
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Import sites"
+        description="Create sites from a spreadsheet. Existing names are skipped."
+        templateName="sites-template.csv"
+        templateCsv={[
+          "organization,name,timezone,address,contact_name,contact_email,contact_phone,notes",
+          "Acme,Warehouse,America/Chicago,1 Main St,Pat,pat@example.com,,Receiving dock",
+        ].join("\n")}
+        organizations={organizations}
+        organizationId={resolvedImportOrgId}
+        onOrganizationIdChange={setImportOrgId}
+        pending={importCsv.isPending}
+        onImport={async (csv) =>
+          importCsv.mutateAsync({ organizationId: resolvedImportOrgId, csv })
+        }
       />
     </div>
   )

@@ -18,6 +18,7 @@ export type RaiseAlertInput = {
   organizationId?: string | null
   siteId?: string | null
   deviceId?: string | null
+  assetId?: string | null
   title?: string
   detail?: Record<string, unknown>
   severity?: AuditSeverity
@@ -139,6 +140,7 @@ export async function raiseAlert(input: RaiseAlertInput) {
         organizationId: input.organizationId ?? null,
         siteId: input.siteId ?? null,
         deviceId: input.deviceId ?? null,
+        assetId: input.assetId ?? null,
         kind: input.kind,
         severity,
         status,
@@ -251,4 +253,5 @@ export const alertKeys = {
   concentratorProbe: (deviceId: string) => `concentrator_probe:${deviceId}`,
   firewallSync: () => "firewall_sync_failed:hub",
   agentOutdated: (deviceId: string) => `agent_outdated:${deviceId}`,
+  warrantyExpiring: (assetId: string) => `warranty_expiring:${assetId}`,
 }
