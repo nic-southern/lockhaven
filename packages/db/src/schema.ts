@@ -28,6 +28,7 @@ import {
   type NotificationChannelType,
   type NotificationDeliveryEvent,
   type NotificationDeliveryStatus,
+  type Permission,
   type ConnectionDirection,
   type ConnectionProtocol,
   type ConnectionVerdict,
@@ -1055,6 +1056,44 @@ export type AlertPolicy = typeof alertPolicies.$inferSelect
 export type MaintenanceWindow = typeof maintenanceWindows.$inferSelect
 export type NotificationChannel = typeof notificationChannels.$inferSelect
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
+
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    prefix: text("prefix").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    permissions: jsonb("permissions")
+      .$type<Permission[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    prefixIdx: uniqueIndex("api_keys_prefix_idx").on(table.prefix),
+    createdByIdx: index("api_keys_created_by_idx").on(table.createdByUserId),
+    organizationIdx: index("api_keys_organization_idx").on(
+      table.organizationId
+    ),
+  })
+)
+
+export type ApiKey = typeof apiKeys.$inferSelect
 export type ConnectionEvent = typeof connectionEvents.$inferSelect
 export type ConnectionDailyRow = typeof connectionDaily.$inferSelect
 

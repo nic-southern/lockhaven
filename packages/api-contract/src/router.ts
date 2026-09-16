@@ -20,6 +20,7 @@ import { writeAuditEvent } from "./audit"
 import { issueLaunchTicket, redeemLaunchTicket } from "./launch-ticket"
 import { auditRouter } from "./routers/activity"
 import { alertsRouter } from "./routers/alerts"
+import { apiKeysRouter } from "./routers/api-keys"
 import { alertPoliciesRouter } from "./routers/alert-policies"
 import { dashboardRouter } from "./routers/dashboard"
 import { devicesRouter } from "./routers/devices"
@@ -913,6 +914,7 @@ const accessRouter = createTRPCRouter({
 export const appRouter = createTRPCRouter({
   access: accessRouter,
   users: usersRouter,
+  apiKeys: apiKeysRouter,
   notifications: notificationsRouter,
   system: systemRouter,
   health: publicProcedure.query(() => ({ ok: true })),

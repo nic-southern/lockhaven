@@ -8,6 +8,8 @@ const detailKeyLabels: Record<string, string> = {
   routePolicyId: "Route policy",
   previousRoutePolicyId: "Previous route policy",
   tokenId: "Token",
+  apiKeyId: "Key",
+  prefix: "Prefix",
   serviceId: "Service",
   serviceType: "Service type",
   displayName: "Display name",
