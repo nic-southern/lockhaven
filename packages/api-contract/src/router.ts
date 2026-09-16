@@ -79,11 +79,11 @@ import {
   enrollmentTokenUpdateSchema,
   membershipStatuses,
   organizationRoles,
-  recordingPathForConnection,
   remoteSessionRequestSchema,
   siteRoles,
   type ServiceType,
 } from "@nms/shared"
+import { recordingPathForConnection } from "@nms/shared/session-recording"
 import {
   allocateVpnIpv4,
   buildAdminClientConfig,

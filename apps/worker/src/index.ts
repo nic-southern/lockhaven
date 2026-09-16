@@ -28,10 +28,12 @@ import {
   PEER_FLAP_WINDOW_MS,
   PEER_SAMPLE_INTERVAL_MS,
   PEER_SAMPLE_RETENTION_DAYS,
-  pruneSessionRecordingFiles,
   sessionRecordingRetentionDays,
-  sessionRecordingRoot,
 } from "@nms/shared"
+import {
+  pruneSessionRecordingFiles,
+  sessionRecordingRoot,
+} from "@nms/shared/session-recording"
 import {
   buildAddPeerCommand,
   buildRemovePeerCommand,

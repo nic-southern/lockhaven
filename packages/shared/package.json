@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./session-recording": {
+      "types": "./dist/session-recording.d.ts",
+      "default": "./dist/session-recording.js"
     }
   },
   "scripts": {

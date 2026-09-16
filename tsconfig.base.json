@@ -22,6 +22,9 @@
       "@nms/db/client": ["./packages/db/src/client"],
       "@nms/db/schema": ["./packages/db/src/schema"],
       "@nms/shared": ["./packages/shared/src/index"],
+      "@nms/shared/session-recording": [
+        "./packages/shared/src/session-recording"
+      ],
       "@nms/api-contract": ["./packages/api-contract/src/index"],
       "@nms/auth": ["./packages/auth/src/index"],
       "@nms/auth/server": ["./packages/auth/src/server"],

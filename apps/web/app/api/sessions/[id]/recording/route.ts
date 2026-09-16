@@ -10,7 +10,10 @@ import { authorize } from "@nms/auth"
 import { resolveAdminPrincipalByEmail } from "@nms/auth/server"
 import { devices, remoteSessions } from "@nms/db"
 import { db } from "@nms/db/client"
-import { resolveRecordingFilePath, sessionRecordingRoot } from "@nms/shared"
+import {
+  resolveRecordingFilePath,
+  sessionRecordingRoot,
+} from "@nms/shared/session-recording"
 
 async function authorizedSession(request: NextRequest, sessionId: string) {
   const session = await auth.api.getSession({
