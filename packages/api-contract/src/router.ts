@@ -20,8 +20,10 @@ import { writeAuditEvent } from "./audit"
 import { issueLaunchTicket, redeemLaunchTicket } from "./launch-ticket"
 import { auditRouter } from "./routers/activity"
 import { alertsRouter } from "./routers/alerts"
+import { alertPoliciesRouter } from "./routers/alert-policies"
 import { dashboardRouter } from "./routers/dashboard"
 import { devicesRouter } from "./routers/devices"
+import { maintenanceRouter } from "./routers/maintenance"
 import { networkRouter } from "./routers/network"
 import { notificationsRouter } from "./routers/notifications"
 import { routePoliciesRouter } from "./routers/route-policies"
@@ -1272,6 +1274,8 @@ export const appRouter = createTRPCRouter({
   dashboard: dashboardRouter,
   network: networkRouter,
   alerts: alertsRouter,
+  alertPolicies: alertPoliciesRouter,
+  maintenance: maintenanceRouter,
   telemetry: telemetryRouter,
   managementServices: createTRPCRouter({
     list: permissionProcedure("device:view")

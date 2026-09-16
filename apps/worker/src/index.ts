@@ -21,7 +21,6 @@ import {
 } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
-  DEVICE_OFFLINE_ALERT_HOURS,
   PEER_FLAP_THRESHOLD,
   PEER_FLAP_WINDOW_MS,
   PEER_SAMPLE_INTERVAL_MS,
@@ -47,6 +46,7 @@ import {
 
 import { alertKeys, raiseAlert, resolveAlert } from "./alerts"
 import { recordEvent } from "./audit"
+import { runEscalateAlerts } from "./escalate"
 import {
   FlowCursorStore,
   flowLogPath,
@@ -55,6 +55,7 @@ import {
   rollupConnections,
 } from "./flows"
 import { JobHeartbeatStore } from "./heartbeats"
+import { offlineAlertHours } from "./lifecycle"
 import { processNotificationDeliveries } from "./notify"
 import { PeerStateStore, type StoredPeerState } from "./peer-state"
 import { refreshRemoteSessions } from "./sessions"
@@ -310,11 +311,14 @@ async function observePeer(args: {
   const lastOnlineAt = evaluation.next.lastOnlineAt
     ? new Date(evaluation.next.lastOnlineAt)
     : null
+  const offlineHours = await offlineAlertHours(
+    identity.organizationId,
+    identity.siteId
+  )
   if (
     !evaluation.next.online &&
     lastOnlineAt &&
-    now.getTime() - lastOnlineAt.getTime() >=
-      DEVICE_OFFLINE_ALERT_HOURS * 60 * 60 * 1000
+    now.getTime() - lastOnlineAt.getTime() >= offlineHours * 60 * 60 * 1000
   ) {
     await raiseAlert({
       kind: "device_offline",
@@ -323,7 +327,7 @@ async function observePeer(args: {
       organizationId: identity.organizationId,
       siteId: identity.siteId,
       deviceId: identity.deviceId,
-      title: `${identity.displayName} has been offline for more than ${DEVICE_OFFLINE_ALERT_HOURS} hours`,
+      title: `${identity.displayName} has been offline for more than ${offlineHours} hours`,
       detail: {
         device: identity.displayName,
         lastOnlineAt: lastOnlineAt.toISOString(),
@@ -768,6 +772,7 @@ const schedules: Array<{ name: string; everyMs: number }> = [
   { name: "refresh-sessions", everyMs: 15_000 },
   { name: "flow-ingest", everyMs: 15_000 },
   { name: "notify", everyMs: 15_000 },
+  { name: "escalate-alerts", everyMs: 60_000 },
   { name: "rollup-connections", everyMs: 10 * 60 * 1000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ]
@@ -841,6 +846,9 @@ async function main() {
             break
           case "notify":
             await processNotificationDeliveries()
+            break
+          case "escalate-alerts":
+            await runEscalateAlerts()
             break
           case "rollup-connections":
             await rollupConnections()
