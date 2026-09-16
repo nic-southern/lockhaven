@@ -1,4 +1,5 @@
 export { tryLinkDeviceToAsset, tryLinkDevicesToAssets } from "./asset-link"
+export { evaluatePlaybooks } from "./playbook-engine"
 export * from "./context"
 export * from "./list"
 export * from "./reporting-data"

@@ -71,6 +71,12 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   agent_release_deleted: "notice",
   agent_channel_updated: "notice",
   device_command_enqueued: "notice",
+  playbook_created: "notice",
+  playbook_updated: "notice",
+  playbook_deleted: "notice",
+  playbook_run_queued: "notice",
+  playbook_run_approved: "notice",
+  playbook_run_denied: "notice",
   asset_created: "notice",
   asset_updated: "info",
   asset_deleted: "notice",
@@ -144,6 +150,7 @@ export const notificationDeliveryEvents = [
   "alert.resolved",
   "alert.escalated",
   "access.requested",
+  "playbook.requested",
   "channel.test",
 ] as const
 export type NotificationDeliveryEvent =

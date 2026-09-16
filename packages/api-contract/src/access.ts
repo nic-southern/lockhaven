@@ -136,12 +136,43 @@ export function canApproveAccess(
   }).allowed
 }
 
+export function canApprovePlaybook(
+  actor: ActorPrincipal,
+  organizationId: string,
+  siteId: string | null
+) {
+  if (
+    authorize(actor, "organization:admin", {
+      kind: "organization",
+      organizationId,
+    }).allowed
+  ) {
+    return true
+  }
+  if (!siteId) return false
+  return authorize(actor, "site:admin", {
+    kind: "site",
+    organizationId,
+    siteId,
+  }).allowed
+}
+
 export function assertCanApproveAccess(
   actor: ActorPrincipal,
   organizationId: string,
   siteId: string
 ) {
   if (!canApproveAccess(actor, organizationId, siteId)) {
+    throw new TRPCError({ code: "FORBIDDEN" })
+  }
+}
+
+export function assertCanApprovePlaybook(
+  actor: ActorPrincipal,
+  organizationId: string,
+  siteId: string | null
+) {
+  if (!canApprovePlaybook(actor, organizationId, siteId)) {
     throw new TRPCError({ code: "FORBIDDEN" })
   }
 }

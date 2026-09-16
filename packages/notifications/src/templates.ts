@@ -1,4 +1,8 @@
-import { alertKindLabels, type AlertKind } from "@nms/shared"
+import {
+  alertKindLabels,
+  playbookActionLabels,
+  type AlertKind,
+} from "@nms/shared"
 
 import { getProductName, inviteAcceptUrl } from "./product"
 import type { AlertNotificationSnapshot } from "./payload"
@@ -203,6 +207,36 @@ export function renderAccessRequestedEmail(input: {
     "Access needs review",
     `<p style="margin:0 0 16px;line-height:1.5;">${escapeHtml(input.requesterName)} asked to start a session on ${escapeHtml(input.deviceName)} (${escapeHtml(input.siteName)}).</p>
       ${input.reason ? `<p style="margin:0 0 16px;line-height:1.5;">${escapeHtml(input.reason)}</p>` : `<p style="margin:0 0 16px;line-height:1.5;color:#71717a;">No reason was given.</p>`}
+      <p style="margin:0;"><a href="${escapeHtml(input.approvalsUrl)}" style="display:inline-block;padding:10px 16px;background:#18181b;color:#fafafa;border-radius:8px;text-decoration:none;">Review request</a></p>`
+  )
+  return { subject, text, html }
+}
+
+export function renderPlaybookRequestedEmail(input: {
+  playbookName: string
+  deviceName: string
+  actionLabel: keyof typeof playbookActionLabels | string
+  approvalsUrl: string
+  productName?: string
+}): RenderedMail {
+  const productName = input.productName ?? getProductName()
+  const action =
+    input.actionLabel in playbookActionLabels
+      ? playbookActionLabels[
+          input.actionLabel as keyof typeof playbookActionLabels
+        ]
+      : input.actionLabel
+  const subject = `${productName}: ${action} needs review`
+  const text = [
+    `${input.playbookName} needs approval to run ${action} on ${input.deviceName}.`,
+    "",
+    "Review the request:",
+    input.approvalsUrl,
+  ].join("\n")
+  const html = wrapHtml(
+    productName,
+    "Action needs review",
+    `<p style="margin:0 0 16px;line-height:1.5;">${escapeHtml(input.playbookName)} needs approval to run ${escapeHtml(action)} on ${escapeHtml(input.deviceName)}.</p>
       <p style="margin:0;"><a href="${escapeHtml(input.approvalsUrl)}" style="display:inline-block;padding:10px 16px;background:#18181b;color:#fafafa;border-radius:8px;text-decoration:none;">Review request</a></p>`
   )
   return { subject, text, html }

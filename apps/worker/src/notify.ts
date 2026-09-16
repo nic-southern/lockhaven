@@ -17,6 +17,7 @@ import {
   webhookChannelConfigSchema,
   type AlertNotificationSnapshot,
   type AccessRequestNotificationSnapshot,
+  type PlaybookRunNotificationSnapshot,
   type NotificationDeliveryEvent,
 } from "@nms/notifications"
 import { decryptSecret } from "@nms/remote-access"
@@ -62,6 +63,7 @@ function asAlertSnapshot(
 function snapshotFromPayload(payload: Record<string, unknown>): {
   alert: AlertNotificationSnapshot | null
   accessRequest: AccessRequestNotificationSnapshot | null
+  playbookRun: PlaybookRunNotificationSnapshot | null
 } {
   const alert = payload.alert
   let alertSnapshot: AlertNotificationSnapshot | null = null
@@ -79,7 +81,19 @@ function snapshotFromPayload(payload: Record<string, unknown>): {
       accessSnapshot = row
     }
   }
-  return { alert: alertSnapshot, accessRequest: accessSnapshot }
+  const playbookRun = payload.playbookRun
+  let playbookSnapshot: PlaybookRunNotificationSnapshot | null = null
+  if (playbookRun && typeof playbookRun === "object") {
+    const row = playbookRun as PlaybookRunNotificationSnapshot
+    if (row.id && row.playbookName && row.action && row.deviceName) {
+      playbookSnapshot = row
+    }
+  }
+  return {
+    alert: alertSnapshot,
+    accessRequest: accessSnapshot,
+    playbookRun: playbookSnapshot,
+  }
 }
 
 export async function enqueueAlertNotifications(
@@ -188,13 +202,15 @@ export async function sendChannelMessage(
   channel: NotificationChannel,
   event: NotificationDeliveryEvent,
   alert: AlertNotificationSnapshot | null = null,
-  accessRequest: AccessRequestNotificationSnapshot | null = null
+  accessRequest: AccessRequestNotificationSnapshot | null = null,
+  playbookRun: PlaybookRunNotificationSnapshot | null = null
 ) {
   return deliverNotification({
     destination: await destinationForChannel(channel),
     event,
     alert,
     accessRequest,
+    playbookRun,
   })
 }
 
@@ -239,6 +255,7 @@ export async function processNotificationDeliveries(now = new Date()) {
       row.delivery.event,
       snapshots.alert,
       snapshots.accessRequest,
+      snapshots.playbookRun,
       now
     )
   }
@@ -252,6 +269,7 @@ async function settleDelivery(
   event: NotificationDeliveryEvent,
   alert: AlertNotificationSnapshot | null,
   accessRequest: AccessRequestNotificationSnapshot | null,
+  playbookRun: PlaybookRunNotificationSnapshot | null,
   now: Date
 ) {
   try {
@@ -259,7 +277,8 @@ async function settleDelivery(
       channel,
       event,
       alert,
-      accessRequest
+      accessRequest,
+      playbookRun
     )
     await db
       .update(notificationDeliveries)

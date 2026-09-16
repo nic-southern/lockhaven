@@ -15,6 +15,7 @@ import {
   FileBarChartIcon,
   KeyRoundIcon,
   KeySquareIcon,
+  WorkflowIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MailIcon,
@@ -127,6 +128,12 @@ const navSections: NavSection[] = [
         href: "/alerts",
         label: "Alerts",
         icon: BellRingIcon,
+        permissions: ["device:view"],
+      },
+      {
+        href: "/playbooks",
+        label: "Playbooks",
+        icon: WorkflowIcon,
         permissions: ["device:view"],
       },
       {

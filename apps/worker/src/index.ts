@@ -8,7 +8,7 @@ import { Queue, Worker } from "bullmq"
 import Redis from "ioredis"
 import { inArray, isNotNull, lte } from "drizzle-orm"
 
-import { tryLinkDevicesToAssets } from "@nms/api-contract"
+import { evaluatePlaybooks, tryLinkDevicesToAssets } from "@nms/api-contract"
 import {
   accessRequests,
   adminVpnProfiles,
@@ -844,6 +844,7 @@ const schedules: Array<{ name: string; everyMs: number }> = [
   { name: "send-report-schedules", everyMs: 60 * 60 * 1000 },
   { name: "evaluate-agent-versions", everyMs: 60_000 },
   { name: "evaluate-warranties", everyMs: 60 * 60 * 1000 },
+  { name: "run-playbooks", everyMs: 30_000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ]
 
@@ -934,6 +935,9 @@ async function main() {
             break
           case "evaluate-warranties":
             await evaluateWarranties()
+            break
+          case "run-playbooks":
+            await evaluatePlaybooks(db)
             break
           case "prune-history":
             await pruneHistory()

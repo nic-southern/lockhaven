@@ -17,7 +17,9 @@ import {
   DataTableColumnHeader,
 } from "@/components/dashboard/data-table"
 import { AccessDenied } from "@/components/dashboard/access-denied"
+import { EmptyState } from "@/components/dashboard/empty-state"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { SectionCard } from "@/components/dashboard/section-card"
 import { formatDate, formatRelativeTime } from "@/lib/dashboard"
 import { serviceTypeLabel } from "@/lib/devices"
 import { buildListQuery, columnFiltersToRecord } from "@/lib/list-query"
@@ -69,6 +71,28 @@ export default function ApprovalsPage() {
       refetchInterval: 15_000,
     }
   )
+  const playbookQuery = trpc.playbooks.pendingApprovals.useQuery(undefined, {
+    enabled: allowed,
+    refetchInterval: 15_000,
+  })
+
+  const decidePlaybook = trpc.playbooks.decide.useMutation({
+    async onSuccess(_data, variables) {
+      toast.success(
+        variables.decision === "approved"
+          ? "Action approved"
+          : "Action declined"
+      )
+      await Promise.all([
+        utils.playbooks.pendingApprovals.invalidate(),
+        utils.playbooks.runs.invalidate(),
+        utils.playbooks.overview.invalidate(),
+      ])
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't update that request.")
+    },
+  })
 
   const decide = trpc.accessRequests.decide.useMutation({
     async onSuccess(_data, variables) {
@@ -230,8 +254,67 @@ export default function ApprovalsPage() {
       <PageHeader
         badge="Access"
         title="Approvals"
-        description="Review session requests before someone connects to a device."
+        description="Review session requests and playbook actions before they run."
       />
+      <SectionCard
+        title="Playbooks"
+        description="Approve an allowed device action before it is queued."
+      >
+        {(playbookQuery.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            title="No playbook actions waiting"
+            description="When a playbook requires approval, those requests appear here."
+            bordered={false}
+          />
+        ) : (
+          <div className="flex flex-col divide-y">
+            {playbookQuery.data?.map((run) => (
+              <div
+                key={run.id}
+                className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {run.deviceName ?? "Device"}
+                  </p>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {run.playbookName}
+                    {run.siteName ? ` · ${run.siteName}` : ""}
+                    {` · ${run.actionLabel}`}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={decidePlaybook.isPending}
+                    onClick={() =>
+                      decidePlaybook.mutate({
+                        id: run.id,
+                        decision: "denied",
+                      })
+                    }
+                  >
+                    Decline
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={decidePlaybook.isPending}
+                    onClick={() =>
+                      decidePlaybook.mutate({
+                        id: run.id,
+                        decision: "approved",
+                      })
+                    }
+                  >
+                    Approve
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
       <DataTable
         columns={columns}
         data={pageQuery.data?.items}
