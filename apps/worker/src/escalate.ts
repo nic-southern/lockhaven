@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm"
+import { and, eq, isNull, lte, or, sql } from "drizzle-orm"
 
 import { alerts } from "@nms/db"
 import { db } from "@nms/db/client"
@@ -90,6 +90,9 @@ async function escalateOpenAlerts(now: Date) {
     firstSeenAt: alert.firstSeenAt,
     snoozedUntil: alert.snoozedUntil,
     escalatedAt: alert.escalatedAt,
+    inMaintenanceWindow: Boolean(
+      findActiveMaintenanceWindow(state.windows, alert, now)
+    ),
   }))
 
   const selected = selectAlertsToEscalate(
@@ -111,7 +114,8 @@ async function escalateOpenAlerts(now: Date) {
           and(
             eq(alerts.id, alert.id),
             eq(alerts.status, "open"),
-            isNull(alerts.escalatedAt)
+            isNull(alerts.escalatedAt),
+            or(isNull(alerts.snoozedUntil), lte(alerts.snoozedUntil, now))
           )
         )
         .returning()

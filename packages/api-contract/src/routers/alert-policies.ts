@@ -14,7 +14,7 @@ import {
 import { assertAuthorized } from "../access"
 import { writeAuditEvent } from "../audit"
 import type { ApiContext } from "../context"
-import { adminProcedure, createTRPCRouter } from "../trpc"
+import { createTRPCRouter, permissionProcedure } from "../trpc"
 
 function assertCanManage(ctx: ApiContext, organizationId: string) {
   assertAuthorized(ctx.actor, "organization:admin", {
@@ -70,7 +70,7 @@ function asFields(row: typeof alertPolicies.$inferSelect): AlertPolicyFields {
 }
 
 export const alertPoliciesRouter = createTRPCRouter({
-  list: adminProcedure
+  list: permissionProcedure("organization:admin")
     .input(
       z.object({
         organizationId: z.string().uuid(),
@@ -117,68 +117,79 @@ export const alertPoliciesRouter = createTRPCRouter({
       }
     }),
 
-  upsert: adminProcedure.input(upsertInput).mutation(async ({ ctx, input }) => {
-    assertCanManage(ctx, input.organizationId)
-    const siteId = input.siteId ?? null
-    await assertSiteInOrganization(ctx, input.organizationId, siteId)
-    const now = new Date()
+  upsert: permissionProcedure("organization:admin")
+    .input(upsertInput)
+    .mutation(async ({ ctx, input }) => {
+      assertCanManage(ctx, input.organizationId)
+      const siteId = input.siteId ?? null
+      await assertSiteInOrganization(ctx, input.organizationId, siteId)
+      const now = new Date()
 
-    const existing = await ctx.db
-      .select()
-      .from(alertPolicies)
-      .where(
-        and(
-          eq(alertPolicies.organizationId, input.organizationId),
-          eq(alertPolicies.kind, input.kind),
-          siteId
-            ? eq(alertPolicies.siteId, siteId)
-            : isNull(alertPolicies.siteId)
+      const existing = await ctx.db
+        .select()
+        .from(alertPolicies)
+        .where(
+          and(
+            eq(alertPolicies.organizationId, input.organizationId),
+            eq(alertPolicies.kind, input.kind),
+            siteId
+              ? eq(alertPolicies.siteId, siteId)
+              : isNull(alertPolicies.siteId)
+          )
         )
-      )
 
-    const values = {
-      organizationId: input.organizationId,
-      siteId,
-      kind: input.kind,
-      enabled: input.enabled,
-      severity: input.severity,
-      escalateAfterMinutes: input.escalateAfterMinutes,
-      thresholds: input.thresholds,
-      updatedAt: now,
-    }
+      const values = {
+        organizationId: input.organizationId,
+        siteId,
+        kind: input.kind,
+        enabled: input.enabled,
+        severity: input.severity,
+        escalateAfterMinutes: input.escalateAfterMinutes,
+        thresholds: input.thresholds,
+        updatedAt: now,
+      }
 
-    const record = await ctx.db.transaction(async (tx) => {
-      const [row] = existing[0]
-        ? await tx
-            .update(alertPolicies)
-            .set(values)
-            .where(eq(alertPolicies.id, existing[0].id))
-            .returning()
-        : await tx
-            .insert(alertPolicies)
-            .values({ ...values, createdAt: now })
-            .returning()
+      const record = await ctx.db.transaction(async (tx) => {
+        const [row] = existing[0]
+          ? await tx
+              .update(alertPolicies)
+              .set(values)
+              .where(eq(alertPolicies.id, existing[0].id))
+              .returning()
+          : await tx
+              .insert(alertPolicies)
+              .values({ ...values, createdAt: now })
+              .returning()
 
-      await writeAuditEvent(
-        { ...ctx, db: tx },
-        {
-          eventType: "alert_policy_updated",
-          organizationId: input.organizationId,
-          siteId,
-          eventData: {
-            policyId: row.id,
-            kind: row.kind,
-            enabled: row.enabled,
-            severity: row.severity,
-            escalateAfterMinutes: row.escalateAfterMinutes,
-            thresholds: row.thresholds,
+        await writeAuditEvent(
+          { ...ctx, db: tx },
+          {
+            eventType: "alert_policy_updated",
+            organizationId: input.organizationId,
             siteId,
-          },
-        }
-      )
-      return row
-    })
+            eventData: {
+              policyId: row.id,
+              kind: row.kind,
+              enabled: row.enabled,
+              severity: row.severity,
+              escalateAfterMinutes: row.escalateAfterMinutes,
+              thresholds: row.thresholds,
+              siteId,
+              created: !existing[0],
+              previous: existing[0]
+                ? {
+                    enabled: existing[0].enabled,
+                    severity: existing[0].severity,
+                    escalateAfterMinutes: existing[0].escalateAfterMinutes,
+                    thresholds: existing[0].thresholds,
+                  }
+                : null,
+            },
+          }
+        )
+        return row
+      })
 
-    return record
-  }),
+      return record
+    }),
 })

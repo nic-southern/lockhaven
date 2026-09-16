@@ -62,6 +62,7 @@ export type EscalationCandidate = {
   firstSeenAt: Date
   snoozedUntil: Date | null
   escalatedAt: Date | null
+  inMaintenanceWindow?: boolean
 }
 
 type ZonedParts = {
@@ -84,6 +85,8 @@ const WEEKDAY_INDEX: Record<string, number> = {
   Sat: 6,
 }
 
+export const MAX_WEEKLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
 export function isValidTimeZone(timeZone: string) {
   if (!timeZone || timeZone.length > 64) return false
   try {
@@ -92,6 +95,20 @@ export function isValidTimeZone(timeZone: string) {
   } catch {
     return false
   }
+}
+
+/** One-shot and weekly windows must have a positive span; weekly repeats cannot last a week. */
+export function isValidMaintenanceWindowSpan(
+  startsAt: Date,
+  endsAt: Date,
+  recurrence: MaintenanceWindowRecurrence
+) {
+  const durationMs = endsAt.getTime() - startsAt.getTime()
+  if (durationMs <= 0) return false
+  if (recurrence === "weekly" && durationMs >= MAX_WEEKLY_WINDOW_MS) {
+    return false
+  }
+  return true
 }
 
 function zonedParts(date: Date, timeZone: string): ZonedParts {
@@ -184,7 +201,13 @@ export function isMaintenanceWindowActive(
   window: MaintenanceWindowMatchInput,
   now: Date
 ) {
-  if (window.endsAt.getTime() <= window.startsAt.getTime()) {
+  if (
+    !isValidMaintenanceWindowSpan(
+      window.startsAt,
+      window.endsAt,
+      window.recurrence
+    )
+  ) {
     return false
   }
   if (!isValidTimeZone(window.timeZone)) {
@@ -364,7 +387,8 @@ export function isAlertSnoozed(
 
 /**
  * Escalation only fires for open, unsnoozed alerts that have not already
- * been escalated and whose effective policy has a due delay.
+ * been escalated, are not inside an active maintenance window, and whose
+ * effective policy has a due delay.
  */
 export function shouldEscalateAlert(
   alert: EscalationCandidate,
@@ -373,12 +397,35 @@ export function shouldEscalateAlert(
 ) {
   if (alert.status !== "open") return false
   if (alert.escalatedAt) return false
+  if (alert.inMaintenanceWindow) return false
   if (isAlertSnoozed(alert.snoozedUntil, now)) return false
   if (policy.escalateAfterMinutes == null) return false
   if (policy.escalateAfterMinutes < 1) return false
   const dueAt =
     alert.firstSeenAt.getTime() + policy.escalateAfterMinutes * 60_000
   return now.getTime() >= dueAt
+}
+
+/**
+ * Outbox deliveries are never created for held alerts. Opened and
+ * escalated events also stay quiet while a snooze is in effect.
+ */
+export function shouldEnqueueAlertNotification(
+  alert: {
+    status: AlertStatus
+    snoozedUntil?: Date | null
+  },
+  event: "alert.opened" | "alert.resolved" | "alert.escalated",
+  now: Date
+) {
+  if (alert.status === "suppressed") return false
+  if (event === "alert.escalated") {
+    return alert.status === "open" && !isAlertSnoozed(alert.snoozedUntil, now)
+  }
+  if (event === "alert.opened") {
+    return alert.status === "open" && !isAlertSnoozed(alert.snoozedUntil, now)
+  }
+  return alert.status === "resolved"
 }
 
 export function selectAlertsToEscalate(

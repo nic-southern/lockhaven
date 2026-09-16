@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, or } from "drizzle-orm"
 import { z } from "zod"
 
 import {
@@ -9,13 +9,17 @@ import {
   sites,
   user,
 } from "@nms/db"
-import { isValidTimeZone, maintenanceWindowRecurrences } from "@nms/shared"
+import {
+  isValidMaintenanceWindowSpan,
+  isValidTimeZone,
+  maintenanceWindowRecurrences,
+} from "@nms/shared"
 
 import { assertAuthorized, requireActor } from "../access"
 import { writeAuditEvent } from "../audit"
 import type { ApiContext } from "../context"
 import { combineConditions, eventScopeCondition } from "../scope"
-import { adminProcedure, createTRPCRouter, permissionProcedure } from "../trpc"
+import { createTRPCRouter, permissionProcedure } from "../trpc"
 
 const recurrenceSchema = z.enum(maintenanceWindowRecurrences)
 
@@ -38,6 +42,36 @@ const windowInput = z
     message: "Choose a valid time zone.",
     path: ["timeZone"],
   })
+  .refine(
+    (value) =>
+      value.recurrence !== "weekly" ||
+      isValidMaintenanceWindowSpan(
+        value.startsAt,
+        value.endsAt,
+        value.recurrence
+      ),
+    {
+      message: "Weekly windows must be shorter than one week.",
+      path: ["endsAt"],
+    }
+  )
+
+function orgWideWindowsForSiteActor(actor: ApiContext["actor"]) {
+  if (!actor) return undefined
+  const organizationIds = [
+    ...new Set(
+      actor.siteMemberships
+        .filter((membership) => membership.status === "active")
+        .map((membership) => membership.organizationId)
+    ),
+  ]
+  if (organizationIds.length === 0) return undefined
+  return and(
+    inArray(maintenanceWindows.organizationId, organizationIds),
+    isNull(maintenanceWindows.siteId),
+    isNull(maintenanceWindows.deviceId)
+  )
+}
 
 function assertCanManageWindow(ctx: ApiContext, organizationId: string) {
   assertAuthorized(ctx.actor, "organization:admin", {
@@ -128,9 +162,14 @@ export const maintenanceRouter = createTRPCRouter({
     })
     if (scope.kind === "none") return []
 
-    const where = combineConditions([
-      scope.kind === "where" ? scope.condition : undefined,
-    ])
+    const orgWide = orgWideWindowsForSiteActor(ctx.actor)
+    const scoped =
+      scope.kind === "where"
+        ? orgWide
+          ? or(scope.condition, orgWide)
+          : scope.condition
+        : undefined
+    const where = combineConditions([scoped])
 
     const createdBy = user
     const rows = await ctx.db
@@ -167,55 +206,63 @@ export const maintenanceRouter = createTRPCRouter({
     return rows
   }),
 
-  create: adminProcedure.input(windowInput).mutation(async ({ ctx, input }) => {
-    const actor = requireActor(ctx.actor)
-    assertCanManageWindow(ctx, input.organizationId)
-    const scope = await loadScopedTargets(ctx, input)
-    const now = new Date()
+  create: permissionProcedure("organization:admin")
+    .input(windowInput)
+    .mutation(async ({ ctx, input }) => {
+      const actor = requireActor(ctx.actor)
+      assertCanManageWindow(ctx, input.organizationId)
+      const scope = await loadScopedTargets(ctx, input)
+      const now = new Date()
 
-    return ctx.db.transaction(async (tx) => {
-      const [row] = await tx
-        .insert(maintenanceWindows)
-        .values({
-          organizationId: scope.organizationId,
-          siteId: scope.siteId,
-          deviceId: scope.deviceId,
-          startsAt: input.startsAt,
-          endsAt: input.endsAt,
-          timeZone: input.timeZone,
-          recurrence: input.recurrence,
-          reason: input.reason,
-          createdByUserId: actor.id,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
+      return ctx.db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(maintenanceWindows)
+          .values({
+            organizationId: scope.organizationId,
+            siteId: scope.siteId,
+            deviceId: scope.deviceId,
+            startsAt: input.startsAt,
+            endsAt: input.endsAt,
+            timeZone: input.timeZone,
+            recurrence: input.recurrence,
+            reason: input.reason,
+            createdByUserId: actor.id,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
 
-      await writeAuditEvent(
-        { ...ctx, db: tx },
-        {
-          eventType: "maintenance_window_created",
-          organizationId: row.organizationId,
-          siteId: row.siteId,
-          deviceId: row.deviceId,
-          eventData: {
-            windowId: row.id,
-            startsAt: row.startsAt.toISOString(),
-            endsAt: row.endsAt.toISOString(),
-            timeZone: row.timeZone,
-            recurrence: row.recurrence,
-            reason: row.reason,
-          },
-        }
-      )
-      return row
-    })
-  }),
+        await writeAuditEvent(
+          { ...ctx, db: tx },
+          {
+            eventType: "maintenance_window_created",
+            organizationId: row.organizationId,
+            siteId: row.siteId,
+            deviceId: row.deviceId,
+            eventData: {
+              windowId: row.id,
+              startsAt: row.startsAt.toISOString(),
+              endsAt: row.endsAt.toISOString(),
+              timeZone: row.timeZone,
+              recurrence: row.recurrence,
+              reason: row.reason,
+            },
+          }
+        )
+        return row
+      })
+    }),
 
-  update: adminProcedure
+  update: permissionProcedure("organization:admin")
     .input(windowInput.extend({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await loadWindow(ctx, input.id)
+      if (input.organizationId !== existing.organizationId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A window cannot move to another organization.",
+        })
+      }
       assertCanManageWindow(ctx, input.organizationId)
       const scope = await loadScopedTargets(ctx, input)
       const now = new Date()
@@ -258,7 +305,7 @@ export const maintenanceRouter = createTRPCRouter({
       })
     }),
 
-  delete: adminProcedure
+  delete: permissionProcedure("organization:admin")
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       const existing = await loadWindow(ctx, input.id)

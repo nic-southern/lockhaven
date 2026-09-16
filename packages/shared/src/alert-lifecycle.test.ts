@@ -4,10 +4,12 @@ import test from "node:test"
 import {
   findActiveMaintenanceWindow,
   isMaintenanceWindowActive,
+  isValidMaintenanceWindowSpan,
   pickEffectiveAlertPolicy,
   resolveEffectiveAlertPolicy,
   selectAlertsToEscalate,
   shouldAutoResolveConcentratorProbe,
+  shouldEnqueueAlertNotification,
   shouldEscalateAlert,
   fromZonedTime,
   type AlertPolicyFields,
@@ -105,6 +107,37 @@ test("weekly recurrence matches the same weekday and local time", () => {
   )
 })
 
+test("weekly windows cannot last a full week", () => {
+  const startsAt = new Date("2026-09-16T19:00:00Z")
+  assert.equal(
+    isValidMaintenanceWindowSpan(
+      startsAt,
+      new Date("2026-09-16T21:00:00Z"),
+      "weekly"
+    ),
+    true
+  )
+  assert.equal(
+    isValidMaintenanceWindowSpan(
+      startsAt,
+      new Date("2026-09-23T19:00:00Z"),
+      "weekly"
+    ),
+    false
+  )
+  assert.equal(
+    isMaintenanceWindowActive(
+      window({
+        startsAt,
+        endsAt: new Date("2026-09-23T19:00:00Z"),
+        recurrence: "weekly",
+      }),
+      new Date("2026-09-16T20:00:00Z")
+    ),
+    false
+  )
+})
+
 test("weekly matching is timezone-aware around a DST spring-forward", () => {
   // Sunday 10:00–12:00 America/Chicago, first occurrence 1 Mar 2026 (CST).
   const w = window({
@@ -128,6 +161,27 @@ test("weekly matching is timezone-aware around a DST spring-forward", () => {
     isMaintenanceWindowActive(w, new Date("2026-03-08T16:30:00Z")),
     true,
     "11:30 CDT is still before noon"
+  )
+})
+
+test("weekly matching stays on local wall time after a DST fall-back", () => {
+  // Sunday 10:00–12:00 America/Chicago, first occurrence 25 Oct 2026 (CDT).
+  const w = window({
+    startsAt: new Date("2026-10-25T15:00:00Z"),
+    endsAt: new Date("2026-10-25T17:00:00Z"),
+    timeZone: "America/Chicago",
+    recurrence: "weekly",
+  })
+  // 1 Nov 2026 is CST (UTC-6). 10:30 local is 16:30 UTC.
+  assert.equal(
+    isMaintenanceWindowActive(w, new Date("2026-11-01T16:30:00Z")),
+    true,
+    "10:30 CST is inside the weekly window"
+  )
+  assert.equal(
+    isMaintenanceWindowActive(w, new Date("2026-11-01T18:00:00Z")),
+    false,
+    "12:00 CST is the exclusive end"
   )
 })
 
@@ -382,6 +436,91 @@ test("escalation selection only includes open, unsnoozed, due alerts", () => {
   assert.deepEqual(
     selected.map((row) => row.id),
     [due.id]
+  )
+})
+
+test("open alerts inside an active maintenance window are not escalated", () => {
+  const now = new Date("2026-09-16T13:10:00Z")
+  const policyFor = () =>
+    resolveEffectiveAlertPolicy("device_offline", {
+      orgPolicy: policy({
+        kind: "device_offline",
+        escalateAfterMinutes: 60,
+      }),
+    })
+  const inWindow = candidate({ inMaintenanceWindow: true })
+  assert.equal(shouldEscalateAlert(inWindow, policyFor(), now), false)
+  assert.deepEqual(
+    selectAlertsToEscalate([inWindow], policyFor, now).map((row) => row.id),
+    []
+  )
+})
+
+test("suppressed and snoozed alerts do not enqueue deliveries", () => {
+  const now = new Date("2026-09-16T13:10:00Z")
+  assert.equal(
+    shouldEnqueueAlertNotification(
+      { status: "suppressed" },
+      "alert.opened",
+      now
+    ),
+    false
+  )
+  assert.equal(
+    shouldEnqueueAlertNotification(
+      { status: "suppressed" },
+      "alert.resolved",
+      now
+    ),
+    false
+  )
+  assert.equal(
+    shouldEnqueueAlertNotification(
+      { status: "suppressed" },
+      "alert.escalated",
+      now
+    ),
+    false
+  )
+  assert.equal(
+    shouldEnqueueAlertNotification(
+      { status: "open", snoozedUntil: new Date("2026-09-16T18:00:00Z") },
+      "alert.opened",
+      now
+    ),
+    false
+  )
+  assert.equal(
+    shouldEnqueueAlertNotification(
+      { status: "open", snoozedUntil: new Date("2026-09-16T18:00:00Z") },
+      "alert.escalated",
+      now
+    ),
+    false
+  )
+  assert.equal(
+    shouldEnqueueAlertNotification({ status: "open" }, "alert.opened", now),
+    true
+  )
+  assert.equal(
+    shouldEnqueueAlertNotification({ status: "open" }, "alert.escalated", now),
+    true
+  )
+  assert.equal(
+    shouldEnqueueAlertNotification(
+      { status: "resolved" },
+      "alert.resolved",
+      now
+    ),
+    true
+  )
+  assert.equal(
+    shouldEnqueueAlertNotification(
+      { status: "acknowledged" },
+      "alert.escalated",
+      now
+    ),
+    false
   )
 })
 

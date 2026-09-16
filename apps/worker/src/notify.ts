@@ -19,6 +19,7 @@ import {
   type NotificationDeliveryEvent,
 } from "@nms/notifications"
 import { decryptSecret } from "@nms/remote-access"
+import { shouldEnqueueAlertNotification } from "@nms/shared"
 
 type DbWriter = Pick<typeof db, "insert" | "select" | "update" | "execute">
 
@@ -80,6 +81,7 @@ export async function enqueueAlertNotifications(
     | "siteId"
     | "deviceId"
     | "detail"
+    | "snoozedUntil"
   >,
   event: Extract<
     NotificationDeliveryEvent,
@@ -87,6 +89,15 @@ export async function enqueueAlertNotifications(
   >,
   now = new Date()
 ) {
+  if (
+    !shouldEnqueueAlertNotification(
+      { status: alert.status, snoozedUntil: alert.snoozedUntil },
+      event,
+      now
+    )
+  ) {
+    return []
+  }
   if (!alert.organizationId) {
     return []
   }

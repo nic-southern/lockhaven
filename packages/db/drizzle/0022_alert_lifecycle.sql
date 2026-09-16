@@ -68,4 +68,24 @@ EXCEPTION
 END $$;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "maintenance_windows_organization_starts_idx" ON "maintenance_windows" USING btree ("organization_id","starts_at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "maintenance_windows_site_idx" ON "maintenance_windows" USING btree ("site_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "maintenance_windows_device_idx" ON "maintenance_windows" USING btree ("device_id");
+CREATE INDEX IF NOT EXISTS "maintenance_windows_device_idx" ON "maintenance_windows" USING btree ("device_id");--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "alert_policies" ADD CONSTRAINT "alert_policies_escalate_after_minutes_check" CHECK ("escalate_after_minutes" IS NULL OR "escalate_after_minutes" >= 1);
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "maintenance_windows" ADD CONSTRAINT "maintenance_windows_ends_after_starts" CHECK ("ends_at" > "starts_at");
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "maintenance_windows" ADD CONSTRAINT "maintenance_windows_recurrence_check" CHECK ("recurrence" IN ('none', 'weekly'));
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "maintenance_windows" ADD CONSTRAINT "maintenance_windows_weekly_span_check" CHECK ("recurrence" <> 'weekly' OR ("ends_at" - "starts_at") < INTERVAL '7 days');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;

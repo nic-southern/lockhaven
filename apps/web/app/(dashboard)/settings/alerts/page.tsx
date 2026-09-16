@@ -22,6 +22,7 @@ import { SectionCard } from "@/components/dashboard/section-card"
 import { SelectField } from "@/components/dashboard/select-field"
 import { Skeleton } from "@/components/ui/skeleton"
 import { trpc } from "@/lib/trpc"
+import { usePermissions } from "@/lib/use-permissions"
 
 const severityLabels: Record<AuditSeverity, string> = {
   info: "Info",
@@ -171,8 +172,12 @@ function PolicyKindRow({
 }
 
 export default function AlertPoliciesPage() {
-  const organizationsQuery = trpc.organizations.list.useQuery()
-  const sitesQuery = trpc.sites.list.useQuery()
+  const { can, isLoading: accessLoading } = usePermissions()
+  const canManage = can("organization:admin")
+  const organizationsQuery = trpc.organizations.list.useQuery(undefined, {
+    enabled: canManage,
+  })
+  const sitesQuery = trpc.sites.list.useQuery(undefined, { enabled: canManage })
   const organizations = React.useMemo(
     () => organizationsQuery.data ?? [],
     [organizationsQuery.data]
@@ -192,12 +197,37 @@ export default function AlertPoliciesPage() {
       organizationId: selectedOrganizationId,
       siteId: siteId || null,
     },
-    { enabled: Boolean(selectedOrganizationId) }
+    { enabled: canManage && Boolean(selectedOrganizationId) }
   )
   const orgSites = (sitesQuery.data ?? []).filter(
     (site) => site.organizationId === selectedOrganizationId
   )
   const kinds = policiesQuery.data?.kinds ?? []
+
+  if (accessLoading) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Skeleton className="h-8 w-56" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
+    )
+  }
+
+  if (!canManage) {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          badge="Settings"
+          title="Alert policies"
+          description="Choose when alerts open, how severe they are, and when they escalate."
+        />
+        <EmptyState
+          title="You don't have access"
+          description="Ask an organization admin if you need to change alert policies."
+        />
+      </div>
+    )
+  }
 
   if (organizationsQuery.isLoading) {
     return (
