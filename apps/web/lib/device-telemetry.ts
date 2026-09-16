@@ -121,6 +121,7 @@ export async function ingestDeviceTelemetry(
     packages?: CheckInPackages
   }
 ) {
+  const hasPackages = args.packages !== undefined
   const rebootRequired = args.packages?.reboot_required ?? false
 
   if (args.metrics) {
@@ -148,7 +149,7 @@ export async function ingestDeviceTelemetry(
           disks: row.disks,
           network: row.network,
           wgHandshakeAgeSeconds: row.wgHandshakeAgeSeconds,
-          rebootRequired: row.rebootRequired,
+          ...(hasPackages ? { rebootRequired: row.rebootRequired } : {}),
           updatedAt: row.updatedAt,
         },
       })
