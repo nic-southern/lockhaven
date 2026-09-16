@@ -54,6 +54,9 @@ export default async function RootLayout({
       <body>
         <script
           nonce={nonce}
+          // Browsers blank the nonce attribute once the policy has read it,
+          // so the client always sees "" here; that difference is expected.
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `window.__LOCKHAVEN_CONFIG__=${JSON.stringify({
               productName,
