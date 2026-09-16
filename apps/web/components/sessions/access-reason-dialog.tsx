@@ -31,9 +31,10 @@ export function AccessReasonDialog({
 }) {
   const [reason, setReason] = React.useState("")
 
-  React.useEffect(() => {
-    if (!open) setReason("")
-  }, [open])
+  function handleOpenChange(next: boolean) {
+    if (!next) setReason("")
+    onOpenChange(next)
+  }
 
   const title = requireApproval ? "Request access?" : "Why do you need access?"
   const description = requireApproval
@@ -45,7 +46,7 @@ export function AccessReasonDialog({
   const tooShort = requireReason && reason.trim().length < 3
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -68,7 +69,7 @@ export function AccessReasonDialog({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleOpenChange(false)}
             disabled={pending}
           >
             Cancel

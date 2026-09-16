@@ -1,6 +1,7 @@
 "use client"
 
 import { toast } from "sonner"
+import type { RemoteConnectionMethod } from "@nms/shared"
 
 import { trpc } from "@/lib/trpc"
 import { openRemoteLaunchResult } from "@/lib/remote-launch"
@@ -15,12 +16,23 @@ export function useRemoteLaunch(options?: { onSettled?: () => void }) {
 
   return trpc.sessions.create.useMutation({
     async onSuccess(result) {
-      const opened = await openRemoteLaunchResult(result, {
-        redeemTicket: async (ticket) => {
-          const redeemed = await redeem.mutateAsync({ ticket })
-          return redeemed.secret
-        },
-      })
+      const opened = await openRemoteLaunchResult(
+        result
+          ? {
+              url: result.url,
+              nativeUrl: result.nativeUrl,
+              launchTicket: result.launchTicket,
+              mode: result.mode as RemoteConnectionMethod | "pending_approval",
+              request: result.request,
+            }
+          : null,
+        {
+          redeemTicket: async (ticket) => {
+            const redeemed = await redeem.mutateAsync({ ticket })
+            return redeemed.secret
+          },
+        }
+      )
       if (opened?.mode === "pending_approval") {
         toast.message("Waiting for approval")
         return

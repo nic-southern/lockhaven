@@ -1,5 +1,7 @@
 "use client"
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import * as React from "react"
 import Link from "next/link"
 import {
@@ -114,15 +116,16 @@ export function ConnectTab({
 
   const launchedRequestIds = React.useRef(new Set<string>())
   const requirements = requirementsQuery.data
+  const mineRequests = mineQuery.data
   const pendingByService = React.useMemo(() => {
-    const map = new Map<string, NonNullable<typeof mineQuery.data>[number]>()
-    for (const request of mineQuery.data ?? []) {
+    const map = new Map<string, NonNullable<typeof mineRequests>[number]>()
+    for (const request of mineRequests ?? []) {
       if (request.status === "pending" || request.status === "approved") {
         map.set(request.serviceId, request)
       }
     }
     return map
-  }, [mineQuery.data])
+  }, [mineRequests])
 
   React.useEffect(() => {
     const approved = (mineQuery.data ?? []).filter(

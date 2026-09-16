@@ -116,7 +116,6 @@ export const sessionsPage = permissionProcedure("device:view")
           recordingPath: remoteSessions.recordingPath,
           startedAt: remoteSessions.startedAt,
           endedAt: remoteSessions.endedAt,
-          auditMetadata: remoteSessions.auditMetadata,
         })
         .from(remoteSessions)
         .innerJoin(devices, eq(devices.id, remoteSessions.deviceId))
@@ -158,7 +157,7 @@ export const sessionsPage = permissionProcedure("device:view")
     ])
 
     const items = rows.map((row) => {
-      const { recordingPath, auditMetadata: _auditMetadata, ...rest } = row
+      const { recordingPath, ...rest } = row
       const hasRecording =
         Boolean(recordingPath) &&
         rest.connectionMethod === BROWSER_CONNECTION_METHOD
