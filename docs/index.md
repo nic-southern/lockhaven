@@ -2,6 +2,7 @@
 
 - [Architecture](architecture.md)
 - [Deployment](deployment.md)
+- [Backups](backup.md)
 - [Database](database.md)
 - [Infrastructure](infrastructure.md)
 - [Enrollment](enrollment.md)

@@ -1,36 +1,32 @@
-import Redis from "ioredis"
-
-import { sql } from "@nms/db"
-import { db } from "@nms/db/client"
+import { collectHubHealth } from "@/lib/hub-health"
 
 export async function GET() {
-  const redis = new Redis(process.env.REDIS_URL ?? "redis://127.0.0.1:6379/0", {
-    lazyConnect: true,
-    maxRetriesPerRequest: 0,
-  })
-
-  const result = {
-    ok: true,
-    postgres: "ok" as "ok" | "degraded",
-    redis: "ok" as "ok" | "degraded",
-  }
-
-  try {
-    await db.execute(sql`select 1`)
-  } catch {
-    result.ok = false
-    result.postgres = "degraded"
-  }
-
-  try {
-    await redis.connect()
-    await redis.ping()
-  } catch {
-    result.ok = false
-    result.redis = "degraded"
-  } finally {
-    redis.disconnect()
-  }
-
-  return Response.json(result, { status: result.ok ? 200 : 503 })
+  const report = await collectHubHealth()
+  return Response.json(
+    {
+      ok: report.ok,
+      postgres: report.postgres,
+      redis: report.redis,
+      queue: {
+        depth: report.queue.depth,
+        waiting: report.queue.waiting,
+        active: report.queue.active,
+        delayed: report.queue.delayed,
+        oldestWaitingAgeMs: report.queue.oldestWaitingAgeMs,
+        lying: report.queue.lying,
+      },
+      jobs: report.jobs.map((job) => ({
+        name: job.name,
+        lastCompletedAt: job.lastCompletedAt,
+        durationMs: job.durationMs,
+        ageMs: job.ageMs,
+        stale: job.stale,
+      })),
+      flowLog: {
+        ageMs: report.flowLog.ageMs,
+        missing: report.flowLog.missing,
+      },
+    },
+    { status: report.ok ? 200 : 503 }
+  )
 }

@@ -129,7 +129,7 @@ function Overview() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { can, uiScope } = usePermissions()
+  const { can, uiScope, isPlatformAdmin } = usePermissions()
   const canEnroll = can("device:enroll")
   const canViewAudit = can("audit:view")
 
@@ -489,11 +489,17 @@ function Overview() {
           tone={
             healthQuery.isLoading
               ? "neutral"
-              : healthQuery.data?.redis === "ok"
+              : healthQuery.data?.ok
                 ? "online"
                 : "danger"
           }
-          label={`Background jobs ${healthQuery.isLoading ? "checking" : statusLabel(healthQuery.data?.redis ?? "down")}`}
+          label={`Background jobs ${
+            healthQuery.isLoading
+              ? "checking"
+              : healthQuery.data?.ok
+                ? "healthy"
+                : "behind"
+          }`}
           className="text-xs"
         />
         {summary ? (
@@ -503,6 +509,14 @@ function Overview() {
             {summary.sites} {summary.sites === 1 ? "site" : "sites"} · updated{" "}
             {formatRelativeTime(summary.generatedAt)}
           </span>
+        ) : null}
+        {isPlatformAdmin ? (
+          <Link
+            href="/system"
+            className="underline-offset-2 hover:text-foreground hover:underline"
+          >
+            System
+          </Link>
         ) : null}
       </footer>
     </div>

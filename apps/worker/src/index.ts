@@ -49,10 +49,12 @@ import { alertKeys, raiseAlert, resolveAlert } from "./alerts"
 import { recordEvent } from "./audit"
 import {
   FlowCursorStore,
+  flowLogPath,
   ingestFlows,
   pruneConnectionHistory,
   rollupConnections,
 } from "./flows"
+import { JobHeartbeatStore } from "./heartbeats"
 import { processNotificationDeliveries } from "./notify"
 import { PeerStateStore, type StoredPeerState } from "./peer-state"
 import { refreshRemoteSessions } from "./sessions"
@@ -69,6 +71,7 @@ const connection = new Redis(redisUrl, {
 
 const peerStateStore = new PeerStateStore(connection)
 const flowCursorStore = new FlowCursorStore(connection)
+const heartbeatStore = new JobHeartbeatStore(connection)
 
 type VpnctlResult =
   | { ok: true }
@@ -769,6 +772,10 @@ const schedules: Array<{ name: string; everyMs: number }> = [
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ]
 
+const everyMsByName = new Map(
+  schedules.map((schedule) => [schedule.name, schedule.everyMs])
+)
+
 /**
  * Earlier releases enqueued a fresh job every tick regardless of progress and
  * kept every finished job forever. Clear whatever that left behind so the
@@ -810,35 +817,57 @@ async function main() {
       { every: schedule.everyMs },
       { name: schedule.name, data: {} }
     )
+    await heartbeatStore.seed(schedule.name, schedule.everyMs)
   }
 
   const worker = new Worker(
     "management-maintenance",
     async (job) => {
-      switch (job.name) {
-        case "reconcile-vpn":
-          await reconcileVpnPeers()
-          break
-        case "refresh-services":
-          await refreshServiceHealth()
-          break
-        case "refresh-sessions":
-          await refreshRemoteSessions()
-          break
-        case "flow-ingest":
-          await ingestFlows(flowCursorStore)
-          break
-        case "notify":
-          await processNotificationDeliveries()
-          break
-        case "rollup-connections":
-          await rollupConnections()
-          break
-        case "prune-history":
-          await pruneHistory()
-          break
-        default:
-          break
+      const startedAt = Date.now()
+      const everyMs = everyMsByName.get(job.name) ?? null
+      try {
+        switch (job.name) {
+          case "reconcile-vpn":
+            await reconcileVpnPeers()
+            break
+          case "refresh-services":
+            await refreshServiceHealth()
+            break
+          case "refresh-sessions":
+            await refreshRemoteSessions()
+            break
+          case "flow-ingest":
+            await ingestFlows(flowCursorStore)
+            break
+          case "notify":
+            await processNotificationDeliveries()
+            break
+          case "rollup-connections":
+            await rollupConnections()
+            break
+          case "prune-history":
+            await pruneHistory()
+            break
+          default:
+            break
+        }
+        await heartbeatStore.recordCompletion({
+          name: job.name,
+          durationMs: Date.now() - startedAt,
+          everyMs,
+        })
+      } catch (error) {
+        await heartbeatStore.recordFailure({
+          name: job.name,
+          durationMs: Date.now() - startedAt,
+          everyMs,
+        })
+        throw error
+      } finally {
+        await heartbeatStore.recordQueue(queue)
+        if (job.name === "flow-ingest") {
+          await heartbeatStore.recordFlowLog(flowLogPath)
+        }
       }
     },
     {

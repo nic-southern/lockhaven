@@ -149,3 +149,9 @@ Webhook channels POST a versioned JSON body and sign it with
 - Keep domain names configurable through environment variables.
 - Manage host firewall rules with `iptables` in the `DOCKER-USER` chain, not a
   standalone `nftables` ruleset.
+
+### Backups
+
+Encrypted control-plane backups, restore, and the daily timer are documented in
+[`docs/backup.md`](backup.md). The passphrase lives in `/opt/lockhaven/backup.env`,
+not in `.env.deploy`.

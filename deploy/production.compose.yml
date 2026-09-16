@@ -120,6 +120,8 @@ services:
       # connection until their .env.deploy gains WEB_DATABASE_URL.
       DATABASE_URL: ${WEB_DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/nms_vpn}
       REDIS_URL: redis://redis:6379/0
+      LOCKHAVEN_WEB_IMAGE: ${WEB_IMAGE}
+      LOCKHAVEN_WORKER_IMAGE: ${WORKER_IMAGE}
       NODE_ENV: production
     networks:
       - default

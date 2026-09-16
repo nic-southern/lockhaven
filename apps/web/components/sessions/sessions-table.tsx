@@ -15,8 +15,10 @@ import { Badge } from "@/components/ui/badge"
 import {
   DataTable,
   DataTableColumnHeader,
+  DataTableRowActions,
   type DataTableFacet,
 } from "@/components/dashboard/data-table"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { SelectField } from "@/components/dashboard/select-field"
 import { formatDate, formatRelativeTime, statusLabel } from "@/lib/dashboard"
 import { serviceTypeLabel } from "@/lib/devices"
@@ -24,6 +26,8 @@ import { buildListQuery, columnFiltersToRecord } from "@/lib/list-query"
 import { useSiteScope } from "@/lib/site-scope"
 import { trpc } from "@/lib/trpc"
 import type { RouterOutputs } from "@/lib/trpc"
+import { usePermissions } from "@/lib/use-permissions"
+import { toast } from "sonner"
 
 export type SessionRow = RouterOutputs["sessions"]["page"]["items"][number]
 
@@ -69,6 +73,29 @@ export function SessionsTable({
   className?: string
 }) {
   const { siteId: scopedSiteId } = useSiteScope()
+  const { can, isPlatformAdmin } = usePermissions()
+  const utils = trpc.useUtils()
+  const canEndSession =
+    isPlatformAdmin ||
+    can("device:update") ||
+    can("device:start_vnc") ||
+    can("device:start_rdp") ||
+    can("device:start_ssh")
+  const [endingId, setEndingId] = React.useState<string | null>(null)
+
+  const terminate = trpc.sessions.terminate.useMutation({
+    async onSuccess() {
+      toast.success("Session ended")
+      setEndingId(null)
+      await Promise.all([
+        utils.sessions.page.invalidate(),
+        utils.dashboard.summary.invalidate(),
+      ])
+    },
+    onError() {
+      toast.error("We couldn't end that session.")
+    },
+  })
   const showDevice = variant === "full"
 
   const [sorting, setSorting] = React.useState<SortingState>([
@@ -251,8 +278,31 @@ export function SessionsTable({
           ),
       }
     )
+    if (canEndSession) {
+      defs.push({
+        id: "actions",
+        header: () => <span className="sr-only">Actions</span>,
+        enableSorting: false,
+        enableHiding: false,
+        meta: { className: "w-12 text-right" },
+        cell: ({ row }) =>
+          row.original.endedAt ? null : (
+            <DataTableRowActions
+              label="Session"
+              actions={[
+                {
+                  label: "End session",
+                  destructive: true,
+                  disabled: terminate.isPending,
+                  onSelect: () => setEndingId(row.original.id),
+                },
+              ]}
+            />
+          ),
+      })
+    }
     return defs
-  }, [showDevice])
+  }, [showDevice, canEndSession, terminate.isPending])
 
   const facets = React.useMemo<DataTableFacet[]>(
     () => [
@@ -276,66 +326,87 @@ export function SessionsTable({
   )
 
   const total = pageQuery.data?.total ?? 0
+  const endingRow = pageQuery.data?.items.find((row) => row.id === endingId)
 
   return (
-    <DataTable
-      className={className}
-      columns={columns}
-      data={pageQuery.data?.items}
-      isLoading={pageQuery.isLoading}
-      isFetching={pageQuery.isFetching}
-      getRowId={(row) => row.id}
-      pageSize={pageSize}
-      pageSizeOptions={variant === "device" ? [10, 25, 50] : [25, 50, 100]}
-      server={{
-        rowCount: total,
-        sorting,
-        onSortingChange: (updater) => {
-          setSorting(updater)
-          resetToFirstPage()
-        },
-        columnFilters,
-        onColumnFiltersChange: (updater) => {
-          setColumnFilters(updater)
-          resetToFirstPage()
-        },
-        pagination,
-        onPaginationChange: setPagination,
-      }}
-      search={search}
-      onSearchChange={(value) => {
-        setSearch(value)
-        resetToFirstPage()
-      }}
-      searchPlaceholder={
-        showDevice ? "Search device or person" : "Search by person"
-      }
-      toolbarLeading={
-        <SelectField
-          value={range}
-          onValueChange={(value) => {
-            setRange(value)
+    <>
+      <DataTable
+        className={className}
+        columns={columns}
+        data={pageQuery.data?.items}
+        isLoading={pageQuery.isLoading}
+        isFetching={pageQuery.isFetching}
+        getRowId={(row) => row.id}
+        pageSize={pageSize}
+        pageSizeOptions={variant === "device" ? [10, 25, 50] : [25, 50, 100]}
+        server={{
+          rowCount: total,
+          sorting,
+          onSortingChange: (updater) => {
+            setSorting(updater)
             resetToFirstPage()
-          }}
-          size="sm"
-          className="h-9 w-40"
-          aria-label="Time range"
-          options={timeRanges.map((entry) => ({
-            value: entry.value,
-            label: entry.label,
-          }))}
-        />
-      }
-      facets={facets}
-      showViewOptions={showDevice}
-      emptyTitle="No sessions yet"
-      emptyDescription={
-        showDevice
-          ? "Remote sessions started from the console will appear here."
-          : "No one has connected to this device in the selected range."
-      }
-      filteredEmptyTitle="No sessions match"
-      filteredEmptyDescription="Try a wider time range or clear the filters."
-    />
+          },
+          columnFilters,
+          onColumnFiltersChange: (updater) => {
+            setColumnFilters(updater)
+            resetToFirstPage()
+          },
+          pagination,
+          onPaginationChange: setPagination,
+        }}
+        search={search}
+        onSearchChange={(value) => {
+          setSearch(value)
+          resetToFirstPage()
+        }}
+        searchPlaceholder={
+          showDevice ? "Search device or person" : "Search by person"
+        }
+        toolbarLeading={
+          <SelectField
+            value={range}
+            onValueChange={(value) => {
+              setRange(value)
+              resetToFirstPage()
+            }}
+            size="sm"
+            className="h-9 w-40"
+            aria-label="Time range"
+            options={timeRanges.map((entry) => ({
+              value: entry.value,
+              label: entry.label,
+            }))}
+          />
+        }
+        facets={facets}
+        showViewOptions={showDevice}
+        emptyTitle="No sessions yet"
+        emptyDescription={
+          showDevice
+            ? "Remote sessions started from the console will appear here."
+            : "No one has connected to this device in the selected range."
+        }
+        filteredEmptyTitle="No sessions match"
+        filteredEmptyDescription="Try a wider time range or clear the filters."
+      />
+      <ConfirmDialog
+        open={endingId !== null}
+        onOpenChange={(open) => {
+          if (!open) setEndingId(null)
+        }}
+        title="End this session?"
+        description={
+          endingRow
+            ? `This disconnects the open session${endingRow.deviceName ? ` on ${endingRow.deviceName}` : ""}.`
+            : "This disconnects the open session."
+        }
+        confirmLabel="End session"
+        destructive
+        pending={terminate.isPending}
+        onConfirm={() => {
+          if (endingId) terminate.mutate({ sessionId: endingId })
+        }}
+      />
+    </>
   )
 }

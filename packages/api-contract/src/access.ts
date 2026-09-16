@@ -78,6 +78,21 @@ export function isPlatformOwner(actor: ActorPrincipal | null) {
   return actor?.platformRole === "owner"
 }
 
+export function isPlatformAdministrator(actor: ActorPrincipal | null) {
+  return Boolean(actor && hasPlatformWideAccess(actor))
+}
+
+export function assertPlatformAdministrator(actor: ActorPrincipal | null) {
+  const principal = requireActor(actor)
+  if (!hasPlatformWideAccess(principal)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "This page is limited to platform administrators.",
+    })
+  }
+  return principal
+}
+
 /**
  * Organizations where the actor can manage users: all of them for platform
  * owners/admins (`null`), otherwise organizations where they hold an

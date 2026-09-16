@@ -20,10 +20,11 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { SelectField } from "@/components/dashboard/select-field"
 import { StatusIndicator } from "@/components/dashboard/status-indicator"
-import { statusLabel } from "@/lib/dashboard"
+import { formatRelativeTime, statusLabel } from "@/lib/dashboard"
 import { serviceTypeLabel } from "@/lib/devices"
 import { preferredConnectionMethod } from "@/lib/remote-launch"
 import { trpc } from "@/lib/trpc"
@@ -326,6 +327,8 @@ export function ConnectTab({
         />
       ) : null}
 
+      <OpenDeviceSessions deviceId={device.id} />
+
       <p className="text-xs text-muted-foreground">
         Browser sessions work from anywhere.
         {uiScope === "admin" ? (
@@ -339,6 +342,99 @@ export function ConnectTab({
           </>
         ) : null}
       </p>
+    </div>
+  )
+}
+
+function OpenDeviceSessions({ deviceId }: { deviceId: string }) {
+  const { can, isPlatformAdmin } = usePermissions()
+  const utils = trpc.useUtils()
+  const canEnd =
+    isPlatformAdmin ||
+    can("device:update") ||
+    can("device:start_vnc") ||
+    can("device:start_rdp") ||
+    can("device:start_ssh")
+  const [endingId, setEndingId] = React.useState<string | null>(null)
+
+  const openQuery = trpc.sessions.page.useQuery(
+    {
+      limit: 20,
+      filters: { deviceId: [deviceId], state: ["active"] },
+    },
+    { refetchInterval: 15_000 }
+  )
+
+  const terminate = trpc.sessions.terminate.useMutation({
+    async onSuccess() {
+      toast.success("Session ended")
+      setEndingId(null)
+      await Promise.all([
+        utils.sessions.page.invalidate(),
+        utils.dashboard.summary.invalidate(),
+      ])
+    },
+    onError() {
+      toast.error("We couldn't end that session.")
+    },
+  })
+
+  const items = openQuery.data?.items ?? []
+  if (!canEnd || (items.length === 0 && !openQuery.isLoading)) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <h2 className="text-sm font-medium">Open sessions</h2>
+        <p className="text-xs text-muted-foreground">
+          End a session if it should no longer stay connected.
+        </p>
+      </div>
+      <ul className="flex flex-col gap-2">
+        {items.map((session) => (
+          <li
+            key={session.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
+          >
+            <div className="flex min-w-0 flex-col">
+              <span className="font-medium">
+                {session.serviceType
+                  ? (serviceTypeLabel[session.serviceType] ??
+                    session.serviceType)
+                  : "Session"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {session.actorName ?? session.actorEmail ?? "Unknown"} ·{" "}
+                {formatRelativeTime(session.startedAt)}
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={terminate.isPending}
+              onClick={() => setEndingId(session.id)}
+            >
+              End session
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <ConfirmDialog
+        open={endingId !== null}
+        onOpenChange={(open) => {
+          if (!open) setEndingId(null)
+        }}
+        title="End this session?"
+        description="This disconnects the open session on this device."
+        confirmLabel="End session"
+        destructive
+        pending={terminate.isPending}
+        onConfirm={() => {
+          if (endingId) terminate.mutate({ sessionId: endingId })
+        }}
+      />
     </div>
   )
 }

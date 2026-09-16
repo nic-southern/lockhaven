@@ -391,6 +391,7 @@ export const auditEventTypeSchema = z.enum([
   "vpn_peer_removed",
   "remote_session_started",
   "remote_session_ended",
+  "remote_session_terminated",
   "device_revoked",
   "device_deleted",
   "site_created",
