@@ -4,10 +4,12 @@ import {
   alertKindDefaultSeverity,
   alertKindLabels,
   type AlertKind,
+  type AlertStatus,
   type AuditSeverity,
 } from "@nms/shared"
 
 import { recordEvent } from "./audit"
+import { activeMaintenanceWindowFor, resolveAlertPolicy } from "./lifecycle"
 import { enqueueAlertNotifications } from "./notify"
 
 export type RaiseAlertInput = {
@@ -35,18 +37,39 @@ const CONDITION_TOUCH_INTERVAL_MS = 60_000
 /**
  * Opens an alert or, when the same condition is already open, records the
  * repeat. Acknowledged alerts keep their acknowledgement; only a resolved
- * alert followed by a repeat opens a fresh row.
+ * alert followed by a repeat opens a fresh row. Alerts raised inside an
+ * active maintenance window are created `suppressed` and do not enqueue
+ * deliveries until they are promoted.
  */
 export async function raiseAlert(input: RaiseAlertInput) {
   const now = new Date()
-  const severity = input.severity ?? alertKindDefaultSeverity[input.kind]
+  const policy = await resolveAlertPolicy(
+    input.kind,
+    input.organizationId,
+    input.siteId
+  )
+  if (!policy.enabled) {
+    return { id: "", created: false as const }
+  }
+
+  const severity =
+    input.severity ?? policy.severity ?? alertKindDefaultSeverity[input.kind]
   const title = input.title ?? alertKindLabels[input.kind]
   const detail = input.detail ?? {}
   const mode = input.mode ?? "event"
+  const window = await activeMaintenanceWindowFor(
+    {
+      organizationId: input.organizationId ?? null,
+      siteId: input.siteId ?? null,
+      deviceId: input.deviceId ?? null,
+    },
+    now
+  )
 
   const [existing] = await db
     .select({
       id: alerts.id,
+      status: alerts.status,
       occurrences: alerts.occurrences,
       lastSeenAt: alerts.lastSeenAt,
     })
@@ -59,6 +82,28 @@ export async function raiseAlert(input: RaiseAlertInput) {
     )
 
   if (existing) {
+    if (existing.status === "suppressed" && !window) {
+      const promoted = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(alerts)
+          .set({
+            status: "open",
+            lastSeenAt: now,
+            updatedAt: now,
+            severity,
+            detail,
+          })
+          .where(
+            and(eq(alerts.id, existing.id), eq(alerts.status, "suppressed"))
+          )
+          .returning()
+        if (!row) return null
+        await enqueueAlertNotifications(tx, row, "alert.opened", now)
+        return row
+      })
+      return { id: promoted?.id ?? existing.id, created: false as const }
+    }
+
     if (mode === "condition") {
       const fresh =
         now.getTime() - existing.lastSeenAt.getTime() <
@@ -85,6 +130,8 @@ export async function raiseAlert(input: RaiseAlertInput) {
     return { id: existing.id, created: false as const }
   }
 
+  const status: AlertStatus = window ? "suppressed" : "open"
+
   const created = await db.transaction(async (tx) => {
     const [row] = await tx
       .insert(alerts)
@@ -94,7 +141,7 @@ export async function raiseAlert(input: RaiseAlertInput) {
         deviceId: input.deviceId ?? null,
         kind: input.kind,
         severity,
-        status: "open",
+        status,
         title,
         detail,
         dedupeKey: input.dedupeKey,
@@ -115,12 +162,20 @@ export async function raiseAlert(input: RaiseAlertInput) {
         siteId: input.siteId ?? null,
         deviceId: input.deviceId ?? null,
         severity,
-        eventData: { alertId: row.id, kind: input.kind, title, ...detail },
+        eventData: {
+          alertId: row.id,
+          kind: input.kind,
+          title,
+          status,
+          ...detail,
+        },
       },
       tx
     )
 
-    await enqueueAlertNotifications(tx, row, "alert.opened", now)
+    if (row.status === "open") {
+      await enqueueAlertNotifications(tx, row, "alert.opened", now)
+    }
 
     return row
   })
@@ -140,6 +195,18 @@ export async function resolveAlert(
 ) {
   const now = new Date()
   return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(alerts)
+      .where(
+        and(
+          eq(alerts.dedupeKey, dedupeKey),
+          sql`${alerts.status} <> 'resolved'`
+        )
+      )
+    if (!existing) return null
+
+    const wasSuppressed = existing.status === "suppressed"
     const [resolved] = await tx
       .update(alerts)
       .set({
@@ -148,12 +215,7 @@ export async function resolveAlert(
         updatedAt: now,
         detail: sql`${alerts.detail} || ${JSON.stringify(detail)}::jsonb`,
       })
-      .where(
-        and(
-          eq(alerts.dedupeKey, dedupeKey),
-          sql`${alerts.status} <> 'resolved'`
-        )
-      )
+      .where(eq(alerts.id, existing.id))
       .returning()
 
     if (!resolved) return null
@@ -175,7 +237,9 @@ export async function resolveAlert(
       tx
     )
 
-    await enqueueAlertNotifications(tx, resolved, "alert.resolved", now)
+    if (!wasSuppressed) {
+      await enqueueAlertNotifications(tx, resolved, "alert.resolved", now)
+    }
     return resolved
   })
 }

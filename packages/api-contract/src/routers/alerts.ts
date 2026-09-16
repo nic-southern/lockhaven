@@ -7,6 +7,7 @@ import {
   gte,
   ilike,
   inArray,
+  isNull,
   lte,
   or,
   sql,
@@ -15,7 +16,7 @@ import { alias } from "drizzle-orm/pg-core"
 import { z } from "zod"
 
 import { alerts, devices, organizations, sites, user } from "@nms/db"
-import { alertKindLabels, type AlertKind } from "@nms/shared"
+import { alertKindLabels, isAlertSnoozed, type AlertKind } from "@nms/shared"
 
 import { assertAuthorized, requireActor } from "../access"
 import { writeAuditEvent } from "../audit"
@@ -39,6 +40,7 @@ const SUMMARY_LIMIT = 6
 
 const acknowledgedBy = alias(user, "acknowledged_by")
 const resolvedBy = alias(user, "resolved_by")
+const snoozedBy = alias(user, "snoozed_by")
 
 function parseDate(values: string[] | undefined) {
   const raw = values?.[0]
@@ -55,9 +57,16 @@ function alertScope(actor: ApiContext["actor"]) {
   })
 }
 
-function buildAlertConditions(query: ResolvedListQuery, scope: ScopeCondition) {
+function buildAlertConditions(
+  query: ResolvedListQuery,
+  scope: ScopeCondition,
+  now = new Date()
+) {
   const from = parseDate(query.filters.from)
   const to = parseDate(query.filters.to)
+  const snoozed = query.filters.snoozed ?? []
+  const wantsSnoozed = snoozed.includes("yes")
+  const wantsUnsnoozed = snoozed.includes("no")
   return combineConditions([
     scope.kind === "where" ? scope.condition : undefined,
     query.filters.status
@@ -77,6 +86,15 @@ function buildAlertConditions(query: ResolvedListQuery, scope: ScopeCondition) {
       : undefined,
     query.filters.deviceId
       ? inArray(alerts.deviceId, query.filters.deviceId)
+      : undefined,
+    wantsSnoozed && !wantsUnsnoozed
+      ? and(
+          sql`${alerts.snoozedUntil} > ${now}`,
+          sql`${alerts.status} <> 'resolved'`
+        )
+      : undefined,
+    wantsUnsnoozed && !wantsSnoozed
+      ? or(isNull(alerts.snoozedUntil), lte(alerts.snoozedUntil, now))
       : undefined,
     from ? gte(alerts.lastSeenAt, from) : undefined,
     to ? lte(alerts.lastSeenAt, to) : undefined,
@@ -129,6 +147,10 @@ function alertBase(ctx: ApiContext) {
       resolvedAt: alerts.resolvedAt,
       resolvedByName: resolvedBy.name,
       resolvedByEmail: resolvedBy.email,
+      snoozedUntil: alerts.snoozedUntil,
+      snoozedByName: snoozedBy.name,
+      snoozedByEmail: snoozedBy.email,
+      escalatedAt: alerts.escalatedAt,
     })
     .from(alerts)
     .leftJoin(devices, eq(devices.id, alerts.deviceId))
@@ -139,6 +161,7 @@ function alertBase(ctx: ApiContext) {
       eq(acknowledgedBy.id, alerts.acknowledgedByUserId)
     )
     .leftJoin(resolvedBy, eq(resolvedBy.id, alerts.resolvedByUserId))
+    .leftJoin(snoozedBy, eq(snoozedBy.id, alerts.snoozedByUserId))
 }
 
 async function loadAlertForUpdate(ctx: ApiContext, id: string) {
@@ -210,35 +233,48 @@ export const alertsRouter = createTRPCRouter({
       severity: [] as Array<{ value: string; count: number }>,
       kind: [] as Array<{ value: string; label: string; count: number }>,
       siteId: [] as Array<{ value: string; label: string; count: number }>,
+      snoozed: 0,
     }
     if (scope.kind === "none") {
       return empty
     }
     const where = scope.kind === "where" ? scope.condition : undefined
-    const [statusRows, severityRows, kindRows, siteRows] = await Promise.all([
-      ctx.db
-        .select({ value: alerts.status, total: count() })
-        .from(alerts)
-        .where(where)
-        .groupBy(alerts.status),
-      ctx.db
-        .select({ value: alerts.severity, total: count() })
-        .from(alerts)
-        .where(where)
-        .groupBy(alerts.severity),
-      ctx.db
-        .select({ value: alerts.kind, total: count() })
-        .from(alerts)
-        .where(where)
-        .groupBy(alerts.kind),
-      ctx.db
-        .select({ value: alerts.siteId, label: sites.name, total: count() })
-        .from(alerts)
-        .innerJoin(sites, eq(sites.id, alerts.siteId))
-        .where(where)
-        .groupBy(alerts.siteId, sites.name)
-        .orderBy(sites.name),
-    ])
+    const now = new Date()
+    const [statusRows, severityRows, kindRows, siteRows, snoozedRows] =
+      await Promise.all([
+        ctx.db
+          .select({ value: alerts.status, total: count() })
+          .from(alerts)
+          .where(where)
+          .groupBy(alerts.status),
+        ctx.db
+          .select({ value: alerts.severity, total: count() })
+          .from(alerts)
+          .where(where)
+          .groupBy(alerts.severity),
+        ctx.db
+          .select({ value: alerts.kind, total: count() })
+          .from(alerts)
+          .where(where)
+          .groupBy(alerts.kind),
+        ctx.db
+          .select({ value: alerts.siteId, label: sites.name, total: count() })
+          .from(alerts)
+          .innerJoin(sites, eq(sites.id, alerts.siteId))
+          .where(where)
+          .groupBy(alerts.siteId, sites.name)
+          .orderBy(sites.name),
+        ctx.db
+          .select({ total: count() })
+          .from(alerts)
+          .where(
+            and(
+              where,
+              sql`${alerts.snoozedUntil} > ${now}`,
+              sql`${alerts.status} <> 'resolved'`
+            )
+          ),
+      ])
     return {
       status: statusRows.map((row) => ({
         value: row.value,
@@ -258,6 +294,7 @@ export const alertsRouter = createTRPCRouter({
           ? [{ value: row.value, label: row.label, count: Number(row.total) }]
           : []
       ),
+      snoozed: Number(snoozedRows[0]?.total ?? 0),
     }
   }),
   /** Open-alert counts plus the most urgent open alerts, for the Overview. */
@@ -274,11 +311,12 @@ export const alertsRouter = createTRPCRouter({
       return empty
     }
     const where = scope.kind === "where" ? scope.condition : undefined
-    const unresolved = sql`${alerts.status} <> 'resolved'`
+    const unresolved = sql`${alerts.status} <> 'resolved' and ${alerts.status} <> 'suppressed'`
+    const notSnoozed = sql`(${alerts.snoozedUntil} is null or ${alerts.snoozedUntil} <= ${new Date()})`
     const [[counts], items] = await Promise.all([
       ctx.db
         .select({
-          open: sql<number>`count(*) filter (where ${alerts.status} = 'open')::int`,
+          open: sql<number>`count(*) filter (where ${alerts.status} = 'open' and (${alerts.snoozedUntil} is null or ${alerts.snoozedUntil} <= now()))::int`,
           acknowledged: sql<number>`count(*) filter (where ${alerts.status} = 'acknowledged')::int`,
           critical: sql<number>`count(*) filter (where ${alerts.severity} = 'critical')::int`,
           warning: sql<number>`count(*) filter (where ${alerts.severity} = 'warning')::int`,
@@ -286,7 +324,7 @@ export const alertsRouter = createTRPCRouter({
         .from(alerts)
         .where(and(where, unresolved)),
       alertBase(ctx)
-        .where(and(where, unresolved))
+        .where(and(where, unresolved, notSnoozed))
         .orderBy(sortColumns.severity, desc(alerts.lastSeenAt))
         .limit(SUMMARY_LIMIT),
     ])
@@ -384,5 +422,84 @@ export const alertsRouter = createTRPCRouter({
         )
       })
       return { id: alert.id, status: "resolved" as const }
+    }),
+  snooze: permissionProcedure("device:update")
+    .input(
+      z
+        .object({
+          id: z.string().uuid(),
+          hours: z
+            .union([z.literal(1), z.literal(8), z.literal(24)])
+            .optional(),
+          until: z.coerce.date().optional(),
+          clear: z.boolean().optional(),
+        })
+        .refine((value) => Boolean(value.clear || value.hours || value.until), {
+          message: "Choose a snooze duration.",
+        })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const actor = requireActor(ctx.actor)
+      const alert = await loadAlertForUpdate(ctx, input.id)
+      if (alert.status === "resolved") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Resolved alerts cannot be snoozed.",
+        })
+      }
+      const now = new Date()
+      let snoozedUntil: Date | null = null
+      if (!input.clear) {
+        if (input.hours) {
+          snoozedUntil = new Date(now.getTime() + input.hours * 60 * 60 * 1000)
+        } else if (input.until) {
+          snoozedUntil = input.until
+        }
+        if (!snoozedUntil || snoozedUntil.getTime() <= now.getTime()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Choose a time in the future.",
+          })
+        }
+        const max = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
+        if (snoozedUntil.getTime() > max.getTime()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Snooze cannot last more than 90 days.",
+          })
+        }
+      }
+
+      await ctx.db.transaction(async (tx) => {
+        await tx
+          .update(alerts)
+          .set({
+            snoozedUntil,
+            snoozedByUserId: snoozedUntil ? actor.id : null,
+            updatedAt: now,
+          })
+          .where(eq(alerts.id, alert.id))
+        await writeAuditEvent(
+          { ...ctx, db: tx },
+          {
+            eventType: "alert_snoozed",
+            organizationId: alert.organizationId,
+            siteId: alert.siteId,
+            deviceId: alert.deviceId,
+            eventData: {
+              alertId: alert.id,
+              kind: alert.kind,
+              title: alert.title,
+              snoozedUntil: snoozedUntil?.toISOString() ?? null,
+              cleared: Boolean(input.clear),
+            },
+          }
+        )
+      })
+      return {
+        id: alert.id,
+        snoozedUntil,
+        snoozed: Boolean(snoozedUntil && isAlertSnoozed(snoozedUntil, now)),
+      }
     }),
 })

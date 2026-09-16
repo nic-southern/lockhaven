@@ -31,6 +31,7 @@ import {
   type ConnectionDirection,
   type ConnectionProtocol,
   type ConnectionVerdict,
+  type MaintenanceWindowRecurrence,
   type RoutePolicyColor,
   type RoutePolicyEntry,
   type SiteGrant,
@@ -718,6 +719,11 @@ export const alerts = pgTable(
     resolvedByUserId: text("resolved_by_user_id").references(() => user.id, {
       onDelete: "set null",
     }),
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    snoozedByUserId: text("snoozed_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -739,6 +745,9 @@ export const alerts = pgTable(
       table.status
     ),
     deviceIdx: index("alerts_device_idx").on(table.deviceId),
+    snoozedUntilIdx: index("alerts_snoozed_until_idx")
+      .on(table.snoozedUntil)
+      .where(sql`${table.snoozedUntil} is not null`),
   })
 )
 
@@ -945,6 +954,80 @@ export const notificationDeliveries = pgTable(
   })
 )
 
+export const alertPolicies = pgTable(
+  "alert_policies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<AlertKind>().notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    severity: text("severity").$type<AuditSeverity>(),
+    escalateAfterMinutes: integer("escalate_after_minutes"),
+    thresholds: jsonb("thresholds")
+      .$type<{ offlineHours?: number }>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    orgKindIdx: uniqueIndex("alert_policies_org_kind_idx")
+      .on(table.organizationId, table.kind)
+      .where(sql`${table.siteId} is null`),
+    siteKindIdx: uniqueIndex("alert_policies_site_kind_idx")
+      .on(table.organizationId, table.siteId, table.kind)
+      .where(sql`${table.siteId} is not null`),
+    organizationIdx: index("alert_policies_organization_idx").on(
+      table.organizationId
+    ),
+  })
+)
+
+export const maintenanceWindows = pgTable(
+  "maintenance_windows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    timeZone: text("time_zone").notNull().default("UTC"),
+    recurrence: text("recurrence")
+      .$type<MaintenanceWindowRecurrence>()
+      .notNull()
+      .default("none"),
+    reason: text("reason").notNull().default(""),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationStartsIdx: index(
+      "maintenance_windows_organization_starts_idx"
+    ).on(table.organizationId, table.startsAt),
+    siteIdx: index("maintenance_windows_site_idx").on(table.siteId),
+    deviceIdx: index("maintenance_windows_device_idx").on(table.deviceId),
+  })
+)
+
 export type Organization = typeof organizations.$inferSelect
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
@@ -968,6 +1051,8 @@ export type RemoteSession = typeof remoteSessions.$inferSelect
 export type AuditEvent = typeof auditEvents.$inferSelect
 export type VpnPeerSample = typeof vpnPeerSamples.$inferSelect
 export type Alert = typeof alerts.$inferSelect
+export type AlertPolicy = typeof alertPolicies.$inferSelect
+export type MaintenanceWindow = typeof maintenanceWindows.$inferSelect
 export type NotificationChannel = typeof notificationChannels.$inferSelect
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
 export type ConnectionEvent = typeof connectionEvents.$inferSelect

@@ -10,13 +10,33 @@ import type {
   RowSelectionState,
   SortingState,
 } from "@tanstack/react-table"
-import { CheckCheckIcon, CheckIcon } from "lucide-react"
+import { CheckCheckIcon, CheckIcon, ClockIcon } from "lucide-react"
 import { toast } from "sonner"
 
-import { alertKindLabels, type AlertKind, type AlertStatus } from "@nms/shared"
+import {
+  alertKindLabels,
+  isAlertSnoozed,
+  type AlertKind,
+  type AlertStatus,
+} from "@nms/shared"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import {
@@ -41,6 +61,7 @@ export type AlertRow = RouterOutputs["alerts"]["page"]["items"][number]
 const statusTabs = [
   { value: "open", label: "Needs action" },
   { value: "acknowledged", label: "Acknowledged" },
+  { value: "snoozed", label: "Snoozed" },
   { value: "resolved", label: "Resolved" },
   { value: "all", label: "All" },
 ] as const
@@ -50,6 +71,7 @@ type StatusTab = (typeof statusTabs)[number]["value"]
 const statusLabels: Record<AlertStatus, string> = {
   open: "Open",
   acknowledged: "Acknowledged",
+  suppressed: "Held",
   resolved: "Resolved",
 }
 
@@ -70,6 +92,8 @@ export function AlertStatusBadge({
           "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
         key === "acknowledged" &&
           "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+        key === "suppressed" &&
+          "border-stone-500/30 bg-stone-500/10 text-muted-foreground",
         key === "resolved" && "text-muted-foreground",
         className
       )}
@@ -131,6 +155,8 @@ export function AlertsTable({
   const [pendingResolve, setPendingResolve] = React.useState<string[] | null>(
     null
   )
+  const [untilAlertId, setUntilAlertId] = React.useState<string | null>(null)
+  const [untilValue, setUntilValue] = React.useState("")
 
   React.useEffect(() => {
     const handle = window.setTimeout(() => setDebouncedSearch(search), 250)
@@ -146,7 +172,12 @@ export function AlertsTable({
 
   const filters = React.useMemo(() => {
     const record = columnFiltersToRecord(columnFilters)
-    if (status !== "all") record.status = [status]
+    if (status === "snoozed") {
+      record.snoozed = ["yes"]
+    } else if (status !== "all") {
+      record.status = [status]
+      if (status === "open") record.snoozed = ["no"]
+    }
     for (const [key, values] of Object.entries(fixedFilters ?? {})) {
       record[key] = values
     }
@@ -172,7 +203,11 @@ export function AlertsTable({
 
   const acknowledgeMutation = trpc.alerts.acknowledge.useMutation()
   const resolveMutation = trpc.alerts.resolve.useMutation()
-  const busy = acknowledgeMutation.isPending || resolveMutation.isPending
+  const snoozeMutation = trpc.alerts.snooze.useMutation()
+  const busy =
+    acknowledgeMutation.isPending ||
+    resolveMutation.isPending ||
+    snoozeMutation.isPending
 
   const acknowledge = React.useCallback(
     async (ids: string[]) => {
@@ -192,6 +227,34 @@ export function AlertsTable({
       }
     },
     [acknowledgeMutation, invalidate]
+  )
+
+  const snooze = React.useCallback(
+    async (
+      ids: string[],
+      input: { hours?: 1 | 8 | 24; until?: Date; clear?: boolean }
+    ) => {
+      try {
+        await Promise.all(
+          ids.map((id) => snoozeMutation.mutateAsync({ id, ...input }))
+        )
+        toast.success(
+          input.clear
+            ? ids.length === 1
+              ? "Snooze cleared."
+              : `${ids.length} snoozes cleared.`
+            : ids.length === 1
+              ? "Alert snoozed."
+              : `${ids.length} alerts snoozed.`
+        )
+        setUntilAlertId(null)
+        setRowSelection({})
+        await invalidate()
+      } catch {
+        toast.error("We couldn't snooze that alert.")
+      }
+    },
+    [snoozeMutation, invalidate]
   )
 
   async function resolve(ids: string[]) {
@@ -306,42 +369,70 @@ export function AlertsTable({
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Status" />
         ),
-        cell: ({ row }) => (
-          <div className="flex flex-col gap-0.5">
-            <AlertStatusBadge status={row.original.status} />
-            {row.original.status === "acknowledged" &&
-            (row.original.acknowledgedByName ||
-              row.original.acknowledgedByEmail) ? (
-              <span className="text-xs text-muted-foreground">
-                by{" "}
-                {row.original.acknowledgedByName ??
-                  row.original.acknowledgedByEmail}
-              </span>
-            ) : null}
-            {row.original.status === "resolved" ? (
-              <span className="text-xs text-muted-foreground">
-                {row.original.resolvedByName ??
-                  row.original.resolvedByEmail ??
-                  "Cleared automatically"}
-              </span>
-            ) : null}
-          </div>
-        ),
+        cell: ({ row }) => {
+          const snoozed = isAlertSnoozed(
+            row.original.snoozedUntil
+              ? new Date(row.original.snoozedUntil)
+              : null,
+            new Date()
+          )
+          return (
+            <div className="flex flex-col gap-0.5">
+              {snoozed ? (
+                <Badge
+                  variant="outline"
+                  className="border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                >
+                  Snoozed
+                </Badge>
+              ) : (
+                <AlertStatusBadge status={row.original.status} />
+              )}
+              {snoozed && row.original.snoozedUntil ? (
+                <span className="text-xs text-muted-foreground">
+                  until {formatRelativeTime(row.original.snoozedUntil)}
+                </span>
+              ) : null}
+              {row.original.status === "acknowledged" &&
+              (row.original.acknowledgedByName ||
+                row.original.acknowledgedByEmail) ? (
+                <span className="text-xs text-muted-foreground">
+                  by{" "}
+                  {row.original.acknowledgedByName ??
+                    row.original.acknowledgedByEmail}
+                </span>
+              ) : null}
+              {row.original.status === "resolved" ? (
+                <span className="text-xs text-muted-foreground">
+                  {row.original.resolvedByName ??
+                    row.original.resolvedByEmail ??
+                    "Cleared automatically"}
+                </span>
+              ) : null}
+            </div>
+          )
+        },
       },
       {
         id: "actions",
         enableSorting: false,
         enableHiding: false,
-        meta: { label: "Actions", align: "right", className: "w-[11rem]" },
+        meta: { label: "Actions", align: "right", className: "w-[14rem]" },
         header: () => <span className="sr-only">Actions</span>,
         cell: ({ row }) => {
           if (!canAct || row.original.status === "resolved") return null
+          const snoozed = isAlertSnoozed(
+            row.original.snoozedUntil
+              ? new Date(row.original.snoozedUntil)
+              : null,
+            new Date()
+          )
           return (
             <div
               className="flex justify-end gap-1.5"
               onClick={(event) => event.stopPropagation()}
             >
-              {row.original.status === "open" ? (
+              {row.original.status === "open" && !snoozed ? (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -353,6 +444,52 @@ export function AlertsTable({
                   Acknowledge
                 </Button>
               ) : null}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8"
+                    disabled={busy}
+                  >
+                    <ClockIcon />
+                    Snooze
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => void snooze([row.original.id], { hours: 1 })}
+                  >
+                    1 hour
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void snooze([row.original.id], { hours: 8 })}
+                  >
+                    8 hours
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() =>
+                      void snooze([row.original.id], { hours: 24 })
+                    }
+                  >
+                    24 hours
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setUntilAlertId(row.original.id)}
+                  >
+                    Until a date
+                  </DropdownMenuItem>
+                  {snoozed ? (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void snooze([row.original.id], { clear: true })
+                      }
+                    >
+                      Clear snooze
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button
                 size="sm"
                 variant="outline"
@@ -367,7 +504,6 @@ export function AlertsTable({
           )
         },
       },
-      // Filter-only column so the site facet has a target.
       {
         id: "siteId",
         accessorKey: "siteName",
@@ -375,11 +511,25 @@ export function AlertsTable({
         header: "Site",
         enableHiding: false,
         cell: () => null,
+      },
+      {
+        id: "snoozed",
+        accessorFn: (row) =>
+          isAlertSnoozed(
+            row.snoozedUntil ? new Date(row.snoozedUntil) : null,
+            new Date()
+          )
+            ? "yes"
+            : "no",
+        meta: { label: "Snoozed" },
+        header: "Snoozed",
+        enableHiding: false,
+        cell: () => null,
       }
     )
 
     return defs
-  }, [full, canAct, busy, acknowledge])
+  }, [full, canAct, busy, acknowledge, snooze])
 
   const facets = React.useMemo<DataTableFacet[]>(() => {
     const data = facetsQuery.data
@@ -417,6 +567,18 @@ export function AlertsTable({
         })),
       })
     }
+    list.push({
+      columnId: "snoozed",
+      title: "Snoozed",
+      options: [
+        {
+          value: "yes",
+          label: "Snoozed",
+          count: data?.snoozed,
+        },
+        { value: "no", label: "Not snoozed" },
+      ],
+    })
     return list
   }, [full, facetsQuery.data])
 
@@ -430,6 +592,7 @@ export function AlertsTable({
     return {
       open: map.get("open") ?? 0,
       acknowledged: map.get("acknowledged") ?? 0,
+      snoozed: facetsQuery.data?.snoozed ?? 0,
       resolved: map.get("resolved") ?? 0,
     }
   }, [facetsQuery.data])
@@ -503,7 +666,16 @@ export function AlertsTable({
             (row) => row.original.status !== "resolved"
           )
           const openIds = actionable
-            .filter((row) => row.original.status === "open")
+            .filter(
+              (row) =>
+                row.original.status === "open" &&
+                !isAlertSnoozed(
+                  row.original.snoozedUntil
+                    ? new Date(row.original.snoozedUntil)
+                    : null,
+                  new Date()
+                )
+            )
             .map((row) => row.original.id)
           const ids = actionable.map((row) => row.original.id)
           return (
@@ -517,6 +689,35 @@ export function AlertsTable({
                 <CheckIcon />
                 Acknowledge
               </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || ids.length === 0}
+                  >
+                    <ClockIcon />
+                    Snooze
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={() => void snooze(ids, { hours: 1 })}
+                  >
+                    1 hour
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void snooze(ids, { hours: 8 })}
+                  >
+                    8 hours
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void snooze(ids, { hours: 24 })}
+                  >
+                    24 hours
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button
                 size="sm"
                 variant="outline"
@@ -531,21 +732,25 @@ export function AlertsTable({
         }}
         renderExpanded={(row) => <AlertDetails row={row} />}
         showViewOptions={full}
-        initialColumnVisibility={{ siteId: false }}
+        initialColumnVisibility={{ siteId: false, snoozed: false }}
         pageSizeOptions={full ? [25, 50, 100] : [10, 25, 50]}
         emptyTitle={
           status === "open"
             ? "Nothing needs attention"
             : status === "acknowledged"
               ? "No acknowledged alerts"
-              : status === "resolved"
-                ? "No resolved alerts yet"
-                : "No alerts yet"
+              : status === "snoozed"
+                ? "No snoozed alerts"
+                : status === "resolved"
+                  ? "No resolved alerts yet"
+                  : "No alerts yet"
         }
         emptyDescription={
           status === "open"
             ? "New alerts open here when a device goes quiet, changes address, flaps, or probes the hub."
-            : "Alerts move here as they are handled."
+            : status === "snoozed"
+              ? "Snoozed alerts return here when the snooze ends."
+              : "Alerts move here as they are handled."
         }
         filteredEmptyTitle="No alerts match"
         filteredEmptyDescription="Try another status or clear the filters."
@@ -567,6 +772,40 @@ export function AlertsTable({
           if (pendingResolve) void resolve(pendingResolve)
         }}
       />
+      <Dialog
+        open={untilAlertId !== null}
+        onOpenChange={(open) => {
+          if (!open) setUntilAlertId(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Snooze until</DialogTitle>
+            <DialogDescription>
+              The alert stays off the action list until this time.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            type="datetime-local"
+            value={untilValue}
+            onChange={(event) => setUntilValue(event.target.value)}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUntilAlertId(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!untilValue || busy}
+              onClick={() => {
+                if (!untilAlertId || !untilValue) return
+                void snooze([untilAlertId], { until: new Date(untilValue) })
+              }}
+            >
+              Snooze
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
@@ -587,6 +826,16 @@ function AlertDetails({ row }: { row: AlertRow }) {
       value: `${formatDate(row.acknowledgedAt)}${
         row.acknowledgedByName || row.acknowledgedByEmail
           ? ` by ${row.acknowledgedByName ?? row.acknowledgedByEmail}`
+          : ""
+      }`,
+    })
+  }
+  if (row.snoozedUntil) {
+    timeline.push({
+      label: "Snoozed until",
+      value: `${formatDate(row.snoozedUntil)}${
+        row.snoozedByName || row.snoozedByEmail
+          ? ` by ${row.snoozedByName ?? row.snoozedByEmail}`
           : ""
       }`,
     })

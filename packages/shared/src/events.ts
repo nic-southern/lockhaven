@@ -46,6 +46,12 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   route_policy_deleted: "notice",
   route_policy_devices_reassigned: "notice",
   alert_raised: "warning",
+  alert_escalated: "warning",
+  alert_snoozed: "notice",
+  alert_policy_updated: "notice",
+  maintenance_window_created: "notice",
+  maintenance_window_updated: "notice",
+  maintenance_window_deleted: "notice",
   notification_channel_created: "notice",
   notification_channel_updated: "notice",
   notification_channel_deleted: "notice",
@@ -69,7 +75,12 @@ export type AlertKind = (typeof alertKinds)[number]
 
 export const alertKindSchema = z.enum(alertKinds)
 
-export const alertStatuses = ["open", "acknowledged", "resolved"] as const
+export const alertStatuses = [
+  "open",
+  "acknowledged",
+  "suppressed",
+  "resolved",
+] as const
 
 export type AlertStatus = (typeof alertStatuses)[number]
 
@@ -123,6 +134,9 @@ export const notificationDeliveryStatusSchema = z.enum(
 
 /** Hours a device must be silent before an offline alert opens. */
 export const DEVICE_OFFLINE_ALERT_HOURS = 24
+
+/** Hours a concentrator-probe alert may stay quiet before it auto-resolves. */
+export const CONCENTRATOR_PROBE_AUTO_RESOLVE_HOURS = 24
 
 /** Up/down transitions within the window that count as flapping. */
 export const PEER_FLAP_THRESHOLD = 4
