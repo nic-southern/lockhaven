@@ -139,6 +139,18 @@
     @apply font-sans;
     -webkit-tap-highlight-color: transparent;
   }
+  /*
+   * Tailwind's `grid` sets only `display: grid`, so a layout that adds
+   * columns at a breakpoint (`lg:grid-cols-2`) has an implicit `auto` track
+   * below it. That track's minimum is the content's min-content width, which
+   * for truncated or nowrap text is the full string, so cards push past the
+   * viewport on phones and iOS Safari zooms the page out to fit. Give every
+   * grid the same single-column template Tailwind uses for `grid-cols-1`;
+   * breakpoint utilities still override it.
+   */
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @keyframes fade-up {
@@ -168,4 +180,11 @@
 
 @utility animate-soft-pulse {
   animation: soft-pulse 2.4s ease-in-out infinite;
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }

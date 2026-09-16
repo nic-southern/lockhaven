@@ -244,9 +244,12 @@ function NavLinks({
 function AdminVpnStatusIndicator({
   connected,
   checked,
+  showLabel = false,
 }: {
   connected: boolean
   checked: boolean
+  /** Always show the text; by default it appears from `sm` up. */
+  showLabel?: boolean
 }) {
   const label = !checked
     ? "Checking admin VPN"
@@ -280,7 +283,7 @@ function AdminVpnStatusIndicator({
           )}
         />
       </span>
-      <span className="hidden sm:inline">
+      <span className={cn(!showLabel && "hidden sm:inline")}>
         {connected ? "VPN on" : "VPN off"}
       </span>
     </div>
@@ -518,7 +521,11 @@ function ShellContent({
                       {userLabel}
                     </p>
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      {vpnStatus}
+                      <AdminVpnStatusIndicator
+                        connected={adminVpnConnected}
+                        checked={adminVpnChecked}
+                        showLabel
+                      />
                       {isTechnician ? (
                         <SiteSwitcher sites={technicianSites} />
                       ) : null}
@@ -600,7 +607,7 @@ function ShellContent({
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 animate-fade-up">
+        <main className="min-w-0 flex-1 animate-fade-up overflow-x-clip">
           {pageAllowed ? children : <AccessDenied />}
         </main>
       </div>

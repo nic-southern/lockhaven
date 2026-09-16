@@ -211,7 +211,10 @@ function DeviceDetail() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setTab} className="gap-6">
-        <TabsList variant="line" className="w-full justify-start border-b">
+        <TabsList
+          variant="line"
+          className="w-max min-w-full justify-start border-b"
+        >
           {visibleTabs.map((entry) => (
             <TabsTrigger key={entry} value={entry} className="flex-none px-3">
               {tabLabels[entry]}

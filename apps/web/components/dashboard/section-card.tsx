@@ -44,25 +44,32 @@ export function SectionCard({
           collapsibleOnMobile ? () => setMobileOpen((open) => !open) : undefined
         }
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <CardTitle>{title}</CardTitle>
-            {description ? (
-              <CardDescription>{description}</CardDescription>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div
+            className={cn(
+              "flex items-center justify-between gap-3",
+              (actions || collapsibleOnMobile) && "min-h-8"
+            )}
+          >
+            <CardTitle className="min-w-0 break-words">{title}</CardTitle>
+            {actions || collapsibleOnMobile ? (
+              <div className="flex shrink-0 items-center gap-2">
+                {actions}
+                {collapsibleOnMobile ? (
+                  <ChevronDownIcon
+                    className={cn(
+                      "size-5 text-muted-foreground transition-transform lg:hidden",
+                      mobileOpen && "rotate-180"
+                    )}
+                    aria-hidden
+                  />
+                ) : null}
+              </div>
             ) : null}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {actions}
-            {collapsibleOnMobile ? (
-              <ChevronDownIcon
-                className={cn(
-                  "size-5 text-muted-foreground transition-transform lg:hidden",
-                  mobileOpen && "rotate-180"
-                )}
-                aria-hidden
-              />
-            ) : null}
-          </div>
+          {description ? (
+            <CardDescription>{description}</CardDescription>
+          ) : null}
         </div>
       </CardHeader>
       <CardContent
