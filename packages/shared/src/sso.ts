@@ -242,6 +242,18 @@ export function localSignInBlock(input: {
   return { blocked: true, reason: "sso_required" }
 }
 
+/** Password and passkeys stay available until this identity must use SSO. */
+export function resolveLegacySignInBlock(input: {
+  platformRequired: boolean
+  matchedPolicyRequired?: boolean
+  idpAvailable: boolean | null
+}): LocalSignInBlock {
+  return localSignInBlock({
+    ssoRequired: input.platformRequired || Boolean(input.matchedPolicyRequired),
+    idpAvailable: input.idpAvailable,
+  })
+}
+
 export function discoveryUrlForIssuer(issuer: string) {
   return `${issuer.replace(/\/+$/, "")}${PLATFORM_SSO_DISCOVERY_PATH}`
 }

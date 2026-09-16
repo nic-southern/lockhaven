@@ -56,8 +56,12 @@ SAML assertion consumer URL, when an organization uses its own provider:
 - Existing local accounts with a matching verified email are linked.
 - Domain allowlists apply to new sign-ins. With an empty allowlist, only
   existing accounts can sign in through SSO.
-- When SSO is required, passwords and passkeys are blocked for matching
-  domains. If the identity provider is down, sign-in stays closed.
+- Password, passkey, and existing sessions stay available while SSO is
+  optional. Require SSO is off by default. Enrollment still uses Hub
+  credentials.
+- When SSO is required for a matching domain, passwords and passkeys are
+  blocked. If the identity provider is down and SSO is required, sign-in
+  stays closed. If SSO is not required, password sign-in still works.
 - Console admins can trust the identity provider and skip the in-app
   authenticator step.
 

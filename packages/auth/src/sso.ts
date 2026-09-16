@@ -6,7 +6,7 @@ import {
   discoveryUrlForIssuer,
   emailDomain,
   isEmailDomainAllowed,
-  localSignInBlock,
+  resolveLegacySignInBlock,
   mapClaimsToRoles,
   parseDomainList,
   parseSsoClaimsMap,
@@ -297,12 +297,13 @@ export async function localSignInBlockedForEmail(email: string | null) {
   const platform = getPlatformSsoConfig()
   const rows = await loadOrgSsoSettings()
   const policy = email ? matchOrgSsoSettings(email, rows, platform) : null
-  const required =
-    platform.required ||
-    Boolean(policy?.required) ||
-    (!email && rows.some((row) => row.enabled && row.required))
-  if (!required) {
-    return localSignInBlock({ ssoRequired: false, idpAvailable: true })
+  const block = resolveLegacySignInBlock({
+    platformRequired: platform.required,
+    matchedPolicyRequired: Boolean(policy?.required),
+    idpAvailable: true,
+  })
+  if (!block.blocked) {
+    return block
   }
 
   const discoveryUrl =
@@ -312,7 +313,11 @@ export async function localSignInBlockedForEmail(email: string | null) {
   const idpAvailable = discoveryUrl
     ? await probeOidcDiscovery(discoveryUrl)
     : true
-  return localSignInBlock({ ssoRequired: true, idpAvailable })
+  return resolveLegacySignInBlock({
+    platformRequired: platform.required,
+    matchedPolicyRequired: Boolean(policy?.required),
+    idpAvailable,
+  })
 }
 
 export function trustedSsoProviderIds(config = getPlatformSsoConfig()) {

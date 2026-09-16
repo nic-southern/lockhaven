@@ -8,6 +8,7 @@ import {
   emailDomain,
   isEmailDomainAllowed,
   localSignInBlock,
+  resolveLegacySignInBlock,
   mapClaimsToRoles,
   parseDomainList,
   parseSsoClaimsMap,
@@ -169,6 +170,33 @@ test("fails closed when SSO is required and the identity provider is down", () =
   assert.deepEqual(
     localSignInBlock({ ssoRequired: false, idpAvailable: false }),
     { blocked: false }
+  )
+})
+
+test("keeps password and passkeys available until SSO is required", () => {
+  assert.deepEqual(
+    resolveLegacySignInBlock({
+      platformRequired: false,
+      matchedPolicyRequired: false,
+      idpAvailable: false,
+    }),
+    { blocked: false }
+  )
+  assert.deepEqual(
+    resolveLegacySignInBlock({
+      platformRequired: false,
+      matchedPolicyRequired: true,
+      idpAvailable: true,
+    }),
+    { blocked: true, reason: "sso_required" }
+  )
+  assert.equal(
+    resolveLegacySignInBlock({
+      platformRequired: false,
+      matchedPolicyRequired: false,
+      idpAvailable: true,
+    }).blocked,
+    false
   )
 })
 

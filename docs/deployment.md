@@ -172,7 +172,8 @@ See [Single sign-on](sso.md).
 - `SSO_OIDC_CLIENT_ID` — default `lockhaven`.
 - `SSO_OIDC_CLIENT_SECRET` — host-only; use `replace_me` in examples.
 - `SSO_ALLOWED_DOMAINS` — comma-separated email domains allowed to join.
-- `SSO_REQUIRED` — when `true`, local sign-in is closed.
+- `SSO_REQUIRED` — when `true`, matching people must use SSO. Default
+  `false`; password and passkeys stay available.
 - `SSO_TRUST_IDP_MFA` — skip the in-app authenticator after SSO.
 
 ### Production Expectations

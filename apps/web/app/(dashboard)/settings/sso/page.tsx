@@ -209,7 +209,7 @@ export default function SsoSettingsPage() {
         <form className="flex flex-col gap-6" onSubmit={handleSave}>
           <SectionCard
             title="Sign-in"
-            description="When SSO is required, passwords and passkeys are turned off for matching email domains. If the identity provider is unreachable, sign-in stays closed."
+            description="Passwords and passkeys stay available until you require SSO. If the identity provider is down, password sign-in still works unless SSO is required."
             collapsibleOnMobile
             defaultOpenOnMobile
           >
@@ -218,7 +218,7 @@ export default function SsoSettingsPage() {
                 <div>
                   <p className="text-sm font-medium">Enable SSO</p>
                   <p className="text-sm text-muted-foreground">
-                    Show Sign in with SSO for this organization.
+                    Show Sign in with SSO next to password and passkeys.
                   </p>
                 </div>
                 <Switch checked={enabled} onCheckedChange={setEnabled} />
@@ -227,7 +227,8 @@ export default function SsoSettingsPage() {
                 <div>
                   <p className="text-sm font-medium">Require SSO</p>
                   <p className="text-sm text-muted-foreground">
-                    Matching users must use SSO. Local sign-in is blocked.
+                    Matching users must use SSO. Leave this off to keep password
+                    and passkey sign-in.
                   </p>
                 </div>
                 <Switch checked={required} onCheckedChange={setRequired} />

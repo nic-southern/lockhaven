@@ -32,6 +32,14 @@ test("enables company OIDC only when the client secret is set", () => {
   assert.equal(enabled.clientId, "lockhaven")
 })
 
+test("defaults to optional SSO so password sign-in stays available", () => {
+  const config = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "a-real-secret",
+  })
+  assert.equal(config.enabled, true)
+  assert.equal(config.required, false)
+})
+
 test("decodes identity-token claims without verifying the signature", () => {
   const payload = Buffer.from(
     JSON.stringify({
