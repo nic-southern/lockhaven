@@ -6,6 +6,7 @@ import {
   type AlertKind,
   type AuditSeverity,
   type NotificationDeliveryEvent,
+  type PlaybookAction,
 } from "@nms/shared"
 
 export {
@@ -75,12 +76,26 @@ export type AccessRequestNotificationSnapshot = {
   expiresAt: string
 }
 
+export type PlaybookRunNotificationSnapshot = {
+  id: string
+  organizationId: string
+  siteId: string | null
+  alertId: string
+  alertKind: AlertKind
+  playbookName: string
+  action: PlaybookAction
+  deviceName: string
+  siteName: string | null
+  expiresAt: string
+}
+
 export type WebhookEnvelope = {
   version: typeof WEBHOOK_PAYLOAD_VERSION
   event: NotificationDeliveryEvent
   occurredAt: string
   alert: AlertNotificationSnapshot | null
   accessRequest: AccessRequestNotificationSnapshot | null
+  playbookRun: PlaybookRunNotificationSnapshot | null
 }
 
 export function buildWebhookEnvelope(input: {
@@ -88,6 +103,7 @@ export function buildWebhookEnvelope(input: {
   occurredAt?: Date
   alert?: AlertNotificationSnapshot | null
   accessRequest?: AccessRequestNotificationSnapshot | null
+  playbookRun?: PlaybookRunNotificationSnapshot | null
 }): WebhookEnvelope {
   return {
     version: WEBHOOK_PAYLOAD_VERSION,
@@ -95,6 +111,7 @@ export function buildWebhookEnvelope(input: {
     occurredAt: (input.occurredAt ?? new Date()).toISOString(),
     alert: input.alert ?? null,
     accessRequest: input.accessRequest ?? null,
+    playbookRun: input.playbookRun ?? null,
   }
 }
 

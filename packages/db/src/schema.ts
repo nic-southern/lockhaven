@@ -50,6 +50,9 @@ import {
   type CustomFieldType,
   type CustomFieldValues,
   type DeviceCommandStatus,
+  type PlaybookAction,
+  type PlaybookRunStatus,
+  type PlaybookSkipReason,
   type SiteBusinessHours,
   type SiteContact,
 } from "@nms/shared"
@@ -1340,6 +1343,104 @@ export const deviceCommands = pgTable(
   })
 )
 
+export const playbooks = pgTable(
+  "playbooks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    alertKind: text("alert_kind").$type<AlertKind>().notNull(),
+    action: text("action").$type<PlaybookAction>().notNull(),
+    requireApproval: boolean("require_approval").notNull().default(false),
+    cooldownMinutes: integer("cooldown_minutes").notNull().default(60),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    orgKindIdx: uniqueIndex("playbooks_org_kind_idx")
+      .on(table.organizationId, table.alertKind)
+      .where(sql`${table.siteId} is null`),
+    siteKindIdx: uniqueIndex("playbooks_site_kind_idx")
+      .on(table.organizationId, table.siteId, table.alertKind)
+      .where(sql`${table.siteId} is not null`),
+    organizationIdx: index("playbooks_organization_idx").on(
+      table.organizationId
+    ),
+  })
+)
+
+export const playbookRuns = pgTable(
+  "playbook_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    playbookId: uuid("playbook_id")
+      .notNull()
+      .references(() => playbooks.id, { onDelete: "cascade" }),
+    alertId: uuid("alert_id")
+      .notNull()
+      .references(() => alerts.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    action: text("action").$type<PlaybookAction>().notNull(),
+    status: text("status")
+      .$type<PlaybookRunStatus>()
+      .notNull()
+      .default("pending_approval"),
+    skipReason: text("skip_reason").$type<PlaybookSkipReason>(),
+    deviceCommandId: uuid("device_command_id").references(
+      () => deviceCommands.id,
+      { onDelete: "set null" }
+    ),
+    decidedByUserId: text("decided_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    playbookAlertIdx: uniqueIndex("playbook_runs_playbook_alert_idx").on(
+      table.playbookId,
+      table.alertId
+    ),
+    statusIdx: index("playbook_runs_status_idx").on(
+      table.status,
+      table.createdAt
+    ),
+    deviceCreatedIdx: index("playbook_runs_device_created_idx").on(
+      table.deviceId,
+      table.createdAt
+    ),
+    organizationStatusIdx: index("playbook_runs_organization_status_idx").on(
+      table.organizationId,
+      table.status
+    ),
+  })
+)
+
 export type Organization = typeof organizations.$inferSelect
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
@@ -1374,6 +1475,8 @@ export type DeviceUptimeDaily = typeof deviceUptimeDaily.$inferSelect
 export type ReportSchedule = typeof reportSchedules.$inferSelect
 export type AgentRelease = typeof agentReleases.$inferSelect
 export type DeviceCommand = typeof deviceCommands.$inferSelect
+export type Playbook = typeof playbooks.$inferSelect
+export type PlaybookRun = typeof playbookRuns.$inferSelect
 
 export const apiKeys = pgTable(
   "api_keys",

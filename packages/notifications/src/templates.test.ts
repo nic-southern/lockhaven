@@ -10,6 +10,7 @@ import {
   renderAlertResolvedEmail,
   renderInviteEmail,
   renderPasswordResetEmail,
+  renderPlaybookRequestedEmail,
   renderScheduledReportEmail,
 } from "./templates"
 import type { AlertNotificationSnapshot } from "./payload"
@@ -100,6 +101,23 @@ test("renders an access request for reviewers", () => {
   assert.match(mail.text, /https:\/\/console.example.com\/approvals/)
   assert.equal(mail.text.includes("JSON"), false)
   assert.equal(mail.text.includes("Guacamole"), false) // pragma: allowlist secret
+})
+
+test("renders a playbook approval request without implementation terms", () => {
+  const mail = renderPlaybookRequestedEmail({
+    playbookName: "Restart flapping agents",
+    deviceName: "Front desk PC",
+    actionLabel: "restart",
+    approvalsUrl: "https://console.example.com/approvals",
+    productName: "Lockhaven",
+  })
+  assert.match(mail.subject, /Restart agent needs review/)
+  assert.match(mail.text, /Restart flapping agents/)
+  assert.match(mail.text, /Front desk PC/)
+  assert.match(mail.text, /https:\/\/console.example.com\/approvals/)
+  assert.equal(mail.text.includes("JSON"), false)
+  assert.equal(mail.text.includes("SSH"), false)
+  assert.equal(mail.text.includes("shell"), false)
 })
 
 test("renders a scheduled report with the period and attachment name", () => {

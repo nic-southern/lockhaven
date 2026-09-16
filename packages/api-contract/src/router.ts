@@ -31,6 +31,7 @@ import { networkRouter } from "./routers/network"
 import { notificationsRouter } from "./routers/notifications"
 import { reportsRouter } from "./routers/reports"
 import { fleetRouter } from "./routers/fleet"
+import { playbooksRouter } from "./routers/playbooks"
 import { routePoliciesRouter } from "./routers/route-policies"
 import { sessionsPage } from "./routers/sessions-page"
 import { sessionsTerminate } from "./routers/sessions-terminate"
@@ -944,6 +945,7 @@ export const appRouter = createTRPCRouter({
   sso: ssoRouter,
   reports: reportsRouter,
   fleet: fleetRouter,
+  playbooks: playbooksRouter,
   assets: assetsRouter,
   customFields: customFieldsRouter,
   accessRequests: accessRequestsRouter,

@@ -4,6 +4,7 @@ import {
   serializeWebhookBody,
   type AlertNotificationSnapshot,
   type AccessRequestNotificationSnapshot,
+  type PlaybookRunNotificationSnapshot,
   type NotificationDeliveryEvent,
 } from "./payload"
 import { getProductName } from "./product"
@@ -14,6 +15,7 @@ import {
   renderAlertOpenedEmail,
   renderAlertResolvedEmail,
   renderChannelTestEmail,
+  renderPlaybookRequestedEmail,
 } from "./templates"
 
 export type EmailDestination = {
@@ -35,6 +37,7 @@ export async function deliverNotification(input: {
   event: NotificationDeliveryEvent
   alert?: AlertNotificationSnapshot | null
   accessRequest?: AccessRequestNotificationSnapshot | null
+  playbookRun?: PlaybookRunNotificationSnapshot | null
   mailer?: Mailer
   from?: string
   now?: Date
@@ -46,6 +49,7 @@ export async function deliverNotification(input: {
       event,
       alert: input.alert ?? null,
       accessRequest: input.accessRequest ?? null,
+      playbookRun: input.playbookRun ?? null,
       mailer: input.mailer,
       from: input.from,
     })
@@ -55,6 +59,7 @@ export async function deliverNotification(input: {
     event,
     alert: input.alert ?? null,
     accessRequest: input.accessRequest ?? null,
+    playbookRun: input.playbookRun ?? null,
     now: input.now,
   })
 }
@@ -63,6 +68,7 @@ function mailForEvent(
   event: NotificationDeliveryEvent,
   alert: AlertNotificationSnapshot | null,
   accessRequest: AccessRequestNotificationSnapshot | null,
+  playbookRun: PlaybookRunNotificationSnapshot | null,
   channelName: string
 ) {
   const productName = getProductName()
@@ -87,6 +93,22 @@ function mailForEvent(
       productName,
     })
   }
+  if (event === "playbook.requested") {
+    if (!playbookRun) {
+      throw new Error("Playbook snapshot missing for this delivery")
+    }
+    const baseUrl =
+      process.env.APP_BASE_URL ??
+      process.env.BETTER_AUTH_URL ??
+      "http://localhost:3000"
+    return renderPlaybookRequestedEmail({
+      playbookName: playbookRun.playbookName,
+      deviceName: playbookRun.deviceName,
+      actionLabel: playbookRun.action,
+      approvalsUrl: new URL("/approvals", baseUrl).toString(),
+      productName,
+    })
+  }
   if (!alert) {
     throw new Error("Alert snapshot missing for this delivery")
   }
@@ -104,6 +126,7 @@ async function deliverEmail(input: {
   event: NotificationDeliveryEvent
   alert: AlertNotificationSnapshot | null
   accessRequest: AccessRequestNotificationSnapshot | null
+  playbookRun: PlaybookRunNotificationSnapshot | null
   mailer?: Mailer
   from?: string
 }) {
@@ -115,6 +138,7 @@ async function deliverEmail(input: {
     input.event,
     input.alert,
     input.accessRequest,
+    input.playbookRun,
     input.destination.channelName
   )
   const mailer = input.mailer ?? getMailer()
@@ -133,6 +157,7 @@ async function deliverWebhook(input: {
   event: NotificationDeliveryEvent
   alert: AlertNotificationSnapshot | null
   accessRequest: AccessRequestNotificationSnapshot | null
+  playbookRun: PlaybookRunNotificationSnapshot | null
   now?: Date
 }) {
   const body = serializeWebhookBody(
@@ -140,6 +165,7 @@ async function deliverWebhook(input: {
       event: input.event,
       alert: input.alert,
       accessRequest: input.accessRequest,
+      playbookRun: input.playbookRun,
       occurredAt: input.now,
     })
   )

@@ -73,6 +73,8 @@ const eventLabels: Record<string, string> = {
   "alert.opened": "Alert opened",
   "alert.resolved": "Alert resolved",
   "alert.escalated": "Alert escalated",
+  "access.requested": "Access requested",
+  "playbook.requested": "Playbook review",
   "channel.test": "Test",
 }
 
