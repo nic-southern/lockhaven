@@ -66,7 +66,14 @@ fi
 
 remove_ssh_authorized_key
 
-rm -f "$config_path" "$secret_path" "$ssh_public_key_path" "$ssh_username_path"
+rm -f "$config_path" "$secret_path" "$ssh_public_key_path" "$ssh_username_path" \
+  /var/lib/lockhaven/agent.json
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl disable --now lockhaven-agent.service >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/lockhaven-agent.service
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
 
 if [ -d /var/lib/lockhaven ] && [ -z "$(ls -A /var/lib/lockhaven 2>/dev/null || true)" ]; then
   rmdir /var/lib/lockhaven 2>/dev/null || true

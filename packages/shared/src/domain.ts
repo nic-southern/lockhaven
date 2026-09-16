@@ -1,5 +1,11 @@
 import { z } from "zod"
 
+import {
+  checkInCommandResultsSchema,
+  checkInMetricsSchema,
+  checkInPackagesSchema,
+} from "./telemetry"
+
 export const deviceStatuses = [
   "pending",
   "enrolled",
@@ -243,6 +249,9 @@ export const checkInSchema = z.object({
       listening: z.boolean(),
     })
   ),
+  metrics: checkInMetricsSchema.optional(),
+  packages: checkInPackagesSchema.optional(),
+  command_results: checkInCommandResultsSchema.optional(),
 })
 
 /**

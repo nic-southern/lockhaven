@@ -11,10 +11,13 @@ import { db } from "@nms/db/client"
 import {
   checkInSchema,
   hostnamesMatch,
+  hubCheckInResponse,
   normalizeHostname,
   severityForEvent,
   type AuditEventType,
 } from "@nms/shared"
+
+import { ingestDeviceTelemetry } from "@/lib/device-telemetry"
 
 import { agentSecretMatches } from "@/lib/agent-secret"
 import {
@@ -241,7 +244,17 @@ export async function POST(request: Request) {
           )
         )
     }
+
+    await ingestDeviceTelemetry(tx, {
+      deviceId: input.device_id,
+      now,
+      metrics: input.metrics,
+      packages: input.packages,
+    })
   })
 
-  return Response.json({ ok: true })
+  // PR H will populate `commands` from `device_commands`. Until then Hub
+  // still returns the typed list (empty) so the agent never sees a free-form
+  // shell string.
+  return Response.json(hubCheckInResponse({ commands: [] }))
 }

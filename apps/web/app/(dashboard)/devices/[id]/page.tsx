@@ -23,8 +23,10 @@ import { ActivityTab } from "@/components/devices/detail/activity-tab"
 import { ConnectTab } from "@/components/devices/detail/connect-tab"
 import { NetworkTab } from "@/components/devices/detail/network-tab"
 import { OverviewTab } from "@/components/devices/detail/overview-tab"
+import { MetricsTab } from "@/components/devices/detail/metrics-tab"
 import { ServicesTab } from "@/components/devices/detail/services-tab"
 import { SettingsTab } from "@/components/devices/detail/settings-tab"
+import { SoftwareTab } from "@/components/devices/detail/software-tab"
 import { type DeviceTab, isDeviceTab } from "@/components/devices/detail/shared"
 import { statusLabel, statusVariant } from "@/lib/dashboard"
 import { osFamilyLabel } from "@/lib/devices"
@@ -36,6 +38,8 @@ const tabLabels: Record<DeviceTab, string> = {
   connect: "Connect",
   services: "Services",
   network: "Network",
+  metrics: "Health",
+  software: "Software",
   activity: "Activity",
   settings: "Settings",
 }
@@ -93,7 +97,14 @@ function DeviceDetail() {
   const device = deviceQuery.data
 
   const visibleTabs = React.useMemo<DeviceTab[]>(() => {
-    const tabs: DeviceTab[] = ["overview", "connect", "services", "network"]
+    const tabs: DeviceTab[] = [
+      "overview",
+      "connect",
+      "services",
+      "network",
+      "metrics",
+      "software",
+    ]
     if (permissionsLoading || can("audit:view")) tabs.push("activity")
     if (
       permissionsLoading ||
@@ -232,6 +243,10 @@ function DeviceDetail() {
           <ServicesTab device={device} />
         ) : activeTab === "network" ? (
           <NetworkTab device={device} />
+        ) : activeTab === "metrics" ? (
+          <MetricsTab device={device} />
+        ) : activeTab === "software" ? (
+          <SoftwareTab device={device} />
         ) : activeTab === "activity" ? (
           <ActivityTab device={device} />
         ) : (
