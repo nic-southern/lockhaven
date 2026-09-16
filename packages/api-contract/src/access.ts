@@ -115,3 +115,33 @@ export function manageableOrganizationIds(actor: ActorPrincipal | null) {
     )
     .map((membership) => membership.organizationId)
 }
+
+export function canApproveAccess(
+  actor: ActorPrincipal,
+  organizationId: string,
+  siteId: string
+) {
+  if (
+    authorize(actor, "organization:admin", {
+      kind: "organization",
+      organizationId,
+    }).allowed
+  ) {
+    return true
+  }
+  return authorize(actor, "site:admin", {
+    kind: "site",
+    organizationId,
+    siteId,
+  }).allowed
+}
+
+export function assertCanApproveAccess(
+  actor: ActorPrincipal,
+  organizationId: string,
+  siteId: string
+) {
+  if (!canApproveAccess(actor, organizationId, siteId)) {
+    throw new TRPCError({ code: "FORBIDDEN" })
+  }
+}

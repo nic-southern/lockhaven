@@ -274,6 +274,10 @@ export const sites = pgTable("sites", {
   name: text("name").notNull(),
   timezone: text("timezone"),
   notes: text("notes"),
+  requireAccessReason: boolean("require_access_reason")
+    .notNull()
+    .default(false),
+  requireApproval: boolean("require_approval").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -585,6 +589,8 @@ export const remoteSessions = pgTable(
       .references(() => managementServices.id, { onDelete: "cascade" }),
     status: text("status").notNull(),
     connectionMethod: text("connection_method").notNull(),
+    reason: text("reason"),
+    recordingPath: text("recording_path"),
     startedAt: timestamp("started_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -597,6 +603,65 @@ export const remoteSessions = pgTable(
   (table) => ({
     startedAtIdx: index("remote_sessions_started_at_idx").on(table.startedAt),
     deviceIdx: index("remote_sessions_device_idx").on(table.deviceId),
+  })
+)
+
+export const accessRequests = pgTable(
+  "access_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    managementServiceId: uuid("management_service_id")
+      .notNull()
+      .references(() => managementServices.id, { onDelete: "cascade" }),
+    requestedByUserId: text("requested_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    connectionMethod: text("connection_method").notNull(),
+    reason: text("reason"),
+    status: text("status").notNull().default("pending"),
+    decidedByUserId: text("decided_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    remoteSessionId: uuid("remote_session_id").references(
+      () => remoteSessions.id,
+      { onDelete: "set null" }
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    pendingIdx: index("access_requests_pending_idx").on(
+      table.status,
+      table.expiresAt
+    ),
+    siteStatusIdx: index("access_requests_site_status_idx").on(
+      table.siteId,
+      table.status,
+      table.createdAt
+    ),
+    requesterIdx: index("access_requests_requester_idx").on(
+      table.requestedByUserId,
+      table.status
+    ),
+    deviceIdx: index("access_requests_device_idx").on(
+      table.deviceId,
+      table.status
+    ),
   })
 )
 
@@ -1049,6 +1114,7 @@ export type OrganizationSshCredential =
   typeof organizationSshCredentials.$inferSelect
 export type EnrollmentToken = typeof enrollmentTokens.$inferSelect
 export type RemoteSession = typeof remoteSessions.$inferSelect
+export type AccessRequest = typeof accessRequests.$inferSelect
 export type AuditEvent = typeof auditEvents.$inferSelect
 export type VpnPeerSample = typeof vpnPeerSamples.$inferSelect
 export type Alert = typeof alerts.$inferSelect

@@ -61,23 +61,40 @@ export type AlertNotificationSnapshot = {
   detail: Record<string, unknown>
 }
 
+export type AccessRequestNotificationSnapshot = {
+  id: string
+  organizationId: string
+  siteId: string
+  deviceId: string
+  deviceName: string
+  siteName: string
+  requesterName: string
+  requesterEmail: string
+  reason: string | null
+  serviceType: string | null
+  expiresAt: string
+}
+
 export type WebhookEnvelope = {
   version: typeof WEBHOOK_PAYLOAD_VERSION
   event: NotificationDeliveryEvent
   occurredAt: string
   alert: AlertNotificationSnapshot | null
+  accessRequest: AccessRequestNotificationSnapshot | null
 }
 
 export function buildWebhookEnvelope(input: {
   event: NotificationDeliveryEvent
   occurredAt?: Date
   alert?: AlertNotificationSnapshot | null
+  accessRequest?: AccessRequestNotificationSnapshot | null
 }): WebhookEnvelope {
   return {
     version: WEBHOOK_PAYLOAD_VERSION,
     event: input.event,
     occurredAt: (input.occurredAt ?? new Date()).toISOString(),
     alert: input.alert ?? null,
+    accessRequest: input.accessRequest ?? null,
   }
 }
 

@@ -30,10 +30,15 @@ import { notificationsRouter } from "./routers/notifications"
 import { routePoliciesRouter } from "./routers/route-policies"
 import { sessionsPage } from "./routers/sessions-page"
 import { sessionsTerminate } from "./routers/sessions-terminate"
+import { accessRequestsRouter } from "./routers/access-requests"
 import { systemRouter } from "./routers/system"
 import { telemetryRouter } from "./routers/telemetry"
 import { usersRouter } from "./routers/users"
 import { getRemoteAccessProvider } from "./remote-session-provider"
+import {
+  consumeAccessRequest,
+  resolveSessionAccessGate,
+} from "./session-access-gate"
 import {
   buildOrderBy,
   likePattern,
@@ -69,6 +74,7 @@ import {
   type EncryptedSecret,
 } from "@nms/remote-access"
 import {
+  BROWSER_CONNECTION_METHOD,
   enrollmentTokenCreateSchema,
   enrollmentTokenUpdateSchema,
   membershipStatuses,
@@ -77,6 +83,7 @@ import {
   siteRoles,
   type ServiceType,
 } from "@nms/shared"
+import { recordingPathForConnection } from "@nms/shared/session-recording"
 import {
   allocateVpnIpv4,
   buildAdminClientConfig,
@@ -516,6 +523,8 @@ const siteCreateInput = z.object({
   name: z.string().min(1),
   timezone: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  requireAccessReason: z.boolean().optional(),
+  requireApproval: z.boolean().optional(),
 })
 
 const siteUpdateInput = z.object({
@@ -523,6 +532,8 @@ const siteUpdateInput = z.object({
   name: z.string().min(1),
   timezone: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  requireAccessReason: z.boolean().optional(),
+  requireApproval: z.boolean().optional(),
 })
 
 const managementServiceCreateInput = z.object({
@@ -916,6 +927,7 @@ export const appRouter = createTRPCRouter({
   users: usersRouter,
   apiKeys: apiKeysRouter,
   notifications: notificationsRouter,
+  accessRequests: accessRequestsRouter,
   system: systemRouter,
   health: publicProcedure.query(() => ({ ok: true })),
   organizations: createTRPCRouter({
@@ -1049,7 +1061,17 @@ export const appRouter = createTRPCRouter({
           organizationId: input.organizationId,
         })
 
-        const [record] = await ctx.db.insert(sites).values(input).returning()
+        const [record] = await ctx.db
+          .insert(sites)
+          .values({
+            organizationId: input.organizationId,
+            name: input.name,
+            timezone: input.timezone ?? null,
+            notes: input.notes ?? null,
+            requireAccessReason: input.requireAccessReason ?? false,
+            requireApproval: input.requireApproval ?? false,
+          })
+          .returning()
         const keyPair = generateSiteSshKeyPair(
           record.name.replaceAll(/\s+/g, "-").toLowerCase()
         )
@@ -1097,6 +1119,12 @@ export const appRouter = createTRPCRouter({
             name: input.name,
             timezone: input.timezone ?? null,
             notes: input.notes ?? null,
+            ...(input.requireAccessReason === undefined
+              ? {}
+              : { requireAccessReason: input.requireAccessReason }),
+            ...(input.requireApproval === undefined
+              ? {}
+              : { requireApproval: input.requireApproval }),
           })
           .where(eq(sites.id, input.id))
           .returning()
@@ -1104,7 +1132,12 @@ export const appRouter = createTRPCRouter({
         await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_updated",
-          eventData: { siteId: record.id, name: record.name },
+          eventData: {
+            siteId: record.id,
+            name: record.name,
+            requireAccessReason: record.requireAccessReason,
+            requireApproval: record.requireApproval,
+          },
         })
 
         const [sshCredential] = await ctx.db
@@ -2094,6 +2127,36 @@ export const appRouter = createTRPCRouter({
   sessions: createTRPCRouter({
     page: sessionsPage,
     terminate: sessionsTerminate,
+    launchRequirements: permissionProcedure("device:view")
+      .input(z.object({ deviceId: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        const [device] = await ctx.db
+          .select({
+            id: devices.id,
+            organizationId: devices.organizationId,
+            siteId: devices.siteId,
+            requireAccessReason: sites.requireAccessReason,
+            requireApproval: sites.requireApproval,
+          })
+          .from(devices)
+          .leftJoin(sites, eq(sites.id, devices.siteId))
+          .where(eq(devices.id, input.deviceId))
+
+        if (!device) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        assertAuthorized(ctx.actor, "device:view", {
+          kind: "device",
+          organizationId: device.organizationId,
+          siteId: device.siteId,
+        })
+
+        return {
+          requireAccessReason: Boolean(device.requireAccessReason),
+          requireApproval: Boolean(device.requireApproval),
+        }
+      }),
     create: permissionProcedure("device:view")
       .input(sessionCreateInput)
       .mutation(async ({ ctx, input }) => {
@@ -2150,6 +2213,37 @@ export const appRouter = createTRPCRouter({
           serviceId: service.id,
           serviceType: service.serviceType,
         })
+
+        const gate = await resolveSessionAccessGate(ctx, {
+          deviceId: device.id,
+          organizationId: device.organizationId,
+          siteId: device.siteId,
+          serviceId: service.id,
+          serviceType: service.serviceType,
+          connectionMethod: input.connectionMethod,
+          reason: input.reason,
+          accessRequestId: input.accessRequestId,
+          deviceName: device.displayName,
+        })
+
+        if (gate.kind === "pending") {
+          return {
+            session: null,
+            url: null,
+            nativeUrl: null,
+            launchTicket: null,
+            mode: "pending_approval" as const,
+            request: {
+              id: gate.request.id,
+              status: gate.request.status,
+              expiresAt: gate.request.expiresAt,
+              reason: gate.request.reason,
+            },
+          }
+        }
+
+        const accessReason = gate.reason
+        const accessRequestId = gate.accessRequestId
 
         const [identity] = await ctx.db
           .select()
@@ -2261,11 +2355,15 @@ export const appRouter = createTRPCRouter({
               managementServiceId: input.serviceId,
               status: "starting",
               connectionMethod: "native",
+              reason: accessReason,
+              recordingPath: null,
               auditMetadata: {
                 requestedBy: actor.email,
                 serviceType: service.serviceType,
                 nativeHost: host,
                 nativePort: service.port,
+                reason: accessReason,
+                accessRequestId,
               },
             })
             .returning()
@@ -2295,8 +2393,12 @@ export const appRouter = createTRPCRouter({
               serviceId: service.id,
               serviceType: service.serviceType,
               connectionMethod: "native",
+              reason: accessReason,
+              accessRequestId,
             },
           })
+
+          await consumeAccessRequest(ctx, accessRequestId, record.id)
 
           return {
             session: record,
@@ -2304,6 +2406,7 @@ export const appRouter = createTRPCRouter({
             nativeUrl,
             launchTicket,
             mode: "native" as const,
+            request: null,
           }
         }
 
@@ -2348,13 +2451,17 @@ export const appRouter = createTRPCRouter({
             deviceId: device.id,
             managementServiceId: input.serviceId,
             status: "starting",
-            connectionMethod: "guacamole",
+            connectionMethod: BROWSER_CONNECTION_METHOD,
+            reason: accessReason,
+            recordingPath: recordingPathForConnection(session.sessionId),
             auditMetadata: {
               requestedBy: actor.email,
               serviceType: service.serviceType,
               guacamoleSessionId: session.sessionId,
               guacamoleLaunchId: launchId,
               nativeRequested: input.connectionMethod === "native",
+              reason: accessReason,
+              accessRequestId,
             },
           })
           .returning()
@@ -2367,16 +2474,21 @@ export const appRouter = createTRPCRouter({
             remoteSessionId: record.id,
             serviceId: service.id,
             serviceType: service.serviceType,
-            connectionMethod: "guacamole",
+            connectionMethod: BROWSER_CONNECTION_METHOD,
+            reason: accessReason,
+            accessRequestId,
           },
         })
+
+        await consumeAccessRequest(ctx, accessRequestId, record.id)
 
         return {
           session: record,
           url: launchUrl.toString(),
           nativeUrl: null,
           launchTicket: null,
-          mode: "guacamole" as const,
+          mode: BROWSER_CONNECTION_METHOD,
+          request: null,
         }
       }),
     redeemLaunchTicket: adminProcedure

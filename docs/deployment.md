@@ -148,6 +148,19 @@ Webhook channels POST a versioned JSON body and sign it with
 `X-Lockhaven-Signature: sha256=…` over `{timestamp}.{body}`, using
 `X-Lockhaven-Timestamp` and the per-channel secret shown once at creation.
 
+### Session recordings
+
+Browser sessions are recorded on the session gateway. The recording directory
+is shared with the Console so people can play or download a recording after
+the session ends. Override with:
+
+- `SESSION_RECORDING_ROOT` — directory inside the containers (default
+  `/var/lib/guacamole/recordings`). <!-- pragma: allowlist secret -->
+- `SESSION_RECORDING_RETENTION_DAYS` — how long to keep recordings (default
+  `30`).
+- `ACCESS_REQUEST_TTL_HOURS` — how long an access request stays valid
+  (default `8`).
+
 ### Production Expectations
 
 - Use the published Lockhaven images, or build and push your own customized web

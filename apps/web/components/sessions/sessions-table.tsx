@@ -225,6 +225,19 @@ export function SessionsTable({
         ),
       },
       {
+        id: "reason",
+        accessorKey: "reason",
+        meta: { label: "Reason", className: "min-w-40" },
+        header: "Reason",
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.reason ? (
+            <span className="line-clamp-2 text-sm">{row.original.reason}</span>
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
+          ),
+      },
+      {
         id: "status",
         accessorKey: "status",
         meta: { label: "State" },
@@ -278,29 +291,64 @@ export function SessionsTable({
           ),
       }
     )
-    if (canEndSession) {
-      defs.push({
-        id: "actions",
-        header: () => <span className="sr-only">Actions</span>,
-        enableSorting: false,
-        enableHiding: false,
-        meta: { className: "w-12 text-right" },
-        cell: ({ row }) =>
-          row.original.endedAt ? null : (
-            <DataTableRowActions
-              label="Session"
-              actions={[
+    defs.push({
+      id: "actions",
+      header: () => <span className="sr-only">Actions</span>,
+      enableSorting: false,
+      enableHiding: false,
+      meta: { className: "w-12 text-right" },
+      cell: ({ row }) => {
+        const recordingActions = row.original.hasRecording
+          ? [
+              {
+                label: "Open recording",
+                onSelect: () => {
+                  if (row.original.recordingPlayUrl) {
+                    window.open(
+                      row.original.recordingPlayUrl,
+                      "_blank",
+                      "noopener,noreferrer"
+                    )
+                  }
+                },
+              },
+              {
+                label: "Download recording",
+                onSelect: () => {
+                  if (row.original.recordingDownloadUrl) {
+                    window.open(
+                      row.original.recordingDownloadUrl,
+                      "_blank",
+                      "noopener,noreferrer"
+                    )
+                  }
+                },
+              },
+            ]
+          : []
+        const endAction =
+          canEndSession && !row.original.endedAt
+            ? [
                 {
                   label: "End session",
                   destructive: true,
                   disabled: terminate.isPending,
                   onSelect: () => setEndingId(row.original.id),
                 },
-              ]}
-            />
-          ),
-      })
-    }
+              ]
+            : []
+        const actions = [
+          ...recordingActions,
+          ...(endAction.length > 0 && recordingActions.length > 0
+            ? endAction.map((action, index) =>
+                index === 0 ? { ...action, separatorBefore: true } : action
+              )
+            : endAction),
+        ]
+        if (actions.length === 0) return null
+        return <DataTableRowActions label="Session" actions={actions} />
+      },
+    })
     return defs
   }, [showDevice, canEndSession, terminate.isPending])
 

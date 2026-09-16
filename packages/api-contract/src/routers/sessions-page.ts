@@ -19,6 +19,7 @@ import {
   sites,
   user,
 } from "@nms/db"
+import { BROWSER_CONNECTION_METHOD } from "@nms/shared"
 
 import {
   buildOrderBy,
@@ -111,6 +112,8 @@ export const sessionsPage = permissionProcedure("device:view")
           actorEmail: user.email,
           status: remoteSessions.status,
           connectionMethod: remoteSessions.connectionMethod,
+          reason: remoteSessions.reason,
+          recordingPath: remoteSessions.recordingPath,
           startedAt: remoteSessions.startedAt,
           endedAt: remoteSessions.endedAt,
         })
@@ -153,5 +156,22 @@ export const sessionsPage = permissionProcedure("device:view")
         .offset(query.offset),
     ])
 
-    return paginate(rows, query, Number(totalRow?.total ?? 0))
+    const items = rows.map((row) => {
+      const { recordingPath, ...rest } = row
+      const hasRecording =
+        Boolean(recordingPath) &&
+        rest.connectionMethod === BROWSER_CONNECTION_METHOD
+      return {
+        ...rest,
+        hasRecording,
+        recordingPlayUrl: hasRecording
+          ? `/api/sessions/${rest.id}/recording/play`
+          : null,
+        recordingDownloadUrl: hasRecording
+          ? `/api/sessions/${rest.id}/recording`
+          : null,
+      }
+    })
+
+    return paginate(items, query, Number(totalRow?.total ?? 0))
   })

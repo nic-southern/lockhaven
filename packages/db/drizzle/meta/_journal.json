@@ -171,6 +171,13 @@
       "breakpoints": true
     },
     {
+      "idx": 24,
+      "version": "7",
+      "when": 1781700000000,
+      "tag": "0024_session_accountability",
+      "breakpoints": true
+    },
+    {
       "idx": 40,
       "version": "7",
       "when": 1781400000000,

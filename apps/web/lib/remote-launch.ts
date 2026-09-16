@@ -1,13 +1,24 @@
+import {
+  BROWSER_CONNECTION_METHOD,
+  type RemoteConnectionMethod,
+} from "@nms/shared"
+
 export type RemoteLaunchResult = {
   url: string | null
   nativeUrl: string | null
   /** One-time ticket that can be exchanged for the session secret. */
   launchTicket?: string | null
-  mode: "guacamole" | "native"
+  mode: RemoteConnectionMethod | "pending_approval"
+  request?: {
+    id: string
+    status: string
+    expiresAt: Date | string
+    reason: string | null
+  } | null
 } | null
 
 export type RemoteLaunchOpenResult = {
-  mode: "native" | "guacamole"
+  mode: RemoteConnectionMethod | "pending_approval"
   copiedSecret: boolean
 }
 
@@ -25,6 +36,10 @@ export async function openRemoteLaunchResult(
 ): Promise<RemoteLaunchOpenResult | null> {
   if (!result) {
     return null
+  }
+
+  if (result.mode === "pending_approval") {
+    return { mode: "pending_approval", copiedSecret: false }
   }
 
   if (result.mode === "native" && result.nativeUrl) {
@@ -52,7 +67,7 @@ export async function openRemoteLaunchResult(
 
   if (result.url) {
     window.open(result.url, "_blank", "noopener,noreferrer")
-    return { mode: "guacamole", copiedSecret: false }
+    return { mode: BROWSER_CONNECTION_METHOD, copiedSecret: false }
   }
 
   return null
@@ -61,14 +76,14 @@ export async function openRemoteLaunchResult(
 export function preferredConnectionMethod(args: {
   vpnConnected: boolean
   serviceType: "vnc" | "rdp" | "ssh" | "winrm_https" | string
-}): "native" | "guacamole" {
+}): RemoteConnectionMethod {
   if (!args.vpnConnected) {
-    return "guacamole"
+    return BROWSER_CONNECTION_METHOD
   }
 
   if (args.serviceType === "vnc" || args.serviceType === "ssh") {
     return "native"
   }
 
-  return "guacamole"
+  return BROWSER_CONNECTION_METHOD
 }
