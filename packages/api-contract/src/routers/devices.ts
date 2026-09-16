@@ -16,10 +16,12 @@ import { z } from "zod"
 
 import { authorize, type ActorPrincipal } from "@nms/auth"
 import {
+  agentReleases,
   auditEvents,
   devices,
   managementServiceCredentials,
   managementServices,
+  organizations,
   routePolicies,
   sites,
   vpnIdentities,
@@ -44,6 +46,7 @@ import {
   onlineServiceCount,
 } from "../device-sql"
 import { siteBelongsToOrganization } from "../helpers"
+import { deviceBehindSql } from "../fleet-sql"
 import {
   buildOrderBy,
   likePattern,
@@ -111,6 +114,7 @@ function deviceBase(ctx: ApiContext) {
     .select(deviceRowSelection())
     .from(devices)
     .leftJoin(sites, eq(sites.id, devices.siteId))
+    .leftJoin(organizations, eq(organizations.id, devices.organizationId))
     .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
     .leftJoin(routePolicies, eq(routePolicies.id, vpnIdentities.routePolicyId))
 }
@@ -128,7 +132,13 @@ function withNone(values: string[], column: AnyPgColumn) {
 /** Translates a resolved list query into WHERE conditions for the devices join. */
 function buildDeviceConditions(
   query: ResolvedListQuery,
-  scope: ReturnType<typeof deviceScopeCondition>
+  scope: ReturnType<typeof deviceScopeCondition>,
+  releases: Array<{
+    version: string
+    channel: "stable" | "beta"
+    platform: "linux" | "windows" | "macos" | "android" | "all"
+    downloadUrl: string
+  }>
 ) {
   const statusFilter = query.filters.status?.filter((value) =>
     (deviceStatuses as readonly string[]).includes(value)
@@ -136,6 +146,10 @@ function buildDeviceConditions(
   const connectivityFilter = query.filters.connectivity?.filter((value) =>
     (deviceConnectivityStates as readonly string[]).includes(value)
   ) as DeviceConnectivity[] | undefined
+  const behindFilter = query.filters.behind?.filter(
+    (value) => value === "true" || value === "false"
+  )
+  const behindExpr = deviceBehindSql(releases)
 
   return combineConditions([
     scope.kind === "where" ? scope.condition : undefined,
@@ -164,6 +178,12 @@ function buildDeviceConditions(
     query.filters.agentVersion
       ? inArray(devices.agentVersion, query.filters.agentVersion)
       : undefined,
+    behindFilter && behindFilter.length === 1 && behindFilter[0] === "true"
+      ? behindExpr
+      : undefined,
+    behindFilter && behindFilter.length === 1 && behindFilter[0] === "false"
+      ? sql`not (${behindExpr})`
+      : undefined,
     query.search
       ? or(
           ilike(devices.displayName, likePattern(query.search)),
@@ -175,6 +195,17 @@ function buildDeviceConditions(
         )
       : undefined,
   ])
+}
+
+async function loadReleasePicks(ctx: ApiContext) {
+  return ctx.db
+    .select({
+      version: agentReleases.version,
+      channel: agentReleases.channel,
+      platform: agentReleases.platform,
+      downloadUrl: agentReleases.downloadUrl,
+    })
+    .from(agentReleases)
 }
 
 const sortColumns = {
@@ -272,7 +303,8 @@ export const devicesRouter = createTRPCRouter({
         return paginate([], query, 0)
       }
 
-      const conditions = buildDeviceConditions(query, scope)
+      const releases = await loadReleasePicks(ctx)
+      const conditions = buildDeviceConditions(query, scope, releases)
       const where = conditions.length > 0 ? and(...conditions) : undefined
 
       const [[totalRow], rows] = await Promise.all([
@@ -280,6 +312,7 @@ export const devicesRouter = createTRPCRouter({
           .select({ total: count() })
           .from(devices)
           .leftJoin(sites, eq(sites.id, devices.siteId))
+          .leftJoin(organizations, eq(organizations.id, devices.organizationId))
           .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
           .where(where),
         deviceBase(ctx)
@@ -314,6 +347,7 @@ export const devicesRouter = createTRPCRouter({
       }>,
       tags: [] as Array<{ value: string; count: number }>,
       agentVersion: [] as Array<{ value: string; count: number }>,
+      behind: [] as Array<{ value: string; count: number }>,
     }
     if (scope.kind === "none") {
       return empty
@@ -325,9 +359,13 @@ export const devicesRouter = createTRPCRouter({
         .select({ value: expression, total: count() })
         .from(devices)
         .leftJoin(sites, eq(sites.id, devices.siteId))
+        .leftJoin(organizations, eq(organizations.id, devices.organizationId))
         .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
         .where(where)
         .groupBy(expression)
+
+    const releases = await loadReleasePicks(ctx)
+    const behindExpr = deviceBehindSql(releases)
 
     const [
       statusRows,
@@ -337,6 +375,7 @@ export const devicesRouter = createTRPCRouter({
       policyRows,
       tagRows,
       agentRows,
+      behindRows,
     ] = await Promise.all([
       grouped(sql<string>`${devices.status}::text`),
       grouped(connectivityExpression()),
@@ -372,6 +411,7 @@ export const devicesRouter = createTRPCRouter({
           sql`select tag as value, count(*)::int as total
               from ${devices}
               left join ${sites} on ${sites.id} = ${devices.siteId}
+              left join ${organizations} on ${organizations.id} = ${devices.organizationId}
               left join ${vpnIdentities} on ${vpnIdentities.deviceId} = ${devices.id}
               cross join unnest(${devices.tags}) as tag
               ${where ? sql`where ${where}` : sql``}
@@ -379,6 +419,9 @@ export const devicesRouter = createTRPCRouter({
         )
         .then((result) => result.rows),
       grouped(sql<string>`coalesce(${devices.agentVersion}, 'unknown')`),
+      grouped(
+        sql<string>`case when ${behindExpr} then 'true' else 'false' end`
+      ),
     ])
 
     const plain = (rows: Array<{ value: string; total: number }>) =>
@@ -404,6 +447,7 @@ export const devicesRouter = createTRPCRouter({
       routePolicyId: labelled(policyRows),
       tags: plain(tagRows),
       agentVersion: plain(agentRows),
+      behind: plain(behindRows),
     }
   }),
   /** Same filters as `page`, capped, for CSV download. */
@@ -418,7 +462,8 @@ export const devicesRouter = createTRPCRouter({
       if (scope.kind === "none") {
         return { rows: [], truncated: false }
       }
-      const conditions = buildDeviceConditions(query, scope)
+      const releases = await loadReleasePicks(ctx)
+      const conditions = buildDeviceConditions(query, scope, releases)
       const rows = await deviceBase(ctx)
         .where(conditions.length > 0 ? and(...conditions) : undefined)
         .orderBy(

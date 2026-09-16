@@ -40,6 +40,10 @@ import {
   type ReportType,
   type SsoClaimsMap,
   type SsoProtocol,
+  type AgentChannel,
+  type AgentCommandKind,
+  type AgentReleasePlatform,
+  type DeviceCommandStatus,
 } from "@nms/shared"
 
 export const statusEnum = pgEnum("device_status", deviceStatuses)
@@ -60,6 +64,10 @@ export const organizations = pgTable("organizations", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   status: text("status").notNull().default("active"),
+  agentChannel: text("agent_channel")
+    .$type<AgentChannel>()
+    .notNull()
+    .default("stable"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -283,6 +291,7 @@ export const sites = pgTable("sites", {
     .notNull()
     .default(false),
   requireApproval: boolean("require_approval").notNull().default(false),
+  agentChannel: text("agent_channel").$type<AgentChannel>(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1157,6 +1166,65 @@ export const reportSchedules = pgTable(
   })
 )
 
+export const agentReleases = pgTable(
+  "agent_releases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    platform: text("platform").$type<AgentReleasePlatform>().notNull(),
+    version: text("version").notNull(),
+    channel: text("channel").$type<AgentChannel>().notNull(),
+    downloadUrl: text("download_url").notNull(),
+    sha256: text("sha256").notNull(),
+    notes: text("notes"),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    channelPlatformVersionIdx: uniqueIndex(
+      "agent_releases_channel_platform_version_idx"
+    ).on(table.channel, table.platform, table.version),
+    channelIdx: index("agent_releases_channel_idx").on(table.channel),
+  })
+)
+
+export const deviceCommands = pgTable(
+  "device_commands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<AgentCommandKind>().notNull(),
+    status: text("status")
+      .$type<DeviceCommandStatus>()
+      .notNull()
+      .default("pending"),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    resultDetail: text("result_detail"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    deviceStatusIdx: index("device_commands_device_status_idx").on(
+      table.deviceId,
+      table.status
+    ),
+    createdAtIdx: index("device_commands_created_at_idx").on(table.createdAt),
+  })
+)
+
 export type Organization = typeof organizations.$inferSelect
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
@@ -1187,6 +1255,8 @@ export type NotificationChannel = typeof notificationChannels.$inferSelect
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
 export type DeviceUptimeDaily = typeof deviceUptimeDaily.$inferSelect
 export type ReportSchedule = typeof reportSchedules.$inferSelect
+export type AgentRelease = typeof agentReleases.$inferSelect
+export type DeviceCommand = typeof deviceCommands.$inferSelect
 
 export const apiKeys = pgTable(
   "api_keys",

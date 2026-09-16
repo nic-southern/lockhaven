@@ -17,9 +17,10 @@
 9. Optional check-in fields `metrics` and `packages` report disk, memory, CPU
    load, uptime, network counters, WireGuard handshake age, and installed
    software. Existing hostname and secret fields stay required.
-10. Check-in responses may include `commands`. Those are a closed whitelist
-    (`reboot`, `restart`, `update`) — never a shell or SSH string. The client
-    refuses anything else.
+10. Check-in responses may include `desired_agent_version`, `download_url`, and
+    `commands`. Commands are a closed whitelist (`reboot`, `restart`, `update`)
+    — never a shell or SSH string. The client refuses anything else and reports
+    the result on the next check-in.
 11. The worker reconciles the server peer and status tables.
 
 The endpoint agent in `apps/agent` enrolls with `POST /api/enroll`, checks in
