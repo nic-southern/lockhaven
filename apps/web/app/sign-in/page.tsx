@@ -333,7 +333,7 @@ function SignInForm() {
       ) : null}
       {reason === "sso" ? (
         <p className="text-sm text-destructive">
-          We couldn't complete sign-in. Try again.
+          {"We couldn't complete sign-in. Try again."}
         </p>
       ) : null}
       {sso?.unavailable ? (
