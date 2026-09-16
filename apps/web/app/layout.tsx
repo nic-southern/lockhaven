@@ -1,4 +1,5 @@
 import { Geist, Geist_Mono } from "next/font/google"
+import { headers } from "next/headers"
 
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -30,11 +31,15 @@ export const metadata = {
   },
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // Set per request by the proxy; inline scripts must carry it to run under
+  // the page's Content Security Policy.
+  const nonce = (await headers()).get("x-nonce") ?? undefined
+
   return (
     <html
       lang="en"
@@ -48,6 +53,7 @@ export default function RootLayout({
     >
       <body>
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `window.__LOCKHAVEN_CONFIG__=${JSON.stringify({
               productName,
@@ -55,7 +61,7 @@ export default function RootLayout({
             })};`,
           }}
         />
-        <ThemeProvider>
+        <ThemeProvider nonce={nonce}>
           <TooltipProvider>
             <Providers>{children}</Providers>
             <Toaster position="bottom-center" richColors closeButton />

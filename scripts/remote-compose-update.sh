@@ -24,6 +24,19 @@ compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
+# Host-side helpers shipped alongside the compose file. The worker container
+# runs vpnctl through a read-only bind mount, and ulogd2 writes the connection
+# flow log the worker tails, so both must be refreshed on the host itself.
+if [ -f infra/systemd/vpnctl ]; then
+  echo "Updating host vpnctl..."
+  install -m 0755 infra/systemd/vpnctl /usr/local/sbin/vpnctl
+fi
+
+if [ -f infra/systemd/install-flow-logging.sh ]; then
+  echo "Configuring connection flow logging..."
+  bash infra/systemd/install-flow-logging.sh
+fi
+
 echo "Pulling images..."
 compose pull
 
@@ -47,6 +60,15 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 compose exec -T redis redis-cli ping
+
+if ! grep -q '^WEB_DB_PASSWORD=' "$ENV_FILE"; then
+  echo "Adding restricted web database credentials..."
+  web_db_password="$(openssl rand -hex 16)"
+  {
+    echo "WEB_DB_PASSWORD=${web_db_password}"
+    echo "WEB_DATABASE_URL=postgresql://lockhaven_web:${web_db_password}@postgres:5432/nms_vpn"
+  } >> "$ENV_FILE"
+fi
 
 echo "Applying database migrations..."
 compose run --rm migrate

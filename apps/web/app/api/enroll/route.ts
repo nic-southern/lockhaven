@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto"
+import { randomBytes } from "node:crypto"
 
 import {
   auditEvents,
@@ -14,14 +14,26 @@ import {
   vpnIdentities,
 } from "@nms/db"
 import { db } from "@nms/db/client"
+import { requestInfoFromHeaders } from "@nms/api-contract"
 import {
   decryptSecret,
   encryptSecret,
   generateSiteSshKeyPair,
   type EncryptedSecret,
 } from "@nms/remote-access"
-import { enrollmentRequestSchema, enrollmentResponseSchema } from "@nms/shared"
+import {
+  enrollmentRequestSchema,
+  enrollmentResponseSchema,
+  severityForEvent,
+} from "@nms/shared"
 import { allocateVpnIpv4, buildClientAllowedIps } from "@nms/vpn"
+
+import { hashAgentSecret } from "@/lib/agent-secret"
+import {
+  addressKey,
+  enforceRateLimit,
+  rateLimitPolicies,
+} from "@/lib/rate-limit-server"
 
 const env = {
   vpnServerPublicKey: process.env.VPN_SERVER_PUBLIC_KEY,
@@ -36,14 +48,6 @@ type TransactionClient = Parameters<typeof db.transaction>[0] extends (
 ) => unknown
   ? T
   : never
-
-function hashEnrollmentToken(token: string) {
-  return createHash("sha256").update(token).digest("hex")
-}
-
-function hashDeviceSecret(secret: string) {
-  return createHash("sha256").update(secret).digest("hex")
-}
 
 function encryptRemoteSecret(secret: string, credentialSecret: string) {
   return encryptSecret(secret, credentialSecret)
@@ -151,10 +155,59 @@ async function ensureOrganizationSshCredentialInTx(
   return record
 }
 
+type EnrollmentRejection = {
+  reason:
+    | "invalid_request"
+    | "token_not_found"
+    | "token_exhausted"
+    | "token_expired"
+    | "organization_missing"
+  organizationId?: string | null
+  siteId?: string | null
+  tokenId?: string | null
+}
+
+async function recordEnrollmentFailure(
+  request: Request,
+  rejection: EnrollmentRejection,
+  extra: Record<string, unknown> = {}
+) {
+  const info = requestInfoFromHeaders(request.headers)
+  await db.insert(auditEvents).values({
+    organizationId: rejection.organizationId ?? null,
+    siteId: rejection.siteId ?? null,
+    eventType: "device_enroll_failed",
+    severity: severityForEvent("device_enroll_failed"),
+    actorIp: info.ipAddress,
+    userAgent: info.userAgent,
+    eventData: {
+      reason: rejection.reason,
+      tokenId: rejection.tokenId ?? null,
+      ...extra,
+    },
+  })
+}
+
+async function readJson(request: Request) {
+  try {
+    return (await request.json()) as unknown
+  } catch {
+    return null
+  }
+}
+
 export async function POST(request: Request) {
-  const parsed = enrollmentRequestSchema.safeParse(await request.json())
+  const limited = await enforceRateLimit(
+    `enroll:ip:${addressKey(request.headers)}`,
+    rateLimitPolicies.enrollPerAddress,
+    "Too many enrollment attempts from this address. Try again in a minute."
+  )
+  if (limited) return limited
+
+  const parsed = enrollmentRequestSchema.safeParse(await readJson(request))
 
   if (!parsed.success) {
+    await recordEnrollmentFailure(request, { reason: "invalid_request" })
     return Response.json(
       { error: "Invalid enrollment request" },
       { status: 400 }
@@ -162,9 +215,9 @@ export async function POST(request: Request) {
   }
 
   const input = parsed.data
-  const tokenHash = hashEnrollmentToken(input.token)
+  const tokenHash = hashAgentSecret(input.token)
   const checkInSecret = randomBytes(32).toString("base64url")
-  const checkInSecretHash = hashDeviceSecret(checkInSecret)
+  const checkInSecretHash = hashAgentSecret(checkInSecret)
   const requestsSsh = input.services.some((service) => service.type === "ssh")
   const requestsPasswordService = input.services.some(
     (service) =>
@@ -186,17 +239,32 @@ export async function POST(request: Request) {
     )
   }
 
+  let rejection: EnrollmentRejection | null = null
+
   const result = await db.transaction(async (tx: TransactionClient) => {
     const [token] = await tx
       .select()
       .from(enrollmentTokens)
       .where(eq(enrollmentTokens.tokenHash, tokenHash))
 
-    if (
-      !token ||
-      (!token.siteWide && token.uses >= token.maxUses) ||
-      (token.expiresAt !== null && token.expiresAt.getTime() <= Date.now())
-    ) {
+    if (!token) {
+      rejection = { reason: "token_not_found" }
+      return null
+    }
+
+    const tokenScope = {
+      organizationId: token.organizationId,
+      siteId: token.siteId ?? null,
+      tokenId: token.id,
+    }
+
+    if (!token.siteWide && token.uses >= token.maxUses) {
+      rejection = { reason: "token_exhausted", ...tokenScope }
+      return null
+    }
+
+    if (token.expiresAt !== null && token.expiresAt.getTime() <= Date.now()) {
+      rejection = { reason: "token_expired", ...tokenScope }
       return null
     }
 
@@ -206,6 +274,7 @@ export async function POST(request: Request) {
       .where(eq(organizations.id, token.organizationId))
 
     if (!organization) {
+      rejection = { reason: "organization_missing", ...tokenScope }
       return null
     }
 
@@ -356,11 +425,16 @@ export async function POST(request: Request) {
       .set({ uses: token.uses + 1 })
       .where(eq(enrollmentTokens.id, token.id))
 
+    const requestInfo = requestInfoFromHeaders(request.headers)
     await tx.insert(auditEvents).values({
       organizationId: token.organizationId,
+      siteId: token.siteId ?? null,
       deviceId: device.id,
       eventType: "device_enrolled",
+      actorIp: requestInfo.ipAddress,
+      userAgent: requestInfo.userAgent,
       eventData: {
+        tokenId: token.id,
         vpnIpv4,
         serviceCount: input.services.length,
         organization: organization.name,
@@ -373,6 +447,11 @@ export async function POST(request: Request) {
   })
 
   if (!result) {
+    await recordEnrollmentFailure(
+      request,
+      rejection ?? { reason: "token_not_found" },
+      { hostname: input.hostname, osFamily: input.os_family }
+    )
     return Response.json(
       { error: "Enrollment token not found" },
       { status: 404 }

@@ -115,7 +115,10 @@ services:
     env_file:
       - ../.env.deploy
     environment:
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/nms_vpn
+      # The Console connects as a role that cannot alter or delete history
+      # tables. Hosts deployed before that role existed fall back to the owner
+      # connection until their .env.deploy gains WEB_DATABASE_URL.
+      DATABASE_URL: ${WEB_DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/nms_vpn}
       REDIS_URL: redis://redis:6379/0
       NODE_ENV: production
     networks:
@@ -155,9 +158,11 @@ services:
       VPNCTL_PATH: /usr/local/sbin/host-vpnctl
       WIREGUARD_INTERFACE: wg0
       RUN_DB_MIGRATIONS_ON_START: "1"
+      FLOW_LOG_PATH: /var/log/lockhaven/flows.jsonl
       NODE_ENV: production
     volumes:
       - /usr/local/sbin/vpnctl:/usr/local/sbin/vpnctl:ro
+      - /var/log/lockhaven:/var/log/lockhaven:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -177,7 +182,7 @@ services:
     command:
       - sh
       - -lc
-      - cd /repo/packages/db && node scripts/apply-migrations.mjs && node scripts/bootstrap-admin.mjs
+      - cd /repo/packages/db && node scripts/apply-migrations.mjs && node scripts/provision-roles.mjs && node scripts/bootstrap-admin.mjs
     depends_on:
       postgres:
         condition: service_healthy

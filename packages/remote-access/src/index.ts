@@ -34,11 +34,28 @@ export type RemoteAccessSession = {
   url: string
 }
 
+export type RemoteAccessSessionActivity = {
+  sessionId: string
+  /** First time a client connected, if ever. */
+  connectedAt: Date | null
+  /** Last disconnect; `null` while a client is still attached. */
+  disconnectedAt: Date | null
+  /** True when the gateway still shows an open connection. */
+  active: boolean
+}
+
 export interface RemoteAccessProvider {
   createSession(
     request: RemoteAccessSessionRequest
   ): Promise<RemoteAccessSession>
   closeSession(sessionId: string): Promise<void>
+  /**
+   * Looks up connection history for the given session ids so the control
+   * plane can close its own session records once the client disconnects.
+   */
+  getSessionActivity(
+    sessionIds: string[]
+  ): Promise<Map<string, RemoteAccessSessionActivity>>
 }
 
 export const guacamoleConfigSchema = z.object({
@@ -367,6 +384,45 @@ class GuacamoleConnectionStore {
       client.release()
     }
   }
+
+  async connectionActivity(connectionNames: string[]) {
+    const activity = new Map<string, RemoteAccessSessionActivity>()
+    if (connectionNames.length === 0) {
+      return activity
+    }
+
+    const result = await this.pool.query<{
+      connection_name: string
+      first_start: Date | null
+      last_end: Date | null
+      open_count: string
+    }>(
+      `
+        SELECT
+          c.connection_name,
+          MIN(h.start_date) AS first_start,
+          MAX(h.end_date) AS last_end,
+          COUNT(*) FILTER (WHERE h.end_date IS NULL) AS open_count
+        FROM [REDACTED]_connection c
+        LEFT JOIN [REDACTED]_connection_history h ON h.connection_id = c.connection_id
+        WHERE c.connection_name = ANY($1::text[])
+        GROUP BY c.connection_name
+      `,
+      [connectionNames]
+    )
+
+    for (const row of result.rows) {
+      const active = Number(row.open_count) > 0
+      activity.set(row.connection_name, {
+        sessionId: row.connection_name,
+        connectedAt: row.first_start,
+        disconnectedAt: active ? null : row.last_end,
+        active,
+      })
+    }
+
+    return activity
+  }
 }
 
 export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
@@ -418,5 +474,9 @@ export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
 
   async closeSession(sessionId: string): Promise<void> {
     void sessionId
+  }
+
+  async getSessionActivity(sessionIds: string[]) {
+    return this.store.connectionActivity(sessionIds)
   }
 }

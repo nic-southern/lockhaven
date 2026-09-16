@@ -15,8 +15,9 @@ GitHub Actions after images publish to GHCR.
 
 On every successful `main` push, CI publishes `lockhaven-web` and
 `lockhaven-worker` to GHCR. When auto-deploy is enabled, a follow-up job SSHs
-to the production host, syncs `deploy/production.compose.yml`, pulls the new
-images, runs migrations, and restarts the stack via
+to the production host, syncs `deploy/production.compose.yml` plus the host
+helpers in `infra/systemd/` (`vpnctl` and `install-flow-logging.sh`), pulls the
+new images, runs migrations, and restarts the stack via
 [`scripts/remote-compose-update.sh`](../scripts/remote-compose-update.sh).
 
 Enable it once:
@@ -67,6 +68,9 @@ Create this layout on the host:
     production.compose.yml
   scripts/
     remote-compose-update.sh
+  infra/systemd/          # optional, enables VPN firewall sync and flow logging
+    vpnctl
+    install-flow-logging.sh
 ```
 
 Copy [`deploy/production.compose.yml`](../deploy/production.compose.yml) into
@@ -94,6 +98,29 @@ docker compose --env-file .env.deploy -f deploy/production.compose.yml pull
 docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --remove-orphans
 docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm migrate
 ```
+
+### Connection Flow Logging
+
+`vpnctl sync-firewall` adds `log`/`counter` rules for every new connection
+entering `wg0`, tagged with a prefix that encodes direction (`in` for traffic to
+the hub itself, `fwd` for forwarded traffic) and verdict (`accept`/`drop`).
+[`infra/systemd/install-flow-logging.sh`](../infra/systemd/install-flow-logging.sh)
+installs `ulogd2`, subscribes it to that NFLOG group, and writes one JSON line
+per connection to `/var/log/lockhaven/flows.jsonl` (rotated daily, kept 7
+days). The worker mounts that directory read-only and its `flow-ingest` job
+tails the file, attributes each connection to a device or admin profile, and
+stores it in `connection_events`; `rollup-connections` aggregates per day into
+`connection_daily` and `prune-history` applies retention.
+
+Optional worker settings:
+
+- `FLOW_LOG_PATH` — path inside the worker container (default
+  `/var/log/lockhaven/flows.jsonl`).
+- `FLOW_RETENTION_DAYS` — raw connection events to keep (default `30`).
+- `FLOW_ROLLUP_RETENTION_DAYS` — daily rollups to keep (default `365`).
+
+Both deploy scripts, Terraform, and the auto-deploy job run the installer; it is
+idempotent and only restarts `ulogd2` when its config changes.
 
 ### Production Expectations
 

@@ -1,969 +1,240 @@
 "use client"
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
-import { toast } from "sonner"
+import {
+  useParams,
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from "next/navigation"
+import { ArrowLeftIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
+import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Textarea } from "@/components/ui/textarea"
-import { EmptyState } from "@/components/dashboard/empty-state"
-import { CodeBlock } from "@/components/dashboard/code-block"
-import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CopyableText } from "@/components/dashboard/copyable-text"
-import { FormField, NativeSelect } from "@/components/dashboard/form-field"
-import { PageHeader } from "@/components/dashboard/page-header"
-import { VpnStatusStrip } from "@/components/dashboard/stat-strip"
-import {
-  formatBytes,
-  formatDate,
-  statusLabel,
-  statusVariant,
-} from "@/lib/dashboard"
-import {
-  buildLinuxUninstallCommand,
-  buildWindowsUninstallCommand,
-} from "@/lib/enrollment-commands"
-import { getClientVpnBaseUrl } from "@/lib/product-name"
-import {
-  openRemoteLaunchResult,
-  preferredConnectionMethod,
-} from "@/lib/remote-launch"
-import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { ConnectivityBadge } from "@/components/devices/connectivity-badge"
+import { TagChips } from "@/components/devices/tag-chips"
+import { ActivityTab } from "@/components/devices/detail/activity-tab"
+import { ConnectTab } from "@/components/devices/detail/connect-tab"
+import { NetworkTab } from "@/components/devices/detail/network-tab"
+import { OverviewTab } from "@/components/devices/detail/overview-tab"
+import { ServicesTab } from "@/components/devices/detail/services-tab"
+import { SettingsTab } from "@/components/devices/detail/settings-tab"
+import { type DeviceTab, isDeviceTab } from "@/components/devices/detail/shared"
+import { statusLabel, statusVariant } from "@/lib/dashboard"
+import { osFamilyLabel } from "@/lib/devices"
 import { trpc } from "@/lib/trpc"
-import { serviceDefaults, type ServiceType } from "@nms/shared"
+import { usePermissions } from "@/lib/use-permissions"
 
-const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
-const quickServiceTypes = ["vnc", "rdp", "ssh"] as const
-
-const serviceLabels: Record<ServiceType, string> = {
-  vnc: "VNC",
-  rdp: "RDP",
-  ssh: "SSH",
-  winrm_https: "WinRM",
+const tabLabels: Record<DeviceTab, string> = {
+  overview: "Overview",
+  connect: "Connect",
+  services: "Services",
+  network: "Network",
+  activity: "Activity",
+  settings: "Settings",
 }
 
-const serviceDescriptions: Record<(typeof quickServiceTypes)[number], string> =
-  {
-    vnc: "Screen access",
-    rdp: "Desktop access",
-    ssh: "Terminal access",
-  }
+export default function DeviceDetailPage() {
+  return (
+    <React.Suspense fallback={<DeviceDetailSkeleton />}>
+      <DeviceDetail />
+    </React.Suspense>
+  )
+}
 
-export default function DeviceConfigPage() {
+function DeviceDetailSkeleton() {
+  return (
+    <div className="flex flex-col gap-6">
+      <Skeleton className="h-8 w-64" />
+      <Skeleton className="h-24 w-full rounded-xl" />
+      <Skeleton className="h-64 w-full rounded-xl" />
+    </div>
+  )
+}
+
+function DeviceDetail() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const { can, isLoading: permissionsLoading } = usePermissions()
   const deviceId = params.id
-  const utils = trpc.useUtils()
-  const { connected: adminVpnConnected } = useAdminVpnConnected()
-  const [deleteOpen, setDeleteOpen] = React.useState(false)
+
+  const requestedTab = searchParams.get("tab")
+  const tab: DeviceTab = isDeviceTab(requestedTab) ? requestedTab : "overview"
+
+  const setTab = React.useCallback(
+    (next: string) => {
+      if (!isDeviceTab(next)) return
+      const nextParams = new URLSearchParams(searchParams.toString())
+      if (next === "overview") {
+        nextParams.delete("tab")
+      } else {
+        nextParams.set("tab", next)
+      }
+      const query = nextParams.toString()
+      router.replace(query ? `${pathname}?${query}` : pathname, {
+        scroll: false,
+      })
+    },
+    [router, pathname, searchParams]
+  )
 
   const deviceQuery = trpc.devices.byId.useQuery(
     { id: deviceId },
-    { enabled: Boolean(deviceId) }
+    { enabled: Boolean(deviceId), refetchInterval: 30_000 }
   )
-
-  const updateDevice = trpc.devices.update.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.devices.byId.invalidate(),
-        utils.devices.list.invalidate(),
-      ])
-      toast.success("Device updated")
-    },
-    onError() {
-      toast.error("We couldn't update the device.")
-    },
-  })
-  const assignRoutePolicy = trpc.devices.assignRoutePolicy.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.devices.byId.invalidate(),
-        utils.devices.list.invalidate(),
-      ])
-      toast.success("Route policy updated")
-    },
-    onError() {
-      toast.error("We couldn't update the route policy.")
-    },
-  })
-  const revokeVpn = trpc.devices.revokeVpn.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.devices.byId.invalidate(),
-        utils.devices.list.invalidate(),
-      ])
-      toast.success("VPN access revoked")
-    },
-    onError() {
-      toast.error("We couldn't revoke VPN access.")
-    },
-  })
-  const deleteDevice = trpc.devices.delete.useMutation({
-    async onSuccess() {
-      await utils.devices.list.invalidate()
-      toast.success("Device removed")
-      router.push("/devices")
-    },
-    onError() {
-      toast.error("We couldn't remove the device.")
-    },
-  })
-  const createService = trpc.managementServices.create.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.devices.byId.invalidate(),
-        utils.managementServices.list.invalidate(),
-      ])
-      toast.success("Service added")
-    },
-    onError() {
-      toast.error("We couldn't add the service.")
-    },
-  })
-  const updateService = trpc.managementServices.update.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.devices.byId.invalidate(),
-        utils.managementServices.list.invalidate(),
-      ])
-      toast.success("Service updated")
-    },
-    onError() {
-      toast.error("We couldn't update the service.")
-    },
-  })
-  const deleteService = trpc.managementServices.delete.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.devices.byId.invalidate(),
-        utils.managementServices.list.invalidate(),
-      ])
-      toast.success("Service removed")
-    },
-    onError() {
-      toast.error("We couldn't remove the service.")
-    },
-  })
-  const setCredential = trpc.managementServices.setCredential.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.devices.byId.invalidate(),
-        utils.managementServices.list.invalidate(),
-      ])
-      toast.success("Password saved")
-    },
-    onError() {
-      toast.error("We couldn't save the password.")
-    },
-  })
-  const setSshCredential = trpc.managementServices.setSshCredential.useMutation(
-    {
-      async onSuccess() {
-        await Promise.all([
-          utils.devices.byId.invalidate(),
-          utils.managementServices.list.invalidate(),
-        ])
-        toast.success("SSH key saved")
-      },
-      onError() {
-        toast.error("We couldn't save the SSH key.")
-      },
-    }
-  )
-  const clearCredential = trpc.managementServices.clearCredential.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.devices.byId.invalidate(),
-        utils.managementServices.list.invalidate(),
-      ])
-      toast.success("Credential cleared")
-    },
-    onError() {
-      toast.error("We couldn't clear the credential.")
-    },
-  })
-  const launchSession = trpc.sessions.create.useMutation({
-    async onSuccess(result) {
-      const opened = await openRemoteLaunchResult(result)
-      if (opened?.mode === "native" && opened.copiedSecret) {
-        toast.success("VNC password copied — paste it when prompted")
-      }
-    },
-    onError() {
-      toast.error("Couldn't start the session.")
-    },
-  })
-
-  const [deviceName, setDeviceName] = React.useState("")
-  const [deviceHostname, setDeviceHostname] = React.useState("")
-  const [deviceSiteId, setDeviceSiteId] = React.useState("")
-  const [deviceRoutePolicyId, setDeviceRoutePolicyId] = React.useState("")
-  const [newServiceType, setNewServiceType] =
-    React.useState<(typeof serviceTypes)[number]>("ssh")
-  const [newServiceProtocol, setNewServiceProtocol] = React.useState<string>(
-    serviceDefaults.ssh.protocol
-  )
-  const [newServicePort, setNewServicePort] = React.useState(
-    String(serviceDefaults.ssh.port)
-  )
-  const sitesQuery = trpc.sites.list.useQuery()
-  const routePoliciesQuery = trpc.routePolicies.list.useQuery()
-  const [installBaseUrl, setInstallBaseUrl] =
-    React.useState(getClientVpnBaseUrl)
-
-  React.useEffect(() => {
-    setInstallBaseUrl(getClientVpnBaseUrl())
-  }, [])
-
-  React.useEffect(() => {
-    if (deviceQuery.data) {
-      setDeviceName(deviceQuery.data.displayName)
-      setDeviceHostname(deviceQuery.data.hostname ?? "")
-      setDeviceSiteId(deviceQuery.data.siteId ?? "")
-      setDeviceRoutePolicyId(deviceQuery.data.vpnIdentity?.routePolicyId ?? "")
-    }
-  }, [deviceQuery.data])
-
   const device = deviceQuery.data
-  const linuxUninstallCommand = buildLinuxUninstallCommand({
-    baseUrl: installBaseUrl,
-  })
-  const windowsUninstallCommand = buildWindowsUninstallCommand({
-    baseUrl: installBaseUrl,
-  })
-  const serviceByType = React.useMemo(
-    () =>
-      new Map(
-        (device?.services ?? []).map((service) => [
-          service.serviceType as ServiceType,
-          service,
-        ])
-      ),
-    [device?.services]
-  )
-  const sites = React.useMemo(() => sitesQuery.data ?? [], [sitesQuery.data])
-  const routePolicies = React.useMemo(
-    () => routePoliciesQuery.data ?? [],
-    [routePoliciesQuery.data]
-  )
 
-  const vpnStatus = device
-    ? device.vpnIdentity?.revokedAt
-      ? "revoked"
-      : device.vpnIdentity?.lastHandshakeAt
-        ? "vpn_online"
-        : "pending"
-    : "pending"
+  const visibleTabs = React.useMemo<DeviceTab[]>(() => {
+    const tabs: DeviceTab[] = ["overview", "connect", "services", "network"]
+    if (permissionsLoading || can("audit:view")) tabs.push("activity")
+    if (
+      permissionsLoading ||
+      can("device:update") ||
+      can("device:revoke_vpn") ||
+      can("device:delete")
+    ) {
+      tabs.push("settings")
+    }
+    return tabs
+  }, [can, permissionsLoading])
 
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
-        badge="Device config"
-        title={device ? device.displayName : "Device details"}
-        description="Edit the device, adjust service entries, and launch remote access from one place."
-        actions={
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/devices">Back</Link>
-          </Button>
-        }
-      />
+  const activeTab: DeviceTab = visibleTabs.includes(tab) ? tab : "overview"
 
-      {deviceQuery.isLoading ? (
-        <Card>
-          <CardContent className="py-8">
-            <Skeleton className="h-6 w-48" />
-          </CardContent>
-        </Card>
-      ) : !device ? (
+  if (deviceQuery.isLoading) {
+    return <DeviceDetailSkeleton />
+  }
+
+  if (!device) {
+    return (
+      <div className="flex flex-col gap-6">
+        <Button variant="ghost" size="sm" className="w-fit" asChild>
+          <Link href="/devices">
+            <ArrowLeftIcon />
+            All devices
+          </Link>
+        </Button>
         <Card>
           <CardContent className="py-8">
             <EmptyState
               title="Device not found"
-              description="We couldn't find that device."
+              description="It may have been removed, or you may not have access to it."
               bordered={false}
+              action={
+                <Button asChild>
+                  <Link href="/devices">Back to devices</Link>
+                </Button>
+              }
             />
           </CardContent>
         </Card>
-      ) : (
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Device details</CardTitle>
-              <CardDescription>
-                Update the selected device and its connection state.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <FormField label="Display name" htmlFor="device-name">
-                  <Input
-                    id="device-name"
-                    value={deviceName}
-                    onChange={(event) => setDeviceName(event.target.value)}
-                  />
-                </FormField>
-                <FormField label="Host name" htmlFor="device-hostname">
-                  <Input
-                    id="device-hostname"
-                    value={deviceHostname}
-                    onChange={(event) => setDeviceHostname(event.target.value)}
-                  />
-                </FormField>
-                <FormField label="Site" htmlFor="device-site">
-                  <NativeSelect
-                    id="device-site"
-                    value={deviceSiteId}
-                    onChange={(event) => setDeviceSiteId(event.target.value)}
-                  >
-                    <option value="">No site</option>
-                    {sites.map((site) => (
-                      <option key={site.id} value={site.id}>
-                        {site.name}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </FormField>
-                <FormField label="Route policy" htmlFor="device-route-policy">
-                  <NativeSelect
-                    id="device-route-policy"
-                    value={deviceRoutePolicyId}
-                    onChange={(event) =>
-                      setDeviceRoutePolicyId(event.target.value)
-                    }
-                  >
-                    <option value="">No policy</option>
-                    {routePolicies.map((policy) => (
-                      <option key={policy.id} value={policy.id}>
-                        {policy.name}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </FormField>
-              </div>
+      </div>
+    )
+  }
 
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  onClick={() => {
-                    void updateDevice.mutateAsync({
-                      id: device.id,
-                      displayName: deviceName,
-                      hostname: deviceHostname || null,
-                      siteId: deviceSiteId || null,
-                    })
-                  }}
-                  disabled={!deviceName || updateDevice.isPending}
-                >
-                  Save device
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    void assignRoutePolicy.mutateAsync({
-                      id: device.id,
-                      routePolicyId: deviceRoutePolicyId || null,
-                    })
-                  }}
-                  disabled={assignRoutePolicy.isPending}
-                >
-                  Save route policy
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    void revokeVpn.mutateAsync({ id: device.id })
-                  }}
-                  disabled={
-                    revokeVpn.isPending ||
-                    Boolean(device.vpnIdentity?.revokedAt)
-                  }
-                >
-                  Revoke VPN
-                </Button>
-              </div>
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2 w-fit text-muted-foreground"
+          asChild
+        >
+          <Link href="/devices">
+            <ArrowLeftIcon />
+            All devices
+          </Link>
+        </Button>
 
-              <VpnStatusStrip
-                items={[
-                  {
-                    label: "VPN",
-                    value: (
-                      <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
-                        {statusLabel(vpnStatus)}
-                      </Badge>
-                    ),
-                  },
-                  {
-                    label: "Last connected",
-                    value: formatDate(device.vpnIdentity?.lastHandshakeAt),
-                  },
-                  {
-                    label: "Address",
-                    value: (
-                      <CopyableText
-                        value={
-                          device.vpnIdentity?.vpnIpv4
-                            ? String(device.vpnIdentity.vpnIpv4)
-                            : null
-                        }
-                      />
-                    ),
-                  },
-                  {
-                    label: "Traffic",
-                    value: `${formatBytes(device.vpnIdentity?.rxBytes)} in / ${formatBytes(device.vpnIdentity?.txBytes)} out`,
-                  },
-                ]}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="truncate text-2xl font-semibold tracking-tight">
+                {device.displayName}
+              </h1>
+              <ConnectivityBadge
+                connectivity={device.connectivity}
+                lastHandshakeAt={device.vpnIdentity?.lastHandshakeAt}
+                showDetail={false}
               />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Uninstall</CardTitle>
-              <CardDescription>
-                Run this on the device to remove the tunnel and local files.
-                After uninstall, revoke VPN access or remove the device from
-                inventory.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <CodeBlock label="Linux" value={linuxUninstallCommand} />
-              <CodeBlock label="Windows" value={windowsUninstallCommand} />
-              <div className="border-t pt-4">
-                <Button
-                  variant="outline"
-                  className="w-full sm:w-auto"
-                  onClick={() => setDeleteOpen(true)}
-                  disabled={deleteDevice.isPending}
-                >
-                  Remove from inventory
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Services</CardTitle>
-              <CardDescription>
-                Manage the connection details attached to this device.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div className="grid gap-3 md:grid-cols-3">
-                {quickServiceTypes.map((serviceType) => {
-                  const defaults = serviceDefaults[serviceType]
-                  const existingService = serviceByType.get(serviceType)
-                  const isEnabled = Boolean(existingService?.enabled)
-
-                  return (
-                    <div
-                      key={serviceType}
-                      className="flex min-h-32 flex-col justify-between rounded-xl border bg-card p-4"
-                    >
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-medium">
-                              {serviceLabels[serviceType]}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {serviceDescriptions[serviceType]}
-                            </p>
-                          </div>
-                          <Badge variant={isEnabled ? "secondary" : "outline"}>
-                            {isEnabled ? "Enabled" : "Off"}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {defaults.protocol} · {defaults.port}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="mt-4 w-fit"
-                        variant={isEnabled ? "outline" : "default"}
-                        onClick={() => {
-                          if (existingService) {
-                            void updateService.mutateAsync({
-                              id: existingService.id,
-                              serviceType,
-                              protocol: defaults.protocol,
-                              port: defaults.port,
-                              enabled: true,
-                            })
-                            return
-                          }
-
-                          void createService.mutateAsync({
-                            deviceId: device.id,
-                            serviceType,
-                            protocol: defaults.protocol,
-                            port: defaults.port,
-                            enabled: true,
-                          })
-                        }}
-                        disabled={
-                          isEnabled ||
-                          createService.isPending ||
-                          updateService.isPending
-                        }
-                      >
-                        {isEnabled
-                          ? "Enabled"
-                          : `Enable ${serviceLabels[serviceType]}`}
-                      </Button>
-                    </div>
-                  )
-                })}
-              </div>
-
-              <div className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-5 md:items-end">
-                <FormField label="Type" htmlFor="new-service-type">
-                  <NativeSelect
-                    id="new-service-type"
-                    value={newServiceType}
-                    onChange={(event) => {
-                      const serviceType = event.target
-                        .value as (typeof serviceTypes)[number]
-                      const defaults = serviceDefaults[serviceType]
-
-                      setNewServiceType(serviceType)
-                      setNewServiceProtocol(defaults.protocol)
-                      setNewServicePort(String(defaults.port))
-                    }}
-                  >
-                    {serviceTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {serviceLabels[type]}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </FormField>
-                <FormField label="Protocol" htmlFor="new-service-protocol">
-                  <Input
-                    id="new-service-protocol"
-                    value={newServiceProtocol}
-                    onChange={(event) =>
-                      setNewServiceProtocol(event.target.value)
-                    }
+              <Badge variant={statusVariant[device.status] ?? "secondary"}>
+                {statusLabel(device.status)}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+              {device.hostname && device.hostname !== device.displayName ? (
+                <span className="font-mono text-xs">{device.hostname}</span>
+              ) : null}
+              <span>{device.siteName ?? "No site"}</span>
+              <span aria-hidden>·</span>
+              <span>{osFamilyLabel(device.osFamily)}</span>
+              {device.vpnIdentity?.vpnIpv4 ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <CopyableText
+                    value={String(device.vpnIdentity.vpnIpv4)}
+                    className="text-xs"
                   />
-                </FormField>
-                <FormField label="Port" htmlFor="new-service-port">
-                  <Input
-                    id="new-service-port"
-                    type="number"
-                    value={newServicePort}
-                    onChange={(event) => setNewServicePort(event.target.value)}
-                  />
-                </FormField>
-                <div className="md:col-span-2">
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      void createService.mutateAsync({
-                        deviceId: device.id,
-                        serviceType: newServiceType,
-                        protocol: newServiceProtocol,
-                        port: Number(newServicePort),
-                        enabled: true,
-                      })
-                    }}
-                    disabled={createService.isPending}
-                  >
-                    Add service
-                  </Button>
-                </div>
-              </div>
+                </>
+              ) : null}
+            </div>
+            {device.tags.length > 0 ? (
+              <TagChips
+                tags={device.tags}
+                max={6}
+                onClick={(tag) =>
+                  router.push(`/devices?f.tags=${encodeURIComponent(tag)}`)
+                }
+              />
+            ) : null}
+          </div>
 
-              {device.services.length === 0 ? (
-                <EmptyState title="No services yet" bordered />
-              ) : (
-                device.services.map((service) => {
-                  const serviceType = service.serviceType as ServiceType
-                  const isVnc = serviceType === "vnc"
-                  const isRdp = serviceType === "rdp"
-                  const isSsh = serviceType === "ssh"
-                  const isPasswordService = isVnc || isRdp
-
-                  return (
-                    <div
-                      key={service.id}
-                      className="grid gap-3 rounded-lg border p-4 md:grid-cols-5 md:items-end"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3 md:col-span-5">
-                        <div>
-                          <p className="font-medium">
-                            {serviceLabels[serviceType]}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {service.protocol} · {service.port}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={service.enabled ? "secondary" : "outline"}
-                        >
-                          {service.enabled ? "Enabled" : "Disabled"}
-                        </Badge>
-                      </div>
-
-                      {isPasswordService ? (
-                        <div className="rounded-lg border bg-muted/20 p-3 text-sm md:col-span-5">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <p className="font-medium">
-                                {serviceLabels[serviceType]}
-                              </p>
-                              <p className="text-muted-foreground">
-                                {serviceDefaults[serviceType].protocol} ·{" "}
-                                {serviceDefaults[serviceType].port}
-                              </p>
-                            </div>
-                            {service.enabled ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={() => {
-                                  void launchSession.mutateAsync({
-                                    deviceId: device.id,
-                                    serviceId: service.id,
-                                    connectionMethod: preferredConnectionMethod(
-                                      {
-                                        vpnConnected: adminVpnConnected,
-                                        serviceType,
-                                      }
-                                    ),
-                                  })
-                                }}
-                                disabled={launchSession.isPending}
-                              >
-                                Launch
-                              </Button>
-                            ) : (
-                              <Badge variant="outline">Enable to launch</Badge>
-                            )}
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Badge
-                              variant={
-                                service.hasSavedPassword
-                                  ? "secondary"
-                                  : "outline"
-                              }
-                            >
-                              {service.hasSavedPassword
-                                ? "Saved password"
-                                : "No saved password"}
-                            </Badge>
-                          </div>
-                          <label className="mt-3 flex items-center gap-2 text-sm">
-                            <Checkbox
-                              defaultChecked={service.enabled}
-                              name={`enabled-${service.id}`}
-                            />
-                            Enabled
-                          </label>
-                        </div>
-                      ) : (
-                        <>
-                          <FormField
-                            label="Type"
-                            htmlFor={`service-type-${service.id}`}
-                          >
-                            <NativeSelect
-                              id={`service-type-${service.id}`}
-                              name={`serviceType-${service.id}`}
-                              defaultValue={service.serviceType}
-                            >
-                              {serviceTypes.map((type) => (
-                                <option key={type} value={type}>
-                                  {serviceLabels[type]}
-                                </option>
-                              ))}
-                            </NativeSelect>
-                          </FormField>
-                          <FormField
-                            label="Protocol"
-                            htmlFor={`service-protocol-${service.id}`}
-                          >
-                            <Input
-                              id={`service-protocol-${service.id}`}
-                              name={`protocol-${service.id}`}
-                              defaultValue={service.protocol}
-                            />
-                          </FormField>
-                          <FormField
-                            label="Port"
-                            htmlFor={`service-port-${service.id}`}
-                          >
-                            <Input
-                              id={`service-port-${service.id}`}
-                              name={`port-${service.id}`}
-                              type="number"
-                              defaultValue={service.port}
-                            />
-                          </FormField>
-                          <label className="flex items-center gap-2 text-sm">
-                            <Checkbox
-                              defaultChecked={service.enabled}
-                              name={`enabled-${service.id}`}
-                            />
-                            Enabled
-                          </label>
-                          {isSsh ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge
-                                variant={
-                                  service.hasSavedPassword
-                                    ? "secondary"
-                                    : "outline"
-                                }
-                              >
-                                {service.hasSavedPassword
-                                  ? "Saved key"
-                                  : "No saved key"}
-                              </Badge>
-                              {service.enabled ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={() => {
-                                    void launchSession.mutateAsync({
-                                      deviceId: device.id,
-                                      serviceId: service.id,
-                                      connectionMethod:
-                                        preferredConnectionMethod({
-                                          vpnConnected: adminVpnConnected,
-                                          serviceType: "ssh",
-                                        }),
-                                    })
-                                  }}
-                                  disabled={launchSession.isPending}
-                                >
-                                  Launch
-                                </Button>
-                              ) : (
-                                <Badge variant="outline">
-                                  Enable to launch
-                                </Badge>
-                              )}
-                            </div>
-                          ) : null}
-                        </>
-                      )}
-
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => {
-                            const enabled = Boolean(
-                              document.querySelector<HTMLInputElement>(
-                                `input[name="enabled-${service.id}"]`
-                              )?.checked
-                            )
-                            const nextServiceType = isPasswordService
-                              ? serviceType
-                              : (String(
-                                  document.querySelector<HTMLSelectElement>(
-                                    `select[name="serviceType-${service.id}"]`
-                                  )?.value ?? service.serviceType
-                                ) as (typeof serviceTypes)[number])
-                            const nextProtocol =
-                              serviceDefaults[nextServiceType].protocol
-                            const nextPort =
-                              serviceDefaults[nextServiceType].port
-
-                            void updateService.mutateAsync({
-                              id: service.id,
-                              serviceType: nextServiceType,
-                              protocol: nextProtocol,
-                              port: nextPort,
-                              enabled,
-                            })
-                          }}
-                          disabled={updateService.isPending}
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            void deleteService.mutateAsync({ id: service.id })
-                          }}
-                          disabled={deleteService.isPending}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                      {isPasswordService && service.enabled ? (
-                        <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap md:col-span-5">
-                          <Input
-                            name={`password-${service.id}`}
-                            type="password"
-                            placeholder="Set password"
-                            className="w-full sm:min-w-64"
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault()
-                              }
-                            }}
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="w-full sm:w-auto"
-                            onClick={(event) => {
-                              const form = event.currentTarget.parentElement
-                              const passwordInput = form?.querySelector(
-                                `input[name="password-${service.id}"]`
-                              ) as HTMLInputElement | null
-
-                              const password = passwordInput?.value ?? ""
-
-                              if (!password) {
-                                return
-                              }
-
-                              void setCredential.mutateAsync({
-                                id: service.id,
-                                password,
-                              })
-                            }}
-                            disabled={setCredential.isPending}
-                          >
-                            Save password
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              void clearCredential.mutateAsync({
-                                id: service.id,
-                              })
-                            }}
-                            disabled={
-                              clearCredential.isPending ||
-                              !service.hasSavedPassword
-                            }
-                          >
-                            Clear password
-                          </Button>
-                        </div>
-                      ) : null}
-                      {isSsh && service.enabled ? (
-                        <div className="grid gap-2 rounded-lg border bg-muted/20 p-3 md:col-span-5">
-                          <div className="grid gap-2 md:grid-cols-2">
-                            <Input
-                              name={`ssh-username-${service.id}`}
-                              placeholder="Username"
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") {
-                                  event.preventDefault()
-                                }
-                              }}
-                            />
-                            <Textarea
-                              name={`ssh-private-key-${service.id}`}
-                              placeholder="Private key"
-                              className="min-h-24 font-mono text-xs"
-                            />
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={(event) => {
-                                const container = event.currentTarget.closest(
-                                  "div.md\\:col-span-5"
-                                )
-                                const usernameInput = container?.querySelector(
-                                  `input[name="ssh-username-${service.id}"]`
-                                ) as HTMLInputElement | null
-                                const privateKeyInput =
-                                  container?.querySelector(
-                                    `textarea[name="ssh-private-key-${service.id}"]`
-                                  ) as HTMLTextAreaElement | null
-                                const username =
-                                  usernameInput?.value.trim() ?? ""
-                                const privateKey =
-                                  privateKeyInput?.value.trim() ?? ""
-
-                                if (!username || !privateKey) {
-                                  return
-                                }
-
-                                void setSshCredential.mutateAsync({
-                                  id: service.id,
-                                  username,
-                                  privateKey,
-                                })
-                              }}
-                              disabled={setSshCredential.isPending}
-                            >
-                              Save key
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                void clearCredential.mutateAsync({
-                                  id: service.id,
-                                })
-                              }}
-                              disabled={
-                                clearCredential.isPending ||
-                                !service.hasSavedPassword
-                              }
-                            >
-                              Clear key
-                            </Button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  )
-                })
-              )}
-            </CardContent>
-          </Card>
+          <div className="flex flex-wrap gap-2">
+            {activeTab !== "connect" ? (
+              <Button onClick={() => setTab("connect")}>Connect</Button>
+            ) : null}
+            {visibleTabs.includes("settings") && activeTab !== "settings" ? (
+              <Button variant="outline" onClick={() => setTab("settings")}>
+                Settings
+              </Button>
+            ) : null}
+          </div>
         </div>
-      )}
+      </div>
 
-      <ConfirmDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title="Remove device"
-        description={
-          device
-            ? `Remove ${device.displayName} from inventory? Related access entries will be cleared. Uninstall the tunnel on the device first if it is still installed.`
-            : "Remove this device from inventory?"
-        }
-        confirmLabel="Remove device"
-        destructive
-        pending={deleteDevice.isPending}
-        onConfirm={() => {
-          if (!device) return
-          void deleteDevice.mutateAsync({ id: device.id })
-        }}
-      />
+      <Tabs value={activeTab} onValueChange={setTab} className="gap-6">
+        <TabsList variant="line" className="w-full justify-start border-b">
+          {visibleTabs.map((entry) => (
+            <TabsTrigger key={entry} value={entry} className="flex-none px-3">
+              {tabLabels[entry]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      <div key={activeTab}>
+        {activeTab === "overview" ? (
+          <OverviewTab device={device} onNavigate={setTab} />
+        ) : activeTab === "connect" ? (
+          <ConnectTab device={device} onNavigate={setTab} />
+        ) : activeTab === "services" ? (
+          <ServicesTab device={device} />
+        ) : activeTab === "network" ? (
+          <NetworkTab device={device} />
+        ) : activeTab === "activity" ? (
+          <ActivityTab device={device} />
+        ) : (
+          <SettingsTab device={device} />
+        )}
+      </div>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm"
+import { and, count, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm"
 import { z } from "zod"
 
 import {
@@ -10,12 +10,33 @@ import {
   permissionProcedure,
   publicProcedure,
 } from "./trpc"
-import { actorOrganizationIds, actorSiteIds, assertAuthorized } from "./access"
-import { hashPassword } from "@nms/auth"
+import {
+  actorOrganizationIds,
+  actorSiteIds,
+  assertAuthorized,
+  manageableOrganizationIds,
+} from "./access"
+import { writeAuditEvent } from "./audit"
+import { issueLaunchTicket, redeemLaunchTicket } from "./launch-ticket"
+import { auditRouter } from "./routers/activity"
+import { alertsRouter } from "./routers/alerts"
+import { dashboardRouter } from "./routers/dashboard"
+import { devicesRouter } from "./routers/devices"
+import { networkRouter } from "./routers/network"
+import { routePoliciesRouter } from "./routers/route-policies"
+import { sessionsPage } from "./routers/sessions-page"
+import { usersRouter } from "./routers/users"
+import {
+  buildOrderBy,
+  likePattern,
+  listQuerySchema,
+  paginate,
+  resolveListQuery,
+} from "./list"
+import { combineConditions, deviceScopeCondition } from "./scope"
 import {
   adminVpnProfiles,
   auditEvents,
-  account,
   devices,
   enrollmentTokens,
   managementServiceCredentials,
@@ -44,7 +65,11 @@ import {
 import {
   enrollmentTokenCreateSchema,
   enrollmentTokenUpdateSchema,
+  membershipStatuses,
+  organizationRoles,
   remoteSessionRequestSchema,
+  siteRoles,
+  type ServiceType,
 } from "@nms/shared"
 import {
   allocateVpnIpv4,
@@ -54,7 +79,6 @@ import {
 } from "@nms/vpn"
 import {
   adminVpnConfigFilename,
-  normalizeRouteValues,
   permissionForServiceType,
   serviceConnectionDefaults,
   siteBelongsToOrganization,
@@ -505,18 +529,6 @@ const siteUpdateInput = z.object({
   notes: z.string().optional().nullable(),
 })
 
-const deviceUpdateInput = z.object({
-  id: z.string().uuid(),
-  displayName: z.string().min(1).optional(),
-  hostname: z.string().min(1).optional().nullable(),
-  siteId: z.string().uuid().optional().nullable(),
-})
-
-const deviceRoutePolicyInput = z.object({
-  id: z.string().uuid(),
-  routePolicyId: z.string().uuid().nullable(),
-})
-
 const managementServiceCreateInput = z.object({
   deviceId: z.string().uuid(),
   serviceType: z.enum(serviceTypes),
@@ -533,44 +545,18 @@ const managementServiceUpdateInput = z.object({
   enabled: z.boolean(),
 })
 
-const routePolicyCreateInput = z.object({
-  organizationId: z.string().uuid(),
-  name: z.string().min(1),
-  routes: z.array(z.string().min(1)).min(1),
-  description: z.string().optional().nullable(),
-})
-
-const routePolicyUpdateInput = routePolicyCreateInput.extend({
-  id: z.string().uuid(),
-})
-
 const enrollmentTokenInput = enrollmentTokenCreateSchema
-
-const auditListInput = z.object({
-  organizationId: z.string().uuid().optional(),
-  deviceId: z.string().uuid().optional(),
-})
 
 const sessionCreateInput = remoteSessionRequestSchema.extend({
   deviceId: z.string().uuid(),
 })
 
-const organizationRoleValues = ["owner", "admin", "operator", "viewer"] as const
-const siteRoleValues = ["operator", "viewer"] as const
-const membershipStatusValues = ["active", "suspended"] as const
+const organizationRoleValues = organizationRoles
+const siteRoleValues = siteRoles
+const membershipStatusValues = membershipStatuses
 
 const accessOrganizationMembersInput = z.object({
   organizationId: z.string().uuid(),
-})
-
-const accessCreateUserInput = z.object({
-  organizationId: z.string().uuid(),
-  name: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(8),
-  organizationRole: z.enum(organizationRoleValues),
-  siteIds: z.array(z.string().uuid()).default([]),
-  siteRole: z.enum(siteRoleValues).default("viewer"),
 })
 
 const accessOrganizationMembershipInput = z.object({
@@ -603,14 +589,17 @@ const accessRouter = createTRPCRouter({
       permissions: actor.permissions,
       organizationMemberships: actor.organizationMemberships,
       siteMemberships: actor.siteMemberships,
-      canManageUsers:
-        actor.platformRole === "owner" ||
-        actor.platformRole === "admin" ||
-        actor.organizationMemberships.some(
-          (membership) =>
-            membership.status === "active" &&
-            (membership.role === "owner" || membership.role === "admin")
-        ),
+      uiScope: actor.uiScope ?? "admin",
+      security: actor.security ?? {
+        twoFactorEnabled: false,
+        mustChangePassword: false,
+        passkeyCount: 0,
+        lastLoginAt: null,
+      },
+      canManageUsers: (() => {
+        const manageable = manageableOrganizationIds(actor)
+        return manageable === null || manageable.length > 0
+      })(),
     }
   }),
   organizationMembers: adminProcedure
@@ -698,101 +687,133 @@ const accessRouter = createTRPCRouter({
         })),
       }
     }),
-  createUser: adminProcedure
-    .input(accessCreateUserInput)
-    .mutation(async ({ ctx, input }) => {
+  organizationMembersPage: adminProcedure
+    .input(accessOrganizationMembersInput.extend({ query: listQuerySchema }))
+    .query(async ({ ctx, input }) => {
       assertAuthorized(ctx.actor, "organization:admin", {
-        kind: "userManagement",
+        kind: "organization",
         organizationId: input.organizationId,
       })
 
-      const [existingUser] = await ctx.db
-        .select({ id: user.id })
-        .from(user)
-        .where(eq(user.email, input.email.toLowerCase()))
+      const query = resolveListQuery(input.query, { defaultLimit: 25 })
+      const conditions = combineConditions([
+        eq(organizationMemberships.organizationId, input.organizationId),
+        query.filters.role
+          ? inArray(
+              organizationMemberships.role,
+              query.filters.role.filter((value) =>
+                (organizationRoleValues as readonly string[]).includes(value)
+              ) as (typeof organizationRoleValues)[number][]
+            )
+          : undefined,
+        query.filters.status
+          ? inArray(
+              organizationMemberships.status,
+              query.filters.status.filter((value) =>
+                (membershipStatusValues as readonly string[]).includes(value)
+              ) as (typeof membershipStatusValues)[number][]
+            )
+          : undefined,
+        query.search
+          ? or(
+              ilike(user.name, likePattern(query.search)),
+              ilike(user.email, likePattern(query.search))
+            )
+          : undefined,
+      ])
+      const where = and(...conditions)
 
-      if (existingUser) {
-        throw new TRPCError({ code: "CONFLICT" })
-      }
-
-      const now = new Date()
-      const userId = randomUUID()
-      const passwordHash = await hashPassword(input.password)
-      const [createdUser] = await ctx.db
-        .insert(user)
-        .values({
-          id: userId,
-          name: input.name,
-          email: input.email.toLowerCase(),
-          emailVerified: true,
-          role: "admin",
-          status: "active",
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-
-      await ctx.db.insert(account).values({
-        id: randomUUID(),
-        userId: createdUser.id,
-        accountId: createdUser.id,
-        providerId: "credential",
-        password: passwordHash,
-        createdAt: now,
-        updatedAt: now,
-      })
-
-      await ctx.db.insert(organizationMemberships).values({
-        id: randomUUID(),
-        organizationId: input.organizationId,
-        userId: createdUser.id,
-        role: input.organizationRole,
-        status: "active",
-        createdByUserId: ctx.actor?.id ?? null,
-        createdAt: now,
-        updatedAt: now,
-      })
-
-      const uniqueSiteIds = [...new Set(input.siteIds)]
-
-      if (uniqueSiteIds.length > 0) {
-        const [matchedSites] = await Promise.all([
-          ctx.db
-            .select({
-              id: sites.id,
-              organizationId: sites.organizationId,
-            })
-            .from(sites)
-            .where(inArray(sites.id, uniqueSiteIds)),
-        ])
-
-        if (matchedSites.length !== uniqueSiteIds.length) {
-          throw new TRPCError({ code: "BAD_REQUEST" })
-        }
-
-        if (
-          matchedSites.some(
-            (site) => site.organizationId !== input.organizationId
+      const [[totalRow], rows] = await Promise.all([
+        ctx.db
+          .select({ total: count() })
+          .from(organizationMemberships)
+          .innerJoin(user, eq(user.id, organizationMemberships.userId))
+          .where(where),
+        ctx.db
+          .select({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            platformRole: user.role,
+            status: user.status,
+            createdAt: user.createdAt,
+            membershipId: organizationMemberships.id,
+            membershipRole: organizationMemberships.role,
+            membershipStatus: organizationMemberships.status,
+          })
+          .from(organizationMemberships)
+          .innerJoin(user, eq(user.id, organizationMemberships.userId))
+          .where(where)
+          .orderBy(
+            ...buildOrderBy(
+              query.sort,
+              {
+                name: user.name,
+                email: user.email,
+                role: organizationMemberships.role,
+                status: organizationMemberships.status,
+                createdAt: organizationMemberships.createdAt,
+              },
+              [desc(organizationMemberships.createdAt), desc(user.id)]
+            )
           )
-        ) {
-          throw new TRPCError({ code: "BAD_REQUEST" })
-        }
+          .limit(query.limit + 1)
+          .offset(query.offset),
+      ])
 
-        await ctx.db.insert(siteMemberships).values(
-          uniqueSiteIds.map((siteId) => ({
-            id: randomUUID(),
-            siteId,
-            userId: createdUser.id,
-            role: input.siteRole,
-            status: "active" as const,
-            createdByUserId: ctx.actor?.id ?? null,
-            createdAt: now,
-            updatedAt: now,
-          }))
-        )
+      const userIds = rows.map((row) => row.id)
+      const siteRows =
+        userIds.length > 0
+          ? await ctx.db
+              .select({
+                userId: siteMemberships.userId,
+                siteId: siteMemberships.siteId,
+                siteName: sites.name,
+                role: siteMemberships.role,
+                status: siteMemberships.status,
+              })
+              .from(siteMemberships)
+              .innerJoin(sites, eq(sites.id, siteMemberships.siteId))
+              .where(
+                and(
+                  eq(sites.organizationId, input.organizationId),
+                  inArray(siteMemberships.userId, userIds)
+                )
+              )
+          : []
+
+      const siteMembershipsByUserId = new Map<string, typeof siteRows>()
+      for (const row of siteRows) {
+        const entries = siteMembershipsByUserId.get(row.userId) ?? []
+        entries.push(row)
+        siteMembershipsByUserId.set(row.userId, entries)
       }
 
-      return createdUser
+      return paginate(
+        rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          platformRole: row.platformRole,
+          status: row.status,
+          createdAt: row.createdAt,
+          membership: {
+            id: row.membershipId,
+            role: row.membershipRole,
+            status: row.membershipStatus,
+          },
+          siteMemberships: (siteMembershipsByUserId.get(row.id) ?? []).map(
+            (entry) => ({
+              siteId: entry.siteId,
+              siteName: entry.siteName,
+              role: entry.role,
+              status: entry.status,
+            })
+          ),
+        })),
+        query,
+        Number(totalRow?.total ?? 0)
+      )
     }),
   updateOrganizationMembership: adminProcedure
     .input(accessOrganizationMembershipInput)
@@ -827,6 +848,16 @@ const accessRouter = createTRPCRouter({
           },
         })
         .returning()
+
+      await writeAuditEvent(ctx, {
+        eventType: "user_membership_changed",
+        organizationId: input.organizationId,
+        eventData: {
+          targetUserId: input.userId,
+          role: input.role,
+          status: input.status,
+        },
+      })
 
       return record
     }),
@@ -870,12 +901,23 @@ const accessRouter = createTRPCRouter({
         })
         .returning()
 
+      await writeAuditEvent(ctx, {
+        eventType: "user_site_access_changed",
+        organizationId: site.organizationId,
+        eventData: {
+          targetUserId: input.userId,
+          grants: [{ siteId: input.siteId, role: input.role }],
+          status: input.status,
+        },
+      })
+
       return record
     }),
 })
 
 export const appRouter = createTRPCRouter({
   access: accessRouter,
+  users: usersRouter,
   health: publicProcedure.query(() => ({ ok: true })),
   organizations: createTRPCRouter({
     list: adminProcedure.query(async ({ ctx }) => {
@@ -910,8 +952,7 @@ export const appRouter = createTRPCRouter({
           .values({ name: input.name })
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: record.id,
           eventType: "organization_created",
           eventData: { organizationId: record.id, name: record.name },
@@ -1021,14 +1062,12 @@ export const appRouter = createTRPCRouter({
           keyPair.publicKey
         )
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: record.organizationId,
           eventType: "site_created",
           eventData: { siteId: record.id, name: record.name },
         })
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: record.organizationId,
           eventType: "site_ssh_credential_generated",
           eventData: { siteId: record.id },
@@ -1063,8 +1102,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(sites.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_updated",
           eventData: { siteId: record.id, name: record.name },
@@ -1111,8 +1149,7 @@ export const appRouter = createTRPCRouter({
           keyPair.publicKey
         )
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_ssh_credential_generated",
           eventData: { siteId: existing.id },
@@ -1168,8 +1205,7 @@ export const appRouter = createTRPCRouter({
           publicKey
         )
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_ssh_credential_set",
           eventData: { siteId: existing.id },
@@ -1198,8 +1234,7 @@ export const appRouter = createTRPCRouter({
           .delete(siteSshCredentials)
           .where(eq(siteSshCredentials.siteId, input.siteId))
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_ssh_credential_cleared",
           eventData: { siteId: existing.id },
@@ -1229,8 +1264,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(sites.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "site_deleted",
           eventData: { siteId: existing.id, name: existing.name },
@@ -1239,372 +1273,10 @@ export const appRouter = createTRPCRouter({
         return record ?? existing
       }),
   }),
-  devices: createTRPCRouter({
-    list: permissionProcedure("device:view").query(async ({ ctx }) => {
-      const organizationIds = actorOrganizationIds(ctx.actor)
-      const siteIds = actorSiteIds(ctx.actor) ?? []
-
-      if (organizationIds !== null) {
-        const filters = []
-        if (organizationIds.length > 0) {
-          filters.push(inArray(devices.organizationId, organizationIds))
-        }
-        if (siteIds.length > 0) {
-          filters.push(inArray(devices.siteId, siteIds))
-        }
-
-        if (filters.length === 0) {
-          return []
-        }
-
-        const query = ctx.db
-          .select({
-            id: devices.id,
-            organizationId: devices.organizationId,
-            siteId: devices.siteId,
-            siteName: sites.name,
-            hostname: devices.hostname,
-            displayName: devices.displayName,
-            osFamily: devices.osFamily,
-            osVersion: devices.osVersion,
-            architecture: devices.architecture,
-            serialNumber: devices.serialNumber,
-            status: devices.status,
-            lastSeenAt: devices.lastSeenAt,
-            createdAt: devices.createdAt,
-            vpnIpv4: vpnIdentities.vpnIpv4,
-            vpnRoutePolicyId: vpnIdentities.routePolicyId,
-            vpnLastHandshakeAt: vpnIdentities.lastHandshakeAt,
-            vpnLatestEndpoint: vpnIdentities.latestEndpoint,
-            vpnRxBytes: vpnIdentities.rxBytes,
-            vpnTxBytes: vpnIdentities.txBytes,
-            vpnRevokedAt: vpnIdentities.revokedAt,
-          })
-          .from(devices)
-          .leftJoin(sites, eq(sites.id, devices.siteId))
-          .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
-
-        return filters.length === 1
-          ? query.where(filters[0]).orderBy(desc(devices.createdAt))
-          : query.where(or(...filters)).orderBy(desc(devices.createdAt))
-      }
-
-      return ctx.db
-        .select({
-          id: devices.id,
-          organizationId: devices.organizationId,
-          siteId: devices.siteId,
-          siteName: sites.name,
-          hostname: devices.hostname,
-          displayName: devices.displayName,
-          osFamily: devices.osFamily,
-          osVersion: devices.osVersion,
-          architecture: devices.architecture,
-          serialNumber: devices.serialNumber,
-          status: devices.status,
-          lastSeenAt: devices.lastSeenAt,
-          createdAt: devices.createdAt,
-          vpnIpv4: vpnIdentities.vpnIpv4,
-          vpnRoutePolicyId: vpnIdentities.routePolicyId,
-          vpnLastHandshakeAt: vpnIdentities.lastHandshakeAt,
-          vpnLatestEndpoint: vpnIdentities.latestEndpoint,
-          vpnRxBytes: vpnIdentities.rxBytes,
-          vpnTxBytes: vpnIdentities.txBytes,
-          vpnRevokedAt: vpnIdentities.revokedAt,
-        })
-        .from(devices)
-        .leftJoin(sites, eq(sites.id, devices.siteId))
-        .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
-        .orderBy(desc(devices.createdAt))
-    }),
-    byId: permissionProcedure("device:view")
-      .input(z.object({ id: z.string().uuid() }))
-      .query(async ({ ctx, input }) => {
-        const [record] = await ctx.db
-          .select()
-          .from(devices)
-          .where(eq(devices.id, input.id))
-
-        if (!record) {
-          return null
-        }
-
-        assertAuthorized(ctx.actor, "device:view", {
-          kind: "device",
-          organizationId: record.organizationId,
-          siteId: record.siteId,
-        })
-
-        const [identity] = await ctx.db
-          .select()
-          .from(vpnIdentities)
-          .where(eq(vpnIdentities.deviceId, record.id))
-
-        const services = await ctx.db
-          .select({
-            service: managementServices,
-            credential: managementServiceCredentials,
-          })
-          .from(managementServices)
-          .leftJoin(
-            managementServiceCredentials,
-            eq(
-              managementServiceCredentials.managementServiceId,
-              managementServices.id
-            )
-          )
-          .where(eq(managementServices.deviceId, record.id))
-          .orderBy(desc(managementServices.createdAt))
-
-        return {
-          ...record,
-          vpnIdentity: identity ?? null,
-          services: services.map(({ service, credential }) => ({
-            ...service,
-            hasSavedPassword: Boolean(credential),
-          })),
-        }
-      }),
-    update: permissionProcedure("device:update")
-      .input(deviceUpdateInput)
-      .mutation(async ({ ctx, input }) => {
-        const [existing] = await ctx.db
-          .select()
-          .from(devices)
-          .where(eq(devices.id, input.id))
-
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        assertAuthorized(ctx.actor, "device:update", {
-          kind: "device",
-          organizationId: existing.organizationId,
-          siteId: existing.siteId,
-        })
-
-        if (input.siteId !== undefined && input.siteId !== null) {
-          const [site] = await ctx.db
-            .select()
-            .from(sites)
-            .where(eq(sites.id, input.siteId))
-
-          if (
-            !site ||
-            !siteBelongsToOrganization(
-              site.organizationId,
-              existing.organizationId
-            )
-          ) {
-            throw new TRPCError({ code: "BAD_REQUEST" })
-          }
-        }
-
-        const patch: Record<string, string | null> = {}
-
-        if (input.displayName !== undefined) {
-          patch.displayName = input.displayName
-        }
-
-        if (input.hostname !== undefined) {
-          patch.hostname = input.hostname
-        }
-
-        if (input.siteId !== undefined) {
-          patch.siteId = input.siteId
-        }
-
-        if (Object.keys(patch).length === 0) {
-          throw new TRPCError({ code: "BAD_REQUEST" })
-        }
-
-        const [record] = await ctx.db
-          .update(devices)
-          .set(patch)
-          .where(eq(devices.id, input.id))
-          .returning()
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          organizationId: existing.organizationId,
-          deviceId: existing.id,
-          eventType:
-            input.siteId !== undefined
-              ? "device_site_assigned"
-              : "device_updated",
-          eventData: {
-            deviceId: existing.id,
-            siteId: input.siteId ?? existing.siteId,
-            displayName: input.displayName ?? existing.displayName,
-            hostname: input.hostname ?? existing.hostname,
-          },
-        })
-
-        return record ?? null
-      }),
-    assignRoutePolicy: permissionProcedure("device:update")
-      .input(deviceRoutePolicyInput)
-      .mutation(async ({ ctx, input }) => {
-        const [device] = await ctx.db
-          .select()
-          .from(devices)
-          .where(eq(devices.id, input.id))
-
-        if (!device) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        assertAuthorized(ctx.actor, "device:update", {
-          kind: "device",
-          organizationId: device.organizationId,
-          siteId: device.siteId,
-        })
-
-        if (input.routePolicyId !== null) {
-          const [policy] = await ctx.db
-            .select()
-            .from(routePolicies)
-            .where(eq(routePolicies.id, input.routePolicyId))
-
-          if (!policy) {
-            throw new TRPCError({ code: "BAD_REQUEST" })
-          }
-
-          if (
-            policy.organizationId &&
-            policy.organizationId !== device.organizationId
-          ) {
-            throw new TRPCError({ code: "BAD_REQUEST" })
-          }
-        }
-
-        const [record] = await ctx.db
-          .update(vpnIdentities)
-          .set({
-            routePolicyId: input.routePolicyId,
-          })
-          .where(eq(vpnIdentities.deviceId, input.id))
-          .returning()
-
-        if (!record) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          organizationId: device.organizationId,
-          deviceId: device.id,
-          eventType: "device_updated",
-          eventData: {
-            deviceId: device.id,
-            routePolicyId: input.routePolicyId,
-          },
-        })
-
-        return record
-      }),
-    revokeVpn: permissionProcedure("device:revoke_vpn")
-      .input(z.object({ id: z.string().uuid() }))
-      .mutation(async ({ ctx, input }) => {
-        const [device] = await ctx.db
-          .select()
-          .from(devices)
-          .where(eq(devices.id, input.id))
-
-        if (!device) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        assertAuthorized(ctx.actor, "device:revoke_vpn", {
-          kind: "device",
-          organizationId: device.organizationId,
-          siteId: device.siteId,
-        })
-
-        const [record] = await ctx.db
-          .update(vpnIdentities)
-          .set({
-            revokedAt: new Date(),
-            serverPeerEnabled: false,
-          })
-          .where(eq(vpnIdentities.deviceId, input.id))
-          .returning()
-
-        if (!record) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          organizationId: device.organizationId,
-          deviceId: input.id,
-          eventType: "device_revoked",
-          eventData: { revoked: true },
-        })
-
-        return record
-      }),
-    delete: permissionProcedure("device:update")
-      .input(z.object({ id: z.string().uuid() }))
-      .mutation(async ({ ctx, input }) => {
-        const [existing] = await ctx.db
-          .select()
-          .from(devices)
-          .where(eq(devices.id, input.id))
-
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        assertAuthorized(ctx.actor, "device:update", {
-          kind: "device",
-          organizationId: existing.organizationId,
-          siteId: existing.siteId,
-        })
-
-        const [record] = await ctx.db
-          .delete(devices)
-          .where(eq(devices.id, input.id))
-          .returning()
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          organizationId: existing.organizationId,
-          eventType: "device_deleted",
-          eventData: {
-            deviceId: existing.id,
-            displayName: existing.displayName,
-            hostname: existing.hostname,
-          },
-        })
-
-        return record ?? existing
-      }),
-    services: permissionProcedure("device:view")
-      .input(z.object({ deviceId: z.string().uuid() }))
-      .query(async ({ ctx, input }) => {
-        const [device] = await ctx.db
-          .select()
-          .from(devices)
-          .where(eq(devices.id, input.deviceId))
-
-        if (!device) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        assertAuthorized(ctx.actor, "device:view", {
-          kind: "device",
-          organizationId: device.organizationId,
-          siteId: device.siteId,
-        })
-
-        return ctx.db
-          .select()
-          .from(managementServices)
-          .where(eq(managementServices.deviceId, input.deviceId))
-          .orderBy(desc(managementServices.createdAt))
-      }),
-  }),
+  devices: devicesRouter,
+  dashboard: dashboardRouter,
+  network: networkRouter,
+  alerts: alertsRouter,
   managementServices: createTRPCRouter({
     list: permissionProcedure("device:view")
       .input(z.object({ deviceId: z.string().uuid().optional() }).optional())
@@ -1688,6 +1360,123 @@ export const appRouter = createTRPCRouter({
           hasSavedPassword: Boolean(credential),
         }))
       }),
+    page: permissionProcedure("device:view")
+      .input(listQuerySchema.optional())
+      .query(async ({ ctx, input }) => {
+        const query = resolveListQuery(input, { defaultLimit: 50 })
+        const scope = deviceScopeCondition(ctx.actor)
+
+        if (scope.kind === "none") {
+          return paginate([], query, 0)
+        }
+
+        const serviceTypeFilter = query.filters.serviceType?.filter((value) =>
+          (serviceTypes as readonly string[]).includes(value)
+        ) as ServiceType[] | undefined
+
+        const conditions = combineConditions([
+          scope.kind === "where" ? scope.condition : undefined,
+          query.filters.deviceId
+            ? inArray(managementServices.deviceId, query.filters.deviceId)
+            : undefined,
+          query.filters.siteId
+            ? inArray(devices.siteId, query.filters.siteId)
+            : undefined,
+          serviceTypeFilter && serviceTypeFilter.length > 0
+            ? inArray(managementServices.serviceType, serviceTypeFilter)
+            : undefined,
+          query.filters.enabled
+            ? inArray(
+                managementServices.enabled,
+                query.filters.enabled.map((value) => value === "true")
+              )
+            : undefined,
+          query.filters.healthStatus
+            ? inArray(
+                managementServices.healthStatus,
+                query.filters.healthStatus
+              )
+            : undefined,
+          query.search
+            ? or(
+                ilike(devices.displayName, likePattern(query.search)),
+                ilike(devices.hostname, likePattern(query.search)),
+                ilike(sites.name, likePattern(query.search))
+              )
+            : undefined,
+        ])
+        const where = conditions.length > 0 ? and(...conditions) : undefined
+
+        const [[totalRow], rows] = await Promise.all([
+          ctx.db
+            .select({ total: count() })
+            .from(managementServices)
+            .innerJoin(devices, eq(devices.id, managementServices.deviceId))
+            .leftJoin(sites, eq(sites.id, devices.siteId))
+            .where(where),
+          ctx.db
+            .select({
+              service: managementServices,
+              credentialId: managementServiceCredentials.id,
+              deviceName: devices.displayName,
+              deviceHostname: devices.hostname,
+              deviceStatus: devices.status,
+              organizationId: devices.organizationId,
+              siteId: devices.siteId,
+              siteName: sites.name,
+              vpnIpv4: vpnIdentities.vpnIpv4,
+            })
+            .from(managementServices)
+            .innerJoin(devices, eq(devices.id, managementServices.deviceId))
+            .leftJoin(sites, eq(sites.id, devices.siteId))
+            .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+            .leftJoin(
+              managementServiceCredentials,
+              eq(
+                managementServiceCredentials.managementServiceId,
+                managementServices.id
+              )
+            )
+            .where(where)
+            .orderBy(
+              ...buildOrderBy(
+                query.sort,
+                {
+                  deviceName: devices.displayName,
+                  siteName: sites.name,
+                  serviceType: managementServices.serviceType,
+                  port: managementServices.port,
+                  enabled: managementServices.enabled,
+                  healthStatus: managementServices.healthStatus,
+                  lastCheckedAt: managementServices.lastCheckedAt,
+                  createdAt: managementServices.createdAt,
+                },
+                [
+                  desc(managementServices.createdAt),
+                  desc(managementServices.id),
+                ]
+              )
+            )
+            .limit(query.limit + 1)
+            .offset(query.offset),
+        ])
+
+        return paginate(
+          rows.map((row) => ({
+            ...row.service,
+            hasSavedPassword: Boolean(row.credentialId),
+            deviceName: row.deviceName,
+            deviceHostname: row.deviceHostname,
+            deviceStatus: row.deviceStatus,
+            organizationId: row.organizationId,
+            siteId: row.siteId,
+            siteName: row.siteName,
+            vpnIpv4: row.vpnIpv4 ? normalizeVpnIpv4(String(row.vpnIpv4)) : null,
+          })),
+          query,
+          Number(totalRow?.total ?? 0)
+        )
+      }),
     create: permissionProcedure("device:update")
       .input(managementServiceCreateInput)
       .mutation(async ({ ctx, input }) => {
@@ -1737,8 +1526,7 @@ export const appRouter = createTRPCRouter({
           record.serviceType
         )
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: device.organizationId,
           deviceId: device.id,
           eventType: "management_service_created",
@@ -1813,8 +1601,7 @@ export const appRouter = createTRPCRouter({
           )
         }
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: device.organizationId,
           deviceId: device.id,
           eventType: "management_service_updated",
@@ -1860,8 +1647,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(managementServices.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: device.organizationId,
           deviceId: device.id,
           eventType: "management_service_deleted",
@@ -2043,142 +1829,7 @@ export const appRouter = createTRPCRouter({
         return record ?? null
       }),
   }),
-  routePolicies: createTRPCRouter({
-    list: adminProcedure.query(async ({ ctx }) => {
-      const organizationIds = actorOrganizationIds(ctx.actor)
-
-      if (organizationIds === null) {
-        return ctx.db.select().from(routePolicies).orderBy(routePolicies.name)
-      }
-
-      if (organizationIds.length === 0) {
-        return []
-      }
-
-      return ctx.db
-        .select()
-        .from(routePolicies)
-        .where(inArray(routePolicies.organizationId, organizationIds))
-        .orderBy(routePolicies.name)
-    }),
-    create: adminProcedure
-      .input(routePolicyCreateInput)
-      .mutation(async ({ ctx, input }) => {
-        assertAuthorized(ctx.actor, "organization:admin", {
-          kind: "organization",
-          organizationId: input.organizationId,
-        })
-
-        const [record] = await ctx.db
-          .insert(routePolicies)
-          .values({
-            organizationId: input.organizationId,
-            name: input.name,
-            routes: normalizeRouteValues(input.routes),
-            description: input.description ?? null,
-          })
-          .returning()
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          eventType: "route_policy_created",
-          eventData: {
-            routePolicyId: record.id,
-            name: record.name,
-          },
-        })
-
-        return record
-      }),
-    update: adminProcedure
-      .input(routePolicyUpdateInput)
-      .mutation(async ({ ctx, input }) => {
-        const [existing] = await ctx.db
-          .select()
-          .from(routePolicies)
-          .where(eq(routePolicies.id, input.id))
-
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        if (existing.organizationId) {
-          assertAuthorized(ctx.actor, "organization:admin", {
-            kind: "organization",
-            organizationId: existing.organizationId,
-          })
-        } else {
-          assertAuthorized(ctx.actor, "organization:admin", {
-            kind: "platform",
-          })
-        }
-
-        const [record] = await ctx.db
-          .update(routePolicies)
-          .set({
-            organizationId: existing.organizationId,
-            name: input.name,
-            routes: normalizeRouteValues(input.routes),
-            description: input.description ?? null,
-          })
-          .where(eq(routePolicies.id, input.id))
-          .returning()
-
-        if (!record) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          eventType: "route_policy_updated",
-          eventData: {
-            routePolicyId: record.id,
-            name: record.name,
-          },
-        })
-
-        return record
-      }),
-    delete: adminProcedure
-      .input(z.object({ id: z.string().uuid() }))
-      .mutation(async ({ ctx, input }) => {
-        const [existing] = await ctx.db
-          .select()
-          .from(routePolicies)
-          .where(eq(routePolicies.id, input.id))
-
-        if (!existing) {
-          throw new TRPCError({ code: "NOT_FOUND" })
-        }
-
-        if (existing.organizationId) {
-          assertAuthorized(ctx.actor, "organization:admin", {
-            kind: "organization",
-            organizationId: existing.organizationId,
-          })
-        } else {
-          assertAuthorized(ctx.actor, "organization:admin", {
-            kind: "platform",
-          })
-        }
-
-        const [record] = await ctx.db
-          .delete(routePolicies)
-          .where(eq(routePolicies.id, input.id))
-          .returning()
-
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
-          eventType: "route_policy_deleted",
-          eventData: {
-            routePolicyId: existing.id,
-            name: existing.name,
-          },
-        })
-
-        return record ?? existing
-      }),
-  }),
+  routePolicies: routePoliciesRouter,
   enrollmentTokens: createTRPCRouter({
     list: adminProcedure.query(async ({ ctx }) => {
       const organizationIds = actorOrganizationIds(ctx.actor)
@@ -2293,8 +1944,7 @@ export const appRouter = createTRPCRouter({
           })
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: input.organizationId,
           eventType: "enrollment_token_created",
           eventData: { tokenId: record.id },
@@ -2388,8 +2038,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(enrollmentTokens.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: input.organizationId,
           eventType: "enrollment_token_updated",
           eventData: {
@@ -2428,8 +2077,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(enrollmentTokens.id, input.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: ctx.actor?.id,
+        await writeAuditEvent(ctx, {
           organizationId: existing.organizationId,
           eventType: "enrollment_token_revoked",
           eventData: {
@@ -2440,92 +2088,9 @@ export const appRouter = createTRPCRouter({
         return record ?? existing
       }),
   }),
-  audit: createTRPCRouter({
-    list: permissionProcedure("audit:view")
-      .input(auditListInput)
-      .query(async ({ ctx, input }) => {
-        if (input.organizationId) {
-          assertAuthorized(ctx.actor, "audit:view", {
-            kind: "organization",
-            organizationId: input.organizationId,
-          })
-
-          return ctx.db
-            .select()
-            .from(auditEvents)
-            .where(eq(auditEvents.organizationId, input.organizationId))
-            .orderBy(desc(auditEvents.createdAt))
-        }
-
-        if (input.deviceId) {
-          const [device] = await ctx.db
-            .select()
-            .from(devices)
-            .where(eq(devices.id, input.deviceId))
-
-          if (!device) {
-            return []
-          }
-
-          assertAuthorized(ctx.actor, "audit:view", {
-            kind: "device",
-            organizationId: device.organizationId,
-            siteId: device.siteId,
-          })
-
-          return ctx.db
-            .select()
-            .from(auditEvents)
-            .where(eq(auditEvents.deviceId, input.deviceId))
-            .orderBy(desc(auditEvents.createdAt))
-        }
-
-        const organizationIds = actorOrganizationIds(ctx.actor)
-        const siteIds = actorSiteIds(ctx.actor) ?? []
-
-        if (organizationIds === null) {
-          return ctx.db
-            .select()
-            .from(auditEvents)
-            .orderBy(desc(auditEvents.createdAt))
-        }
-
-        const filters = []
-
-        if (organizationIds.length > 0) {
-          filters.push(inArray(auditEvents.organizationId, organizationIds))
-        }
-
-        if (siteIds.length > 0) {
-          const accessibleDeviceIds = await ctx.db
-            .select({ id: devices.id })
-            .from(devices)
-            .where(inArray(devices.siteId, siteIds))
-
-          const deviceIds = accessibleDeviceIds.map((entry) => entry.id)
-          if (deviceIds.length > 0) {
-            filters.push(inArray(auditEvents.deviceId, deviceIds))
-          }
-        }
-
-        if (filters.length === 0) {
-          return []
-        }
-
-        return filters.length === 1
-          ? ctx.db
-              .select()
-              .from(auditEvents)
-              .where(filters[0])
-              .orderBy(desc(auditEvents.createdAt))
-          : ctx.db
-              .select()
-              .from(auditEvents)
-              .where(or(...filters))
-              .orderBy(desc(auditEvents.createdAt))
-      }),
-  }),
+  audit: auditRouter,
   sessions: createTRPCRouter({
+    page: sessionsPage,
     create: permissionProcedure("device:view")
       .input(sessionCreateInput)
       .mutation(async ({ ctx, input }) => {
@@ -2702,12 +2267,39 @@ export const appRouter = createTRPCRouter({
             })
             .returning()
 
+          const launchTicket =
+            service.serviceType === "vnc" && password
+              ? await issueLaunchTicket(
+                  {
+                    userId: actor.id,
+                    remoteSessionId: record.id,
+                    deviceId: device.id,
+                    serviceId: service.id,
+                    serviceType: service.serviceType,
+                    secretKind: "vnc_password",
+                    secret: password,
+                  },
+                  getCredentialSecret()
+                )
+              : null
+
+          await writeAuditEvent(ctx, {
+            eventType: "remote_session_started",
+            organizationId: device.organizationId,
+            deviceId: device.id,
+            eventData: {
+              remoteSessionId: record.id,
+              serviceId: service.id,
+              serviceType: service.serviceType,
+              connectionMethod: "native",
+            },
+          })
+
           return {
             session: record,
             url: null,
             nativeUrl,
-            clipboardSecret:
-              service.serviceType === "vnc" ? (password ?? null) : null,
+            launchTicket,
             mode: "native" as const,
           }
         }
@@ -2764,13 +2356,69 @@ export const appRouter = createTRPCRouter({
           })
           .returning()
 
+        await writeAuditEvent(ctx, {
+          eventType: "remote_session_started",
+          organizationId: device.organizationId,
+          deviceId: device.id,
+          eventData: {
+            remoteSessionId: record.id,
+            serviceId: service.id,
+            serviceType: service.serviceType,
+            connectionMethod: "guacamole",
+          },
+        })
+
         return {
           session: record,
           url: launchUrl.toString(),
           nativeUrl: null,
-          clipboardSecret: null,
+          launchTicket: null,
           mode: "guacamole" as const,
         }
+      }),
+    redeemLaunchTicket: adminProcedure
+      .input(z.object({ ticket: z.string().min(20).max(200) }))
+      .mutation(async ({ ctx, input }) => {
+        const actor = requireActor(ctx.actor)
+        const payload = await redeemLaunchTicket(
+          input.ticket,
+          getCredentialSecret()
+        )
+
+        if (!payload || payload.userId !== actor.id) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "This launch link has expired.",
+          })
+        }
+
+        const [device] = await ctx.db
+          .select({
+            id: devices.id,
+            organizationId: devices.organizationId,
+            siteId: devices.siteId,
+          })
+          .from(devices)
+          .where(eq(devices.id, payload.deviceId))
+
+        if (!device) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        await writeAuditEvent(ctx, {
+          eventType: "credential_revealed",
+          organizationId: device.organizationId,
+          deviceId: device.id,
+          eventData: {
+            remoteSessionId: payload.remoteSessionId,
+            serviceId: payload.serviceId,
+            serviceType: payload.serviceType,
+            secretKind: payload.secretKind,
+            via: "launch_ticket",
+          },
+        })
+
+        return { secret: payload.secret, secretKind: payload.secretKind }
       }),
   }),
   adminVpn: createTRPCRouter({
@@ -2926,8 +2574,7 @@ export const appRouter = createTRPCRouter({
           })
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: input.organizationId,
           eventType: "admin_vpn_created",
           eventData: {
@@ -2993,8 +2640,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(adminVpnProfiles.id, profile.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: profile.organizationId,
           eventType: "admin_vpn_reissued",
           eventData: {
@@ -3046,8 +2692,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(adminVpnProfiles.id, profile.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: profile.organizationId,
           eventType: "admin_vpn_revoked",
           eventData: {
@@ -3089,8 +2734,7 @@ export const appRouter = createTRPCRouter({
           .where(eq(adminVpnProfiles.id, profile.id))
           .returning()
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: profile.organizationId,
           eventType: "admin_vpn_updated",
           eventData: {
@@ -3128,8 +2772,7 @@ export const appRouter = createTRPCRouter({
           .delete(adminVpnProfiles)
           .where(eq(adminVpnProfiles.id, profile.id))
 
-        await ctx.db.insert(auditEvents).values({
-          actorUserId: actor.id,
+        await writeAuditEvent(ctx, {
           organizationId: profile.organizationId,
           eventType: "admin_vpn_deleted",
           eventData: {

@@ -37,9 +37,15 @@ resource "digitalocean_droplet" "vpn" {
     destination = "/tmp/vpnctl"
   }
 
+  provisioner "file" {
+    source      = "${path.module}/../systemd/install-flow-logging.sh"
+    destination = "/tmp/install-flow-logging.sh"
+  }
+
   provisioner "remote-exec" {
     inline = [
       "install -m 0755 /tmp/vpnctl /usr/local/sbin/vpnctl",
+      "bash /tmp/install-flow-logging.sh",
     ]
   }
 }

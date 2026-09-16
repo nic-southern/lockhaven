@@ -83,6 +83,7 @@ else
   admin_password_generated=1
 fi
 postgres_password="${POSTGRES_PASSWORD:-$(openssl rand -hex 16)}"
+web_db_password="${WEB_DB_PASSWORD:-$(openssl rand -hex 16)}"
 guacamole_db_password="${GUACAMOLE_DB_PASSWORD:-$(openssl rand -hex 16)}"
 better_auth_secret="${BETTER_AUTH_SECRET:-$(openssl rand -hex 32)}"
 remote_credentials_key="${REMOTE_CREDENTIALS_KEY:-$(openssl rand -hex 32)}"
@@ -112,6 +113,8 @@ WIREGUARD_INTERFACE=wg0
 VPNCTL_PATH=/usr/local/sbin/vpnctl
 REMOTE_ACCESS_PROVIDER=guacamole
 POSTGRES_PASSWORD=${postgres_password}
+WEB_DB_PASSWORD=${web_db_password}
+WEB_DATABASE_URL=postgresql://lockhaven_web:${web_db_password}@postgres:5432/nms_vpn
 GUACAMOLE_DB_PASSWORD=${guacamole_db_password}
 BETTER_AUTH_SECRET=${better_auth_secret}
 REMOTE_CREDENTIALS_KEY=${remote_credentials_key}
@@ -147,6 +150,7 @@ ssh "${ssh_opts[@]}" "$ssh_host" "mkdir -p /opt/lockhaven/deploy"
 scp "${ssh_opts[@]}" "$ROOT_DIR/deploy/production.compose.yml" "$ssh_host:/opt/lockhaven/deploy/production.compose.yml"
 scp "${ssh_opts[@]}" "$DEPLOY_ENV_FILE" "$ssh_host:/opt/lockhaven/.env.deploy"
 scp "${ssh_opts[@]}" "$ROOT_DIR/infra/systemd/vpnctl" "$ssh_host:/tmp/vpnctl"
+scp "${ssh_opts[@]}" "$ROOT_DIR/infra/systemd/install-flow-logging.sh" "$ssh_host:/tmp/install-flow-logging.sh"
 ssh "${ssh_opts[@]}" "$ssh_host" "install -m 0755 /tmp/vpnctl /usr/local/sbin/vpnctl && chmod 600 /opt/lockhaven/.env.deploy"
 
 log "Preparing Docker on ${ssh_host}"
@@ -176,6 +180,9 @@ ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
   done
   docker info >/dev/null
 "
+
+log "Configuring connection flow logging on ${ssh_host}"
+ssh "${ssh_opts[@]}" "$ssh_host" "bash /tmp/install-flow-logging.sh && rm -f /tmp/install-flow-logging.sh"
 
 log "Preparing WireGuard on ${ssh_host}"
 vpn_server_public_key="$(ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail

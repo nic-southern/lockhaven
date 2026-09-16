@@ -7,9 +7,11 @@
     "build": "sh -c 'if [ -f ../../.env ]; then set -a; . ../../.env; set +a; fi; next build'",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test lib/**/*.test.ts"
   },
   "dependencies": {
+    "@better-auth/passkey": "1.6.11",
     "@nms/api-contract": "workspace:*",
     "@nms/auth": "workspace:*",
     "@nms/db": "workspace:*",
@@ -17,17 +19,20 @@
     "@nms/shared": "workspace:*",
     "@nms/vpn": "workspace:*",
     "@tanstack/react-query": "^5.90.10",
+    "@tanstack/react-table": "^8.21.3",
     "@trpc/client": "^11.7.2",
     "@trpc/react-query": "^11.7.2",
     "@trpc/server": "^11.7.2",
     "better-auth": "^1.6.11",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "drizzle-orm": "^0.44.7",
     "ioredis": "^5.8.2",
     "lucide-react": "^1.16.0",
     "next": "16.1.7",
     "next-themes": "^0.4.6",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "sonner": "^2.0.7",
@@ -40,6 +45,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "eslint-config-next": "16.1.7",
+    "tsx": "^4.23.13",
     "typescript": "^5.9.3"
   }
 }

@@ -28,9 +28,62 @@ export const permissions = [
   "site:admin",
   "audit:view",
   "vpn:admin_profile",
+  "credential:reveal",
+  "device:delete",
+  "user:manage",
 ] as const
 
 export type Permission = (typeof permissions)[number]
+
+export const platformRoles = ["owner", "admin", "member"] as const
+export type PlatformRole = (typeof platformRoles)[number]
+
+export const organizationRoles = [
+  "owner",
+  "admin",
+  "operator",
+  "technician",
+  "viewer",
+] as const
+export type OrganizationRole = (typeof organizationRoles)[number]
+
+export const siteRoles = ["operator", "technician", "viewer"] as const
+export type SiteRole = (typeof siteRoles)[number]
+
+export const membershipStatuses = ["active", "suspended"] as const
+export type MembershipStatus = (typeof membershipStatuses)[number]
+
+export const uiScopes = ["admin", "technician"] as const
+export type UiScope = (typeof uiScopes)[number]
+
+export const MIN_PASSWORD_LENGTH = 12
+
+export const passwordSchema = z
+  .string()
+  .min(MIN_PASSWORD_LENGTH, "Use at least 12 characters.")
+  .max(256)
+
+export const siteGrantSchema = z.object({
+  siteId: z.string().uuid(),
+  role: z.enum(siteRoles),
+})
+export type SiteGrant = z.infer<typeof siteGrantSchema>
+
+export const userInviteSchema = z.object({
+  email: z.string().email().max(320),
+  name: z.string().trim().min(1).max(120),
+  platformRole: z.enum(platformRoles).default("member"),
+  organizationId: z.string().uuid().nullable().default(null),
+  organizationRole: z.enum(organizationRoles).nullable().default(null),
+  siteGrants: z.array(siteGrantSchema).max(200).default([]),
+})
+export type UserInviteInput = z.infer<typeof userInviteSchema>
+
+export const invitationAcceptSchema = z.object({
+  token: z.string().min(20).max(200),
+  name: z.string().trim().min(1).max(120),
+  password: passwordSchema,
+})
 
 export const routePolicySchema = z.object({
   name: z.string().min(1),
@@ -192,21 +245,135 @@ export const checkInSchema = z.object({
   ),
 })
 
+/**
+ * Hostnames compare case-insensitively and ignore a trailing dot, so a device
+ * that starts reporting `KIOSK-01.` instead of `kiosk-01` is still itself.
+ */
+export function normalizeHostname(value: string | null | undefined) {
+  if (!value) return null
+  const trimmed = value.trim().replace(/\.+$/, "").toLowerCase()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+export function hostnamesMatch(
+  expected: string | null | undefined,
+  reported: string | null | undefined
+) {
+  return normalizeHostname(expected) === normalizeHostname(reported)
+}
+
+/**
+ * Connectivity is derived from the WireGuard handshake rather than stored, so
+ * lists and metrics agree on the same thresholds.
+ */
+export const deviceConnectivityStates = [
+  "online",
+  "offline",
+  "never",
+  "revoked",
+] as const
+
+export type DeviceConnectivity = (typeof deviceConnectivityStates)[number]
+
+/** Handshakes older than this are treated as offline. */
+export const DEVICE_ONLINE_WINDOW_MS = 3 * 60 * 1000
+
+export const MAX_DEVICE_TAGS = 20
+export const DEVICE_TAG_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,31}$/
+
+export const deviceTagSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(
+    DEVICE_TAG_PATTERN,
+    "Tags use lowercase letters, numbers, and . _ : - (max 32 characters)."
+  )
+
+export const deviceTagsSchema = z
+  .array(deviceTagSchema)
+  .max(MAX_DEVICE_TAGS)
+  .transform((tags) => [...new Set(tags)].sort())
+
+export const deviceBulkActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("assign_site"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+    siteId: z.string().uuid().nullable(),
+  }),
+  z.object({
+    action: z.literal("assign_route_policy"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+    routePolicyId: z.string().uuid().nullable(),
+  }),
+  z.object({
+    action: z.literal("add_tags"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+    tags: z.array(deviceTagSchema).min(1).max(MAX_DEVICE_TAGS),
+  }),
+  z.object({
+    action: z.literal("remove_tags"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+    tags: z.array(deviceTagSchema).min(1).max(MAX_DEVICE_TAGS),
+  }),
+  z.object({
+    action: z.literal("revoke_vpn"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+  }),
+  z.object({
+    action: z.literal("delete"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+  }),
+])
+
+export type DeviceBulkAction = z.infer<typeof deviceBulkActionSchema>
+
+export const remoteConnectionMethods = [
+  "guacamole",
+  "custom-novnc",
+  "native",
+] as const
+
+export type RemoteConnectionMethod = (typeof remoteConnectionMethods)[number]
+
+/** Connection method used when a session is opened in the browser. */
+export const BROWSER_CONNECTION_METHOD: RemoteConnectionMethod = "guacamole"
+
 export const remoteSessionRequestSchema = z.object({
   serviceId: z.string().uuid(),
   connectionMethod: z
-    .enum(["guacamole", "custom-novnc", "native"])
-    .default("guacamole"),
+    .enum(remoteConnectionMethods)
+    .default(BROWSER_CONNECTION_METHOD),
 })
 
 export const permissionSetSchema = z.array(z.enum(permissions))
 
 export const auditEventTypeSchema = z.enum([
   "admin_login",
+  "admin_login_failed",
+  "admin_logout",
+  "two_factor_enrolled",
+  "two_factor_reset",
+  "passkey_added",
+  "passkey_removed",
+  "password_changed",
+  "session_revoked",
+  "user_invited",
+  "user_invitation_accepted",
+  "user_invitation_revoked",
+  "user_role_changed",
+  "user_membership_changed",
+  "user_site_access_changed",
+  "user_suspended",
+  "user_reactivated",
+  "user_password_reset_forced",
+  "credential_revealed",
   "organization_created",
   "device_created",
   "device_updated",
   "device_site_assigned",
+  "device_route_policy_assigned",
+  "device_tags_updated",
   "enrollment_token_created",
   "enrollment_token_updated",
   "enrollment_token_revoked",
@@ -220,13 +387,41 @@ export const auditEventTypeSchema = z.enum([
   "site_created",
   "site_updated",
   "site_deleted",
+  "site_ssh_credential_generated",
+  "site_ssh_credential_set",
+  "site_ssh_credential_cleared",
   "management_service_created",
   "management_service_updated",
   "management_service_deleted",
   "route_policy_created",
   "route_policy_updated",
   "route_policy_deleted",
+  "route_policy_default_changed",
+  "route_policy_devices_reassigned",
+  "admin_vpn_created",
+  "admin_vpn_reissued",
+  "admin_vpn_revoked",
+  "admin_vpn_updated",
+  "admin_vpn_deleted",
+  "admin_vpn_peer_added",
+  "vpn_peer_up",
+  "vpn_peer_down",
+  "vpn_endpoint_changed",
+  "firewall_synced",
+  "firewall_sync_failed",
+  "device_enroll_failed",
+  "device_check_in_failed",
+  "device_check_in_secret_mismatch",
+  "device_check_in_hostname_mismatch",
+  "device_hostname_changed",
+  "device_hostname_change_allowed",
+  "alert_raised",
+  "alert_acknowledged",
+  "alert_resolved",
 ])
+
+export type AuditEventType = z.infer<typeof auditEventTypeSchema>
+export const auditEventTypes = auditEventTypeSchema.options
 
 export const routePolicyNames = {
   managementOnly: "management-only",

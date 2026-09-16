@@ -13,23 +13,38 @@ import {
   uuid,
 } from "drizzle-orm/pg-core"
 import { sql } from "drizzle-orm"
-import { deviceStatuses, permissions, serviceTypes } from "@nms/shared"
+import {
+  deviceStatuses,
+  membershipStatuses,
+  organizationRoles,
+  permissions,
+  platformRoles,
+  serviceTypes,
+  siteRoles,
+  type AlertKind,
+  type AlertStatus,
+  type AuditSeverity,
+  type ConnectionDirection,
+  type ConnectionProtocol,
+  type ConnectionVerdict,
+  type RoutePolicyColor,
+  type RoutePolicyEntry,
+  type SiteGrant,
+} from "@nms/shared"
 
 export const statusEnum = pgEnum("device_status", deviceStatuses)
 export const serviceTypeEnum = pgEnum("service_type", serviceTypes)
 export const permissionEnum = pgEnum("permission", permissions)
-export const platformRoleEnum = pgEnum("platform_role", ["owner", "admin"])
-export const organizationRoleEnum = pgEnum("organization_role", [
-  "owner",
-  "admin",
-  "operator",
-  "viewer",
-])
-export const siteRoleEnum = pgEnum("site_role", ["operator", "viewer"])
-export const membershipStatusEnum = pgEnum("membership_status", [
-  "active",
-  "suspended",
-])
+export const platformRoleEnum = pgEnum("platform_role", platformRoles)
+export const organizationRoleEnum = pgEnum(
+  "organization_role",
+  organizationRoles
+)
+export const siteRoleEnum = pgEnum("site_role", siteRoles)
+export const membershipStatusEnum = pgEnum(
+  "membership_status",
+  membershipStatuses
+)
 
 export const organizations = pgTable("organizations", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -75,8 +90,16 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
-  role: platformRoleEnum("role").notNull().default("admin"),
+  role: platformRoleEnum("role").notNull().default("member"),
   status: text("status").notNull().default("active"),
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  twoFactorEnforcedAt: timestamp("two_factor_enforced_at", {
+    withTimezone: true,
+  }),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  invitedBy: text("invited_by"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -84,6 +107,94 @@ export const user = pgTable("user", {
     .notNull()
     .defaultNow(),
 })
+
+export const twoFactor = pgTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    verified: boolean("verified").notNull().default(true),
+  },
+  (table) => [
+    index("two_factor_user_id_idx").on(table.userId),
+    index("two_factor_secret_idx").on(table.secret),
+  ]
+)
+
+export const passkey = pgTable(
+  "passkey",
+  {
+    id: text("id").primaryKey(),
+    name: text("name"),
+    publicKey: text("public_key").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    credentialID: text("credential_id").notNull(),
+    counter: integer("counter").notNull(),
+    deviceType: text("device_type").notNull(),
+    backedUp: boolean("backed_up").notNull(),
+    transports: text("transports"),
+    aaguid: text("aaguid"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("passkey_user_id_idx").on(table.userId),
+    uniqueIndex("passkey_credential_id_idx").on(table.credentialID),
+  ]
+)
+
+export const rateLimit = pgTable(
+  "rate_limit",
+  {
+    id: text("id").primaryKey(),
+    key: text("key"),
+    count: integer("count"),
+    lastRequest: bigint("last_request", { mode: "number" }),
+  },
+  (table) => [index("rate_limit_key_idx").on(table.key)]
+)
+
+export const userInvitations = pgTable(
+  "user_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    platformRole: platformRoleEnum("platform_role").notNull().default("member"),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    organizationRole: organizationRoleEnum("organization_role"),
+    siteGrants: jsonb("site_grants")
+      .$type<SiteGrant[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    invitedByUserId: text("invited_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    acceptedUserId: text("accepted_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("user_invitations_email_idx").on(table.email),
+    index("user_invitations_organization_id_idx").on(table.organizationId),
+  ]
+)
 
 export const session = pgTable(
   "session",
@@ -192,25 +303,55 @@ export const siteMemberships = pgTable(
   })
 )
 
-export const devices = pgTable("devices", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  siteId: uuid("site_id").references(() => sites.id, { onDelete: "set null" }),
-  hostname: text("hostname"),
-  displayName: text("display_name").notNull(),
-  osFamily: text("os_family"),
-  osVersion: text("os_version"),
-  architecture: text("architecture"),
-  serialNumber: text("serial_number"),
-  checkInSecretHash: text("check_in_secret_hash"),
-  status: statusEnum("status").notNull().default("pending"),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-})
+export const devices = pgTable(
+  "devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    hostname: text("hostname"),
+    displayName: text("display_name").notNull(),
+    osFamily: text("os_family"),
+    osVersion: text("os_version"),
+    architecture: text("architecture"),
+    serialNumber: text("serial_number"),
+    agentVersion: text("agent_version"),
+    tags: text("tags")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    checkInSecretHash: text("check_in_secret_hash"),
+    /**
+     * Set by an administrator to let the next check-in adopt a new hostname.
+     * Cleared once used; check-ins reporting a different hostname are refused
+     * while it is null.
+     */
+    hostnameChangeAllowedAt: timestamp("hostname_change_allowed_at", {
+      withTimezone: true,
+    }),
+    status: statusEnum("status").notNull().default("pending"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationStatusIdx: index("devices_organization_status_idx").on(
+      table.organizationId,
+      table.status
+    ),
+    siteIdx: index("devices_site_idx").on(table.siteId),
+    lastSeenIdx: index("devices_last_seen_idx").on(table.lastSeenAt),
+    tagsIdx: index("devices_tags_idx").using("gin", table.tags),
+  })
+)
 
 export const routePolicies = pgTable(
   "route_policies",
@@ -220,14 +361,33 @@ export const routePolicies = pgTable(
       onDelete: "cascade",
     }),
     name: text("name").notNull(),
+    /** Canonical CIDRs published to the tunnel; derived from `entries`. */
     routes: text("routes").array().notNull(),
+    /** Routes with labels/comments for the Console. */
+    entries: jsonb("entries")
+      .$type<RoutePolicyEntry[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     description: text("description"),
+    isDefault: boolean("is_default").notNull().default(false),
+    color: text("color").$type<RoutePolicyColor>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => ({
     organizationNameIdx: uniqueIndex("route_policies_organization_name_idx").on(
       table.organizationId,
       table.name
     ),
+    organizationDefaultIdx: uniqueIndex(
+      "route_policies_organization_default_idx"
+    )
+      .on(table.organizationId)
+      .where(sql`${table.isDefault} = true`),
   })
 )
 
@@ -404,55 +564,301 @@ export const enrollmentTokens = pgTable("enrollment_tokens", {
     .defaultNow(),
 })
 
-export const remoteSessions = pgTable("remote_sessions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  adminUserId: text("admin_user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  deviceId: uuid("device_id")
-    .notNull()
-    .references(() => devices.id, { onDelete: "cascade" }),
-  managementServiceId: uuid("management_service_id")
-    .notNull()
-    .references(() => managementServices.id, { onDelete: "cascade" }),
-  status: text("status").notNull(),
-  connectionMethod: text("connection_method").notNull(),
-  startedAt: timestamp("started_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  endedAt: timestamp("ended_at", { withTimezone: true }),
-  auditMetadata: jsonb("audit_metadata")
-    .$type<Record<string, unknown>>()
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-})
+export const remoteSessions = pgTable(
+  "remote_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    adminUserId: text("admin_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    managementServiceId: uuid("management_service_id")
+      .notNull()
+      .references(() => managementServices.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    connectionMethod: text("connection_method").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    auditMetadata: jsonb("audit_metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+  },
+  (table) => ({
+    startedAtIdx: index("remote_sessions_started_at_idx").on(table.startedAt),
+    deviceIdx: index("remote_sessions_device_idx").on(table.deviceId),
+  })
+)
 
-export const auditEvents = pgTable("audit_events", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  actorUserId: text("actor_user_id").references(() => user.id, {
-    onDelete: "set null",
-  }),
-  organizationId: uuid("organization_id").references(() => organizations.id, {
-    onDelete: "set null",
-  }),
-  deviceId: uuid("device_id").references(() => devices.id, {
-    onDelete: "set null",
-  }),
-  eventType: text("event_type").notNull(),
-  eventData: jsonb("event_data")
-    .$type<Record<string, unknown>>()
-    .notNull()
-    .default(sql`'{}'::jsonb`),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-})
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    actorUserId: text("actor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "set null",
+    }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "set null",
+    }),
+    eventType: text("event_type").notNull(),
+    severity: text("severity").$type<AuditSeverity>().notNull().default("info"),
+    actorIp: inet("actor_ip"),
+    userAgent: text("user_agent"),
+    eventData: jsonb("event_data")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    createdAtIdx: index("audit_events_created_at_idx").on(table.createdAt),
+    organizationCreatedIdx: index("audit_events_organization_created_idx").on(
+      table.organizationId,
+      table.createdAt
+    ),
+    deviceCreatedIdx: index("audit_events_device_created_idx").on(
+      table.deviceId,
+      table.createdAt
+    ),
+    eventTypeCreatedIdx: index("audit_events_event_type_created_idx").on(
+      table.eventType,
+      table.createdAt
+    ),
+    severityCreatedIdx: index("audit_events_severity_created_idx").on(
+      table.severity,
+      table.createdAt
+    ),
+  })
+)
+
+/**
+ * Point-in-time tunnel readings per device: written on every transition
+ * (up, down, endpoint change) and at least hourly while online, so the
+ * Console can draw traffic and endpoint history.
+ */
+export const vpnPeerSamples = pgTable(
+  "vpn_peer_samples",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    sampledAt: timestamp("sampled_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    online: boolean("online").notNull(),
+    endpoint: text("endpoint"),
+    lastHandshakeAt: timestamp("last_handshake_at", { withTimezone: true }),
+    rxBytes: bigint("rx_bytes", { mode: "number" }).notNull().default(0),
+    txBytes: bigint("tx_bytes", { mode: "number" }).notNull().default(0),
+    /** Why the sample was taken: `up`, `down`, `endpoint`, or `interval`. */
+    reason: text("reason").notNull().default("interval"),
+  },
+  (table) => ({
+    deviceSampledIdx: index("vpn_peer_samples_device_sampled_idx").on(
+      table.deviceId,
+      table.sampledAt
+    ),
+    sampledAtIdx: index("vpn_peer_samples_sampled_at_idx").on(table.sampledAt),
+  })
+)
+
+export const alerts = pgTable(
+  "alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    kind: text("kind").$type<AlertKind>().notNull(),
+    severity: text("severity").$type<AuditSeverity>().notNull(),
+    status: text("status").$type<AlertStatus>().notNull().default("open"),
+    title: text("title").notNull(),
+    detail: jsonb("detail")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    /** Stable key so the same condition never opens twice while unresolved. */
+    dedupeKey: text("dedupe_key").notNull(),
+    occurrences: integer("occurrences").notNull().default(1),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    acknowledgedByUserId: text("acknowledged_by_user_id").references(
+      () => user.id,
+      { onDelete: "set null" }
+    ),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByUserId: text("resolved_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    openDedupeIdx: uniqueIndex("alerts_open_dedupe_idx")
+      .on(table.dedupeKey)
+      .where(sql`${table.status} <> 'resolved'`),
+    statusSeverityIdx: index("alerts_status_severity_idx").on(
+      table.status,
+      table.severity,
+      table.lastSeenAt
+    ),
+    organizationStatusIdx: index("alerts_organization_status_idx").on(
+      table.organizationId,
+      table.status
+    ),
+    deviceIdx: index("alerts_device_idx").on(table.deviceId),
+  })
+)
+
+/**
+ * One row per new connection observed on the concentrator. Populated by the
+ * worker from nftables log lines; never updated in place.
+ */
+export const connectionEvents = pgTable(
+  "connection_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    adminProfileId: uuid("admin_profile_id").references(
+      () => adminVpnProfiles.id,
+      { onDelete: "cascade" }
+    ),
+    direction: text("direction").$type<ConnectionDirection>().notNull(),
+    verdict: text("verdict").$type<ConnectionVerdict>().notNull(),
+    protocol: text("protocol").$type<ConnectionProtocol>().notNull(),
+    srcIp: inet("src_ip").notNull(),
+    dstIp: inet("dst_ip").notNull(),
+    dstPort: integer("dst_port"),
+    bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    occurredAtIdx: index("connection_events_occurred_at_idx").on(
+      table.occurredAt
+    ),
+    deviceOccurredIdx: index("connection_events_device_occurred_idx").on(
+      table.deviceId,
+      table.occurredAt
+    ),
+    organizationOccurredIdx: index(
+      "connection_events_organization_occurred_idx"
+    ).on(table.organizationId, table.occurredAt),
+    adminOccurredIdx: index("connection_events_admin_occurred_idx").on(
+      table.adminProfileId,
+      table.occurredAt
+    ),
+    destinationIdx: index("connection_events_destination_idx").on(
+      table.dstIp,
+      table.dstPort
+    ),
+  })
+)
+
+/**
+ * Per-day rollup of connection events by source, destination and verdict.
+ * `subject_key` identifies the source peer so the unique key has no nulls.
+ */
+export const connectionDaily = pgTable(
+  "connection_daily",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    day: timestamp("day", { withTimezone: true }).notNull(),
+    subjectKey: text("subject_key").notNull(),
+    organizationId: uuid("organization_id").references(() => organizations.id, {
+      onDelete: "cascade",
+    }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    adminProfileId: uuid("admin_profile_id").references(
+      () => adminVpnProfiles.id,
+      { onDelete: "cascade" }
+    ),
+    direction: text("direction").$type<ConnectionDirection>().notNull(),
+    verdict: text("verdict").$type<ConnectionVerdict>().notNull(),
+    protocol: text("protocol").$type<ConnectionProtocol>().notNull(),
+    dstIp: inet("dst_ip").notNull(),
+    dstPort: integer("dst_port").notNull().default(0),
+    connections: integer("connections").notNull().default(0),
+    bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uniqueBucket: uniqueIndex("connection_daily_bucket_idx").on(
+      table.day,
+      table.subjectKey,
+      table.direction,
+      table.verdict,
+      table.protocol,
+      table.dstIp,
+      table.dstPort
+    ),
+    deviceDayIdx: index("connection_daily_device_day_idx").on(
+      table.deviceId,
+      table.day
+    ),
+    organizationDayIdx: index("connection_daily_organization_day_idx").on(
+      table.organizationId,
+      table.day
+    ),
+    dayIdx: index("connection_daily_day_idx").on(table.day),
+  })
+)
 
 export type Organization = typeof organizations.$inferSelect
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
 export type SiteMembership = typeof siteMemberships.$inferSelect
 export type AuthUser = typeof user.$inferSelect
+export type AuthSession = typeof session.$inferSelect
+export type Passkey = typeof passkey.$inferSelect
+export type UserInvitation = typeof userInvitations.$inferSelect
 export type Device = typeof devices.$inferSelect
 export type RoutePolicy = typeof routePolicies.$inferSelect
 export type VpnIdentity = typeof vpnIdentities.$inferSelect
@@ -466,3 +872,7 @@ export type OrganizationSshCredential =
 export type EnrollmentToken = typeof enrollmentTokens.$inferSelect
 export type RemoteSession = typeof remoteSessions.$inferSelect
 export type AuditEvent = typeof auditEvents.$inferSelect
+export type VpnPeerSample = typeof vpnPeerSamples.$inferSelect
+export type Alert = typeof alerts.$inferSelect
+export type ConnectionEvent = typeof connectionEvents.$inferSelect
+export type ConnectionDailyRow = typeof connectionDaily.$inferSelect

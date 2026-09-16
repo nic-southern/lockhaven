@@ -24,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate --config ./drizzle.config.ts",
     "db:migrate": "drizzle-kit migrate --config ./drizzle.config.ts",
-    "db:bootstrap-admin": "node scripts/bootstrap-admin.mjs"
+    "db:bootstrap-admin": "node scripts/bootstrap-admin.mjs",
+    "db:provision-roles": "node scripts/provision-roles.mjs"
   },
   "dependencies": {
     "@nms/shared": "workspace:*",

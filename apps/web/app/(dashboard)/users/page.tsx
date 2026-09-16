@@ -1,7 +1,19 @@
 "use client"
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import type {
+  ColumnDef,
+  ColumnFiltersState,
+  PaginationState,
+  SortingState,
+} from "@tanstack/react-table"
+import { keepPreviousData } from "@tanstack/react-query"
+import {
+  FingerprintIcon,
+  MailPlusIcon,
+  ShieldCheckIcon,
+  ShieldOffIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -13,525 +25,585 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
+import { AccessDenied } from "@/components/dashboard/access-denied"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { DetailSheet } from "@/components/dashboard/detail-sheet"
-import { EmptyState } from "@/components/dashboard/empty-state"
-import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+  DataTable,
+  DataTableColumnHeader,
+  DataTableRowActions,
+} from "@/components/dashboard/data-table"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
-import { statusLabel } from "@/lib/dashboard"
-import { cn } from "@/lib/utils"
+import { StatStrip } from "@/components/dashboard/stat-strip"
+import { InviteUserDialog } from "@/components/users/invite-user-dialog"
+import {
+  labelForOrganizationRole,
+  labelForPlatformRole,
+  labelForSiteRole,
+  platformRoleLabels,
+} from "@/components/users/role-labels"
+import { UserDetailSheet } from "@/components/users/user-detail-sheet"
+import { formatDate, formatRelativeTime, statusLabel } from "@/lib/dashboard"
+import { buildListQuery, columnFiltersToRecord } from "@/lib/list-query"
 import { trpc } from "@/lib/trpc"
+import { platformRoles } from "@nms/shared"
 
-const organizationRoles = ["owner", "admin", "operator", "viewer"] as const
-const siteRoles = ["operator", "viewer"] as const
-const membershipStatuses = ["active", "suspended"] as const
+type UserRow = {
+  id: string
+  name: string
+  email: string
+  platformRole: string
+  status: string
+  twoFactorEnabled: boolean
+  mustChangePassword: boolean
+  passkeyCount: number
+  lastLoginAt: Date | string | null
+  createdAt: Date | string
+  organizationMemberships: Array<{
+    organizationId: string
+    organizationName: string
+    role: string
+    status: string
+  }>
+  siteMemberships: Array<{
+    siteId: string
+    siteName: string
+    organizationId: string
+    role: string
+    status: string
+  }>
+}
 
 export default function UsersPage() {
   const utils = trpc.useUtils()
-  const organizationsQuery = trpc.organizations.list.useQuery()
-  const sitesQuery = trpc.sites.list.useQuery()
-  const [selectedOrganizationId, setSelectedOrganizationId] = React.useState("")
-  const [selectedMemberId, setSelectedMemberId] = React.useState("")
-  const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)
+  const meQuery = trpc.access.me.useQuery()
+  const canManageUsers = meQuery.data?.canManageUsers ?? false
 
-  const [createName, setCreateName] = React.useState("")
-  const [createEmail, setCreateEmail] = React.useState("")
-  const [createPassword, setCreatePassword] = React.useState("")
-  const [createOrganizationRole, setCreateOrganizationRole] =
-    React.useState<(typeof organizationRoles)[number]>("viewer")
-  const [createSiteRole, setCreateSiteRole] =
-    React.useState<(typeof siteRoles)[number]>("viewer")
-  const [createSiteIds, setCreateSiteIds] = React.useState<string[]>([])
+  const summaryQuery = trpc.users.summary.useQuery(undefined, {
+    enabled: canManageUsers,
+  })
+  const organizationsQuery = trpc.users.assignableOrganizations.useQuery(
+    undefined,
+    { enabled: canManageUsers }
+  )
+  const invitationsQuery = trpc.users.invitations.useQuery(undefined, {
+    enabled: canManageUsers,
+  })
 
-  const [editOrganizationRole, setEditOrganizationRole] =
-    React.useState<(typeof organizationRoles)[number]>("viewer")
-  const [editStatus, setEditStatus] =
-    React.useState<(typeof membershipStatuses)[number]>("active")
-  const [grantSiteId, setGrantSiteId] = React.useState("")
-  const [grantSiteRole, setGrantSiteRole] =
-    React.useState<(typeof siteRoles)[number]>("viewer")
+  const [sorting, setSorting] = React.useState<SortingState>([
+    { id: "name", desc: false },
+  ])
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
+    []
+  )
+  const [pagination, setPagination] = React.useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 25,
+  })
+  const [search, setSearch] = React.useState("")
+  const [debouncedSearch, setDebouncedSearch] = React.useState("")
+  const [inviteOpen, setInviteOpen] = React.useState(false)
+  const [selectedUserId, setSelectedUserId] = React.useState<string | null>(
+    null
+  )
+  const [detailOpen, setDetailOpen] = React.useState(false)
+  const [revokeInvitationId, setRevokeInvitationId] = React.useState<
+    string | null
+  >(null)
 
-  const membersQuery = trpc.access.organizationMembers.useQuery(
-    { organizationId: selectedOrganizationId },
-    { enabled: Boolean(selectedOrganizationId) }
+  React.useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedSearch(search), 250)
+    return () => window.clearTimeout(handle)
+  }, [search])
+
+  const resetToFirstPage = React.useCallback(() => {
+    setPagination((current) =>
+      current.pageIndex === 0 ? current : { ...current, pageIndex: 0 }
+    )
+  }, [])
+
+  const filters = React.useMemo(
+    () => columnFiltersToRecord(columnFilters),
+    [columnFilters]
   )
 
-  const createUser = trpc.access.createUser.useMutation({
-    async onSuccess() {
-      await utils.access.organizationMembers.invalidate()
-      setCreateName("")
-      setCreateEmail("")
-      setCreatePassword("")
-      setCreateSiteIds([])
-      toast.success("User created")
+  const pageQuery = trpc.users.list.useQuery(
+    {
+      query: buildListQuery({
+        pagination,
+        sorting,
+        filters,
+        search: debouncedSearch,
+      }),
     },
-    onError() {
-      toast.error("We couldn't create the user.")
+    { placeholderData: keepPreviousData, enabled: canManageUsers }
+  )
+
+  const refreshAll = React.useCallback(async () => {
+    await Promise.all([
+      utils.users.list.invalidate(),
+      utils.users.summary.invalidate(),
+      utils.users.invitations.invalidate(),
+    ])
+  }, [utils])
+
+  const revokeInvitation = trpc.users.revokeInvitation.useMutation({
+    async onSuccess() {
+      toast.success("Invitation revoked")
+      await refreshAll()
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't revoke the invitation.")
     },
   })
 
-  const updateOrganizationMembership =
-    trpc.access.updateOrganizationMembership.useMutation({
-      async onSuccess() {
-        await utils.access.organizationMembers.invalidate()
-        toast.success("Membership updated")
+  const openUser = React.useCallback((id: string) => {
+    setSelectedUserId(id)
+    setDetailOpen(true)
+  }, [])
+
+  const columns = React.useMemo<ColumnDef<UserRow>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        meta: { label: "User" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="User" />
+        ),
+        cell: ({ row }) => (
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="truncate font-medium">{row.original.name}</span>
+            <span className="truncate text-xs text-muted-foreground">
+              {row.original.email}
+            </span>
+          </div>
+        ),
       },
-      onError() {
-        toast.error("We couldn't update the membership.")
+      {
+        accessorKey: "email",
+        meta: { label: "Email" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Email" />
+        ),
       },
-    })
-
-  const updateSiteMembership = trpc.access.updateSiteMembership.useMutation({
-    async onSuccess() {
-      await utils.access.organizationMembers.invalidate()
-      toast.success("Site access updated")
-    },
-    onError() {
-      toast.error("We couldn't update site access.")
-    },
-  })
-
-  const organizations = React.useMemo(
-    () => organizationsQuery.data ?? [],
-    [organizationsQuery.data]
+      {
+        accessorKey: "platformRole",
+        meta: { label: "Platform role" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Platform role" />
+        ),
+        cell: ({ row }) => (
+          <Badge
+            variant={
+              row.original.platformRole === "member" ? "outline" : "secondary"
+            }
+            className="whitespace-nowrap"
+          >
+            {labelForPlatformRole(row.original.platformRole)}
+          </Badge>
+        ),
+      },
+      {
+        id: "organizationId",
+        enableSorting: false,
+        meta: { label: "Organizations" },
+        header: "Organizations",
+        cell: ({ row }) => {
+          if (row.original.platformRole !== "member") {
+            return (
+              <span className="text-sm text-muted-foreground">
+                All organizations
+              </span>
+            )
+          }
+          const memberships = row.original.organizationMemberships
+          if (memberships.length === 0) {
+            return <span className="text-sm text-muted-foreground">—</span>
+          }
+          return (
+            <div className="flex max-w-xs flex-wrap gap-1">
+              {memberships.slice(0, 2).map((entry) => (
+                <Badge
+                  key={entry.organizationId}
+                  variant="outline"
+                  className="max-w-[12rem] gap-1 font-normal"
+                >
+                  <span className="truncate">{entry.organizationName}</span>
+                  <span className="text-muted-foreground">
+                    · {labelForOrganizationRole(entry.role)}
+                  </span>
+                </Badge>
+              ))}
+              {memberships.length > 2 ? (
+                <Badge variant="outline" className="font-normal">
+                  +{memberships.length - 2}
+                </Badge>
+              ) : null}
+            </div>
+          )
+        },
+      },
+      {
+        id: "siteGrants",
+        enableSorting: false,
+        meta: { label: "Site grants" },
+        header: "Site grants",
+        cell: ({ row }) => {
+          if (row.original.platformRole !== "member") {
+            return <span className="text-sm text-muted-foreground">—</span>
+          }
+          const grants = row.original.siteMemberships
+          if (grants.length === 0) {
+            return <span className="text-sm text-muted-foreground">—</span>
+          }
+          const title = grants
+            .map(
+              (grant) => `${grant.siteName} (${labelForSiteRole(grant.role)})`
+            )
+            .join(", ")
+          return (
+            <span className="text-sm" title={title}>
+              {grants.length} {grants.length === 1 ? "site" : "sites"}
+            </span>
+          )
+        },
+      },
+      {
+        id: "twoFactor",
+        accessorKey: "twoFactorEnabled",
+        meta: { label: "Two-step" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Two-step" />
+        ),
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5">
+            {row.original.twoFactorEnabled ? (
+              <Badge className="gap-1 bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300">
+                <ShieldCheckIcon className="size-3" />
+                On
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="gap-1 text-amber-700 dark:text-amber-300"
+              >
+                <ShieldOffIcon className="size-3" />
+                Pending
+              </Badge>
+            )}
+            {row.original.passkeyCount > 0 ? (
+              <span
+                className="inline-flex items-center gap-0.5 text-xs text-muted-foreground"
+                title={`${row.original.passkeyCount} ${row.original.passkeyCount === 1 ? "passkey" : "passkeys"}`}
+              >
+                <FingerprintIcon className="size-3" />
+                {row.original.passkeyCount}
+              </span>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        accessorKey: "lastLoginAt",
+        meta: { label: "Last sign-in" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Last sign-in" />
+        ),
+        cell: ({ row }) =>
+          row.original.lastLoginAt ? (
+            <div className="flex flex-col">
+              <span className="text-sm">
+                {formatRelativeTime(row.original.lastLoginAt)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {formatDate(row.original.lastLoginAt)}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">Never</span>
+          ),
+      },
+      {
+        accessorKey: "status",
+        meta: { label: "Status" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => (
+          <Badge
+            variant={row.original.status === "active" ? "secondary" : "outline"}
+          >
+            {statusLabel(row.original.status)}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "createdAt",
+        meta: { label: "Joined" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Joined" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-sm text-muted-foreground">
+            {formatDate(row.original.createdAt)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        enableHiding: false,
+        meta: { className: "w-12" },
+        cell: ({ row }) => (
+          <DataTableRowActions
+            label={row.original.name}
+            actions={[
+              {
+                label: "Manage access",
+                onSelect: () => openUser(row.original.id),
+              },
+            ]}
+          />
+        ),
+      },
+    ],
+    [openUser]
   )
-  const sites = React.useMemo(() => sitesQuery.data ?? [], [sitesQuery.data])
-  const organizationSites = React.useMemo(
-    () =>
-      sites.filter((site) => site.organizationId === selectedOrganizationId),
-    [selectedOrganizationId, sites]
-  )
-  const members = React.useMemo(
-    () => membersQuery.data?.members ?? [],
-    [membersQuery.data]
-  )
 
-  React.useEffect(() => {
-    if (organizations.length > 0 && !selectedOrganizationId) {
-      setSelectedOrganizationId(organizations[0].id)
-    }
-  }, [organizations, selectedOrganizationId])
+  const organizations = organizationsQuery.data ?? []
+  const invitations = invitationsQuery.data ?? []
+  const summary = summaryQuery.data
+  const total = pageQuery.data?.total ?? 0
 
-  React.useEffect(() => {
-    if (members.length === 0) {
-      setSelectedMemberId("")
-      return
-    }
-
-    if (!members.some((member) => member.id === selectedMemberId)) {
-      setSelectedMemberId(members[0].id)
-    }
-  }, [members, selectedMemberId])
-
-  const selectedMember = React.useMemo(
-    () => members.find((member) => member.id === selectedMemberId) ?? null,
-    [members, selectedMemberId]
-  )
-
-  React.useEffect(() => {
-    if (selectedMember) {
-      setEditOrganizationRole(
-        selectedMember.membership.role as (typeof organizationRoles)[number]
-      )
-      setEditStatus(
-        selectedMember.membership.status as (typeof membershipStatuses)[number]
-      )
-      setGrantSiteRole("viewer")
-    }
-  }, [selectedMember])
-
-  React.useEffect(() => {
-    setGrantSiteId(organizationSites[0]?.id ?? "")
-  }, [organizationSites])
+  if (meQuery.isSuccess && !canManageUsers) {
+    return (
+      <AccessDenied description="User management is limited to organization and platform administrators." />
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         badge="Users"
-        title="Access and memberships"
-        description="Create users for an organization, adjust roles, and grant access to specific sites."
+        title="People and access"
+        description="Invite people, decide what they can see, and keep sign-in secure across your organizations."
+        actions={
+          <Button onClick={() => setInviteOpen(true)}>
+            <MailPlusIcon />
+            Invite user
+          </Button>
+        }
       />
 
-      <SectionCard
-        title="New user"
-        description="Create a user with a temporary password and an initial organization role."
-        collapsibleOnMobile
-        contentClassName="grid gap-4 md:grid-cols-2"
-      >
-        <FormField label="Organization" htmlFor="user-create-organization">
-          <NativeSelect
-            id="user-create-organization"
-            value={selectedOrganizationId}
-            onChange={(event) => setSelectedOrganizationId(event.target.value)}
-          >
-            <option value="">Choose an organization</option>
-            {organizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>
-                {organization.name}
-              </option>
-            ))}
-          </NativeSelect>
-        </FormField>
-        <FormField label="Organization role" htmlFor="user-create-org-role">
-          <NativeSelect
-            id="user-create-org-role"
-            value={createOrganizationRole}
-            onChange={(event) =>
-              setCreateOrganizationRole(
-                event.target.value as (typeof organizationRoles)[number]
-              )
-            }
-          >
-            {organizationRoles.map((role) => (
-              <option key={role} value={role}>
-                {statusLabel(role)}
-              </option>
-            ))}
-          </NativeSelect>
-        </FormField>
-        <FormField label="Name" htmlFor="user-create-name">
-          <Input
-            id="user-create-name"
-            value={createName}
-            onChange={(event) => setCreateName(event.target.value)}
-          />
-        </FormField>
-        <FormField label="Email" htmlFor="user-create-email">
-          <Input
-            id="user-create-email"
-            type="email"
-            value={createEmail}
-            onChange={(event) => setCreateEmail(event.target.value)}
-          />
-        </FormField>
-        <FormField label="Temporary password" htmlFor="user-create-password">
-          <Input
-            id="user-create-password"
-            type="password"
-            value={createPassword}
-            onChange={(event) => setCreatePassword(event.target.value)}
-          />
-        </FormField>
-        <FormField label="Initial site role" htmlFor="user-create-site-role">
-          <NativeSelect
-            id="user-create-site-role"
-            value={createSiteRole}
-            onChange={(event) =>
-              setCreateSiteRole(
-                event.target.value as (typeof siteRoles)[number]
-              )
-            }
-          >
-            {siteRoles.map((role) => (
-              <option key={role} value={role}>
-                {statusLabel(role)}
-              </option>
-            ))}
-          </NativeSelect>
-        </FormField>
-        <div className="flex flex-col gap-3 md:col-span-2">
-          <p className="text-sm font-medium">Initial site grants</p>
-          {organizationSites.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No sites in this organization yet.
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-4">
-              {organizationSites.map((site) => {
-                const checked = createSiteIds.includes(site.id)
+      <StatStrip
+        items={[
+          {
+            label: "Active users",
+            value: summary ? summary.active : "—",
+            hint: summary
+              ? `${summary.total.toLocaleString()} total`
+              : undefined,
+          },
+          {
+            label: "Two-step pending",
+            value: summary ? summary.withoutTwoFactor : "—",
+            hint: "Active users who haven't finished setup",
+          },
+          {
+            label: "Platform admins",
+            value: summary ? summary.admins : "—",
+            hint: "Owners and admins see everything",
+          },
+          {
+            label: "Pending invitations",
+            value: summary ? summary.pendingInvitations : "—",
+            hint: "Links that haven't been opened yet",
+          },
+        ]}
+      />
 
-                return (
-                  <div key={site.id} className="flex items-center gap-2">
-                    <Checkbox
-                      id={`user-create-site-${site.id}`}
-                      checked={checked}
-                      onCheckedChange={(value) => {
-                        setCreateSiteIds((current) =>
-                          value === true
-                            ? [...current, site.id]
-                            : current.filter((id) => id !== site.id)
-                        )
-                      }}
-                    />
-                    <Label
-                      htmlFor={`user-create-site-${site.id}`}
-                      className="text-sm font-normal"
-                    >
-                      {site.name}
-                    </Label>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-        <div className="md:col-span-2">
-          <Button
-            className="w-full sm:w-fit"
-            onClick={() => {
-              void createUser.mutateAsync({
-                organizationId: selectedOrganizationId,
-                name: createName,
-                email: createEmail,
-                password: createPassword,
-                organizationRole: createOrganizationRole,
-                siteIds: createSiteIds,
-                siteRole: createSiteRole,
-              })
+      <Card>
+        <CardHeader>
+          <CardTitle>Users</CardTitle>
+          <CardDescription>
+            {total > 0
+              ? `${total.toLocaleString()} ${total === 1 ? "person" : "people"} match the current view.`
+              : "Everyone who can sign in to the console."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            data={pageQuery.data?.items as UserRow[] | undefined}
+            isLoading={pageQuery.isLoading}
+            isFetching={pageQuery.isFetching}
+            getRowId={(row) => row.id}
+            server={{
+              rowCount: total,
+              sorting,
+              onSortingChange: (updater) => {
+                setSorting(updater)
+                resetToFirstPage()
+              },
+              columnFilters,
+              onColumnFiltersChange: (updater) => {
+                setColumnFilters(updater)
+                resetToFirstPage()
+              },
+              pagination,
+              onPaginationChange: setPagination,
             }}
-            disabled={
-              !selectedOrganizationId ||
-              !createName ||
-              !createEmail ||
-              !createPassword ||
-              createUser.isPending
+            search={search}
+            onSearchChange={(value) => {
+              setSearch(value)
+              resetToFirstPage()
+            }}
+            searchPlaceholder="Search by name or email"
+            facets={[
+              {
+                columnId: "platformRole",
+                title: "Platform role",
+                options: platformRoles.map((role) => ({
+                  value: role,
+                  label: platformRoleLabels[role],
+                })),
+              },
+              {
+                columnId: "organizationId",
+                title: "Organization",
+                options: organizations.map((organization) => ({
+                  value: organization.id,
+                  label: organization.name,
+                })),
+              },
+              {
+                columnId: "twoFactor",
+                title: "Two-step",
+                options: [
+                  { value: "enabled", label: "On" },
+                  { value: "disabled", label: "Pending" },
+                ],
+              },
+              {
+                columnId: "status",
+                title: "Status",
+                options: [
+                  { value: "active", label: "Active" },
+                  { value: "suspended", label: "Suspended" },
+                ],
+              },
+            ]}
+            initialColumnVisibility={{ email: false, createdAt: false }}
+            onRowClick={(row) => openUser(row.id)}
+            isRowActive={(row) => detailOpen && row.id === selectedUserId}
+            emptyTitle="No users yet"
+            emptyDescription="Invite the first person to get started."
+            emptyAction={
+              <Button size="sm" onClick={() => setInviteOpen(true)}>
+                <MailPlusIcon />
+                Invite user
+              </Button>
             }
-          >
-            Create user
-          </Button>
-        </div>
+          />
+        </CardContent>
+      </Card>
+
+      <SectionCard
+        title="Pending invitations"
+        description="Invitation links that haven't been accepted. Revoke one to stop it from working."
+        collapsibleOnMobile
+      >
+        {invitationsQuery.isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : invitations.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No pending invitations.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border/70 rounded-lg border border-border/80">
+            {invitations.map((invitation) => {
+              const grants = Array.isArray(invitation.siteGrants)
+                ? (invitation.siteGrants as Array<{ siteId: string }>)
+                : []
+              return (
+                <li
+                  key={invitation.id}
+                  className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">
+                      {invitation.name}{" "}
+                      <span className="font-normal text-muted-foreground">
+                        · {invitation.email}
+                      </span>
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {invitation.platformRole !== "member"
+                        ? labelForPlatformRole(invitation.platformRole)
+                        : [
+                            invitation.organizationName,
+                            invitation.organizationRole
+                              ? labelForOrganizationRole(
+                                  invitation.organizationRole
+                                )
+                              : null,
+                            grants.length > 0
+                              ? `${grants.length} ${grants.length === 1 ? "site" : "sites"}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                      {" · "}Expires {formatRelativeTime(invitation.expiresAt)}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={revokeInvitation.isPending}
+                    onClick={() => setRevokeInvitationId(invitation.id)}
+                  >
+                    Revoke
+                  </Button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </SectionCard>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Members</CardTitle>
-            <CardDescription>
-              Choose a member to update their role or site access.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-hidden rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>Org role</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Site grants</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {membersQuery.isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="py-10">
-                        <Skeleton className="h-5 w-40" />
-                      </TableCell>
-                    </TableRow>
-                  ) : members.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="p-0">
-                        <EmptyState
-                          title="No members yet"
-                          description="Create a user above to add the first member."
-                          bordered={false}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    members.map((member) => (
-                      <TableRow
-                        key={member.id}
-                        className={cn(
-                          "cursor-pointer",
-                          selectedMemberId === member.id && "bg-muted/60"
-                        )}
-                        onClick={() => {
-                          setSelectedMemberId(member.id)
-                          setMobileDetailOpen(true)
-                        }}
-                      >
-                        <TableCell className="font-medium">
-                          <div className="flex flex-col gap-1">
-                            <span>{member.name}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {member.email}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {statusLabel(member.membership.role)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              member.membership.status === "active"
-                                ? "secondary"
-                                : "outline"
-                            }
-                          >
-                            {statusLabel(member.membership.status)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {member.siteMemberships.length > 0
-                            ? member.siteMemberships
-                                .map(
-                                  (site) => `${site.siteName} (${site.role})`
-                                )
-                                .join(", ")
-                            : "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
+      <InviteUserDialog
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        canAssignPlatformRoles={meQuery.data?.platformRole === "owner"}
+        onInvited={() => void refreshAll()}
+      />
 
-        <DetailSheet
-          open={mobileDetailOpen}
-          onOpenChange={setMobileDetailOpen}
-          title="Selected member"
-          description="Change the organization role or grant access to a site."
-        >
-          {selectedMember ? (
-            <>
-              <div className="rounded-lg border bg-muted/20 p-4 text-sm">
-                <p className="font-medium">{selectedMember.name}</p>
-                <p className="text-muted-foreground">{selectedMember.email}</p>
-              </div>
+      <UserDetailSheet
+        userId={selectedUserId}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        currentUserId={meQuery.data?.id}
+        currentPlatformRole={meQuery.data?.platformRole}
+        onChanged={() => void refreshAll()}
+      />
 
-              <FormField
-                label="Organization role"
-                htmlFor={`member-org-role-${selectedMember.id}`}
-              >
-                <NativeSelect
-                  id={`member-org-role-${selectedMember.id}`}
-                  value={editOrganizationRole}
-                  onChange={(event) =>
-                    setEditOrganizationRole(
-                      event.target.value as (typeof organizationRoles)[number]
-                    )
-                  }
-                >
-                  {organizationRoles.map((role) => (
-                    <option key={role} value={role}>
-                      {statusLabel(role)}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </FormField>
-
-              <FormField
-                label="Status"
-                htmlFor={`member-status-${selectedMember.id}`}
-              >
-                <NativeSelect
-                  id={`member-status-${selectedMember.id}`}
-                  value={editStatus}
-                  onChange={(event) =>
-                    setEditStatus(
-                      event.target.value as (typeof membershipStatuses)[number]
-                    )
-                  }
-                >
-                  {membershipStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {statusLabel(status)}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </FormField>
-
-              <Button
-                className="w-full sm:w-fit"
-                onClick={() => {
-                  void updateOrganizationMembership.mutateAsync({
-                    organizationId: selectedOrganizationId,
-                    userId: selectedMember.id,
-                    role: editOrganizationRole,
-                    status: editStatus,
-                  })
-                }}
-                disabled={updateOrganizationMembership.isPending}
-              >
-                Save role
-              </Button>
-
-              <div className="flex flex-col gap-3 border-t pt-4">
-                <p className="text-sm font-medium">Site grant</p>
-                <div className="flex flex-col gap-3">
-                  <FormField
-                    label="Site"
-                    htmlFor={`member-site-${selectedMember.id}`}
-                  >
-                    <NativeSelect
-                      id={`member-site-${selectedMember.id}`}
-                      value={grantSiteId}
-                      onChange={(event) => setGrantSiteId(event.target.value)}
-                    >
-                      <option value="">Choose a site</option>
-                      {organizationSites.map((site) => (
-                        <option key={site.id} value={site.id}>
-                          {site.name}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </FormField>
-                  <FormField
-                    label="Role"
-                    htmlFor={`member-site-role-${selectedMember.id}`}
-                  >
-                    <NativeSelect
-                      id={`member-site-role-${selectedMember.id}`}
-                      value={grantSiteRole}
-                      onChange={(event) =>
-                        setGrantSiteRole(
-                          event.target.value as (typeof siteRoles)[number]
-                        )
-                      }
-                    >
-                      {siteRoles.map((role) => (
-                        <option key={role} value={role}>
-                          {statusLabel(role)}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </FormField>
-                  <Button
-                    variant="outline"
-                    className="w-full sm:w-fit"
-                    onClick={() => {
-                      if (!grantSiteId) return
-
-                      void updateSiteMembership.mutateAsync({
-                        siteId: grantSiteId,
-                        userId: selectedMember.id,
-                        role: grantSiteRole,
-                        status: "active",
-                      })
-                    }}
-                    disabled={updateSiteMembership.isPending || !grantSiteId}
-                  >
-                    Save site grant
-                  </Button>
-                </div>
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Select a member to edit it.
-            </p>
-          )}
-        </DetailSheet>
-      </div>
+      <ConfirmDialog
+        open={Boolean(revokeInvitationId)}
+        onOpenChange={(next) => {
+          if (!next) setRevokeInvitationId(null)
+        }}
+        title="Revoke this invitation?"
+        description="The link stops working immediately. You can send a new invitation at any time."
+        confirmLabel="Revoke"
+        destructive
+        pending={revokeInvitation.isPending}
+        onConfirm={() => {
+          if (revokeInvitationId) {
+            revokeInvitation.mutate({ invitationId: revokeInvitationId })
+          }
+          setRevokeInvitationId(null)
+        }}
+      />
     </div>
   )
 }

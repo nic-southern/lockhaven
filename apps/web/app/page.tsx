@@ -1,52 +1,39 @@
 "use client"
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
-import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { toast } from "sonner"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
+import {
+  ActivityIcon,
+  AlertTriangleIcon,
+  ArrowRightIcon,
+  BellRingIcon,
+  WifiIcon,
+  WifiOffIcon,
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { CodeBlock } from "@/components/dashboard/code-block"
-import { CopyableText } from "@/components/dashboard/copyable-text"
+import { kindLabel } from "@/components/alerts/alerts-table"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { EmptyState } from "@/components/dashboard/empty-state"
-import { FormField, NativeSelect } from "@/components/dashboard/form-field"
+import { EnrollDeviceCard } from "@/components/dashboard/enroll-device-card"
 import { PageHeader } from "@/components/dashboard/page-header"
-import { StatStrip } from "@/components/dashboard/stat-strip"
-import { formatDate, statusLabel, statusVariant } from "@/lib/dashboard"
+import { SectionCard } from "@/components/dashboard/section-card"
+import { SeverityBadge } from "@/components/dashboard/severity-badge"
+import { StatusIndicator } from "@/components/dashboard/status-indicator"
+import { ConnectivityBadge } from "@/components/devices/connectivity-badge"
 import {
-  buildAndroidInstallCommand,
-  buildLinuxInstallCommand,
-  buildWindowsInstallCommand,
-} from "@/lib/enrollment-commands"
-import { getClientProductName, getClientVpnBaseUrl } from "@/lib/product-name"
-import {
-  openRemoteLaunchResult,
-  preferredConnectionMethod,
-} from "@/lib/remote-launch"
-import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
+  DEVICES_DEFAULT_VIEW,
+  DevicesTable,
+} from "@/components/devices/devices-table"
+import { formatDate, formatRelativeTime, statusLabel } from "@/lib/dashboard"
+import type { TableViewState } from "@/lib/table-view-state"
 import { getApiBaseUrl, trpc } from "@/lib/trpc"
+import { usePermissions } from "@/lib/use-permissions"
+import { cn } from "@/lib/utils"
 
 type HealthResponse = {
   ok: boolean
@@ -54,748 +41,470 @@ type HealthResponse = {
   redis: "ok" | "degraded"
 }
 
-const ENROLLMENT_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
-
-function getEnrollmentTokenExpiration() {
-  return new Date(Date.now() + ENROLLMENT_TOKEN_TTL_MS)
-}
-
-function healthLabel(value: string | undefined, loading: boolean) {
-  if (loading) {
-    return "Checking"
-  }
-
-  return statusLabel(value ?? "Down")
+const OVERVIEW_DEVICES_VIEW: TableViewState = {
+  ...DEVICES_DEFAULT_VIEW,
+  columnVisibility: {
+    ...DEVICES_DEFAULT_VIEW.columnVisibility,
+    tags: false,
+    services: false,
+  },
 }
 
 export default function Page() {
-  const utils = trpc.useUtils()
-  const productName = getClientProductName()
-  const { connected: adminVpnConnected } = useAdminVpnConnected()
-  const [enrollmentOpen, setEnrollmentOpen] = React.useState(false)
-  const [selectedSiteId, setSelectedSiteId] = React.useState("")
-  const [selectedRoutePolicyId, setSelectedRoutePolicyId] = React.useState("")
-  const [enrollmentReusable, setEnrollmentReusable] = React.useState(false)
-  const [enrollmentToken, setEnrollmentToken] = React.useState("")
-  const [installBaseUrl, setInstallBaseUrl] =
-    React.useState(getClientVpnBaseUrl)
-  const [enrollmentError, setEnrollmentError] = React.useState<string | null>(
-    null
+  return (
+    <DashboardShell>
+      <React.Suspense fallback={<OverviewSkeleton />}>
+        <Overview />
+      </React.Suspense>
+    </DashboardShell>
   )
+}
+
+function OverviewSkeleton() {
+  return (
+    <div className="flex w-full flex-col gap-8">
+      <Skeleton className="h-10 w-72" />
+      <Skeleton className="h-28 w-full rounded-xl" />
+      <Skeleton className="h-64 w-full rounded-xl" />
+    </div>
+  )
+}
+
+function Metric({
+  label,
+  value,
+  hint,
+  icon: Icon,
+  tone = "neutral",
+  href,
+  loading,
+}: {
+  label: string
+  value: number | undefined
+  hint?: string
+  icon: React.ComponentType<{ className?: string }>
+  tone?: "neutral" | "online" | "warning" | "danger" | "offline"
+  href?: string
+  loading: boolean
+}) {
+  const body = (
+    <div className="flex h-full flex-col gap-3 rounded-xl border border-border/80 bg-card p-4 transition-colors group-hover:bg-muted/40">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          {label}
+        </span>
+        <Icon
+          className={cn(
+            "size-4",
+            tone === "online" && "text-emerald-500",
+            tone === "warning" && "text-amber-500",
+            tone === "danger" && "text-red-500",
+            tone === "offline" && "text-muted-foreground",
+            tone === "neutral" && "text-muted-foreground"
+          )}
+        />
+      </div>
+      {loading ? (
+        <Skeleton className="h-8 w-16" />
+      ) : (
+        <span className="text-3xl font-semibold tracking-tight tabular-nums">
+          {value ?? 0}
+        </span>
+      )}
+      {hint && !loading ? (
+        <span className="text-xs text-muted-foreground">{hint}</span>
+      ) : null}
+    </div>
+  )
+  return href ? (
+    <Link href={href} className="group block h-full">
+      {body}
+    </Link>
+  ) : (
+    body
+  )
+}
+
+function Overview() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const { can, uiScope } = usePermissions()
+  const canEnroll = can("device:enroll")
+  const canViewAudit = can("audit:view")
+
+  const enrollmentOpen = searchParams.get("enroll") === "1"
+  const setEnrollmentOpen = (open: boolean) => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (open) params.set("enroll", "1")
+    else params.delete("enroll")
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    })
+  }
+
+  const [devicesView, setDevicesView] = React.useState(OVERVIEW_DEVICES_VIEW)
+
+  const summaryQuery = trpc.dashboard.summary.useQuery(undefined, {
+    refetchInterval: 30_000,
+  })
+  const alertsQuery = trpc.alerts.summary.useQuery(undefined, {
+    refetchInterval: 30_000,
+  })
+  const alertSummary = alertsQuery.data
   const healthQuery = useQuery<HealthResponse>({
     queryKey: ["api-health"],
     queryFn: async () => {
       const response = await fetch(`${getApiBaseUrl()}/api/health`, {
         credentials: "include",
       })
-
       return (await response.json()) as HealthResponse
     },
-    refetchInterval: 10_000,
+    refetchInterval: 15_000,
   })
 
-  const organizationsQuery = trpc.organizations.list.useQuery()
-  const sitesQuery = trpc.sites.list.useQuery()
-  const routePoliciesQuery = trpc.routePolicies.list.useQuery()
-  const devicesQuery = trpc.devices.list.useQuery()
-  const managementServicesQuery = trpc.managementServices.list.useQuery()
-  const router = useRouter()
-  const createOrganization = trpc.organizations.create.useMutation({
-    onSuccess() {
-      void utils.organizations.list.invalidate()
-    },
-  })
-  const createEnrollmentToken = trpc.enrollmentTokens.create.useMutation()
-
-  const organizations = React.useMemo(
-    () =>
-      (organizationsQuery.data ?? []) as Array<{
-        id: string
-        name: string
-      }>,
-    [organizationsQuery.data]
-  )
-  const sites = React.useMemo(
-    () =>
-      (sitesQuery.data ?? []) as Array<{
-        id: string
-        name: string
-        organizationId: string
-      }>,
-    [sitesQuery.data]
-  )
-  const routePolicies = React.useMemo(
-    () =>
-      (routePoliciesQuery.data ?? []) as Array<{
-        id: string
-        name: string
-      }>,
-    [routePoliciesQuery.data]
-  )
-  const routePolicyNameById = React.useMemo(
-    () =>
-      new Map(
-        routePolicies.map((routePolicy) => [routePolicy.id, routePolicy.name])
-      ),
-    [routePolicies]
-  )
-  const devices = React.useMemo(
-    () =>
-      (devicesQuery.data ?? []) as Array<{
-        id: string
-        organizationId: string
-        siteId: string | null
-        siteName: string | null
-        hostname: string | null
-        displayName: string
-        status: string
-        lastSeenAt: string | Date | null
-        vpnIpv4: string | null
-        vpnRoutePolicyId: string | null
-        vpnLastHandshakeAt: string | Date | null
-        vpnLatestEndpoint: string | null
-        vpnRxBytes: number | null
-        vpnTxBytes: number | null
-        vpnRevokedAt: string | Date | null
-      }>,
-    [devicesQuery.data]
-  )
-
-  const firstEnabledVncServiceByDeviceId = React.useMemo(() => {
-    const services = managementServicesQuery.data ?? []
-    const map = new Map<string, (typeof services)[number]>()
-
-    for (const service of services) {
-      if (
-        service.serviceType !== "vnc" ||
-        !service.enabled ||
-        map.has(service.deviceId)
-      ) {
-        continue
-      }
-
-      map.set(service.deviceId, service)
-    }
-
-    return map
-  }, [managementServicesQuery.data])
-
-  const firstEnabledSshServiceByDeviceId = React.useMemo(() => {
-    const services = managementServicesQuery.data ?? []
-    const map = new Map<string, (typeof services)[number]>()
-
-    for (const service of services) {
-      if (
-        service.serviceType !== "ssh" ||
-        !service.enabled ||
-        map.has(service.deviceId)
-      ) {
-        continue
-      }
-
-      map.set(service.deviceId, service)
-    }
-
-    return map
-  }, [managementServicesQuery.data])
-
-  const launchVncSession = trpc.sessions.create.useMutation({
-    onSuccess(result) {
-      openRemoteLaunchResult(result)
-    },
-    onError() {
-      toast.error("Couldn't start the session.")
-    },
-  })
-
-  const launchSshSession = trpc.sessions.create.useMutation({
-    onSuccess(result) {
-      openRemoteLaunchResult(result)
-    },
-    onError() {
-      toast.error("Couldn't start the session.")
-    },
-  })
-
-  const siteNameById = React.useMemo(() => {
-    return new Map<string, string>(sites.map((site) => [site.id, site.name]))
-  }, [sites])
-
-  const selectedSite = React.useMemo(
-    () => sites.find((site) => site.id === selectedSiteId),
-    [selectedSiteId, sites]
-  )
-
-  React.useEffect(() => {
-    setInstallBaseUrl(getClientVpnBaseUrl())
-  }, [])
-
-  React.useEffect(() => {
-    if (selectedSiteId && !sites.some((site) => site.id === selectedSiteId)) {
-      setSelectedSiteId("")
-    }
-  }, [selectedSiteId, sites])
-
-  async function handleCreateEnrollmentToken() {
-    setEnrollmentError(null)
-
-    try {
-      let organizationId = selectedSite?.organizationId ?? organizations[0]?.id
-
-      if (!organizationId) {
-        const organization = await createOrganization.mutateAsync({
-          name: productName,
-        })
-        organizationId = organization.id
-      }
-
-      const result = await createEnrollmentToken.mutateAsync({
-        organizationId,
-        siteId: selectedSiteId || null,
-        siteWide: enrollmentReusable,
-        routePolicyId: selectedRoutePolicyId || null,
-        expiresAt: selectedSiteId ? getEnrollmentTokenExpiration() : null,
-        maxUses: 1,
-      })
-
-      setEnrollmentToken(result.token)
-      toast.success("Enrollment token created")
-    } catch {
-      setEnrollmentError("We couldn't create an enrollment token.")
-      toast.error("We couldn't create an enrollment token.")
-    }
-  }
-
-  const windowsInstallCommand = enrollmentToken
-    ? buildWindowsInstallCommand({
-        token: enrollmentToken,
-        baseUrl: installBaseUrl,
-      })
-    : ""
-  const linuxInstallCommand = enrollmentToken
-    ? buildLinuxInstallCommand({
-        token: enrollmentToken,
-        baseUrl: installBaseUrl,
-      })
-    : ""
-  const androidInstallCommand = enrollmentToken
-    ? buildAndroidInstallCommand({
-        token: enrollmentToken,
-        baseUrl: installBaseUrl,
-      })
-    : ""
+  const summary = summaryQuery.data
+  const loading = summaryQuery.isLoading
+  const devices = summary?.devices
 
   return (
-    <DashboardShell>
-      <div className="flex w-full flex-col gap-8">
-        <PageHeader
-          badge="Overview"
-          title="Device inventory and private access"
-          description="Track enrolled devices, review connectivity, and start remote sessions without exposing management services."
-          actions={
-            <>
+    <div className="flex w-full flex-col gap-8">
+      <PageHeader
+        badge="Overview"
+        title="Your private network at a glance"
+        description="Connectivity, attention items, and recent activity across every device you can see."
+        actions={
+          <>
+            {canEnroll ? (
               <Button
                 className="w-full sm:w-auto"
-                onClick={() => setEnrollmentOpen((open) => !open)}
+                onClick={() => setEnrollmentOpen(!enrollmentOpen)}
               >
-                {enrollmentOpen ? "Hide enrollment" : "New enrollment token"}
+                {enrollmentOpen ? "Hide enrollment" : "Add device"}
               </Button>
+            ) : null}
+            {uiScope === "admin" && canEnroll ? (
               <Button variant="outline" className="w-full sm:w-auto" asChild>
                 <Link href="/enrollment-tokens">Manage tokens</Link>
               </Button>
-            </>
+            ) : null}
+          </>
+        }
+      />
+
+      {enrollmentOpen && canEnroll ? (
+        <EnrollDeviceCard onClose={() => setEnrollmentOpen(false)} />
+      ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <Metric
+          label="Online now"
+          value={devices?.online}
+          hint={devices ? `of ${devices.total} enrolled` : undefined}
+          icon={WifiIcon}
+          tone="online"
+          href="/devices?f.connectivity=online"
+          loading={loading}
+        />
+        <Metric
+          label="Offline"
+          value={devices ? devices.offline + devices.never : undefined}
+          hint={
+            devices
+              ? devices.never > 0
+                ? `${devices.never} never connected`
+                : "All have connected at least once"
+              : undefined
           }
+          icon={WifiOffIcon}
+          tone="offline"
+          href="/devices?f.connectivity=offline%2Cnever"
+          loading={loading}
         />
-
-        {enrollmentOpen ? (
-          <Card className="border-border/80 shadow-none">
-            <CardHeader>
-              <CardTitle>Enroll a device</CardTitle>
-              <CardDescription>
-                Leave site empty for imaging tokens, then assign the location
-                after install. Imaging tokens do not expire until revoked. The
-                tunnel is set up during enrollment either way.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-6 lg:grid-cols-2">
-              <div className="flex flex-col gap-4">
-                <FormField
-                  label="Site"
-                  htmlFor="site"
-                  description="Optional for mass imaging."
-                >
-                  <NativeSelect
-                    id="site"
-                    value={selectedSiteId}
-                    onChange={(event) => setSelectedSiteId(event.target.value)}
-                    disabled={sites.length === 0}
-                  >
-                    <option value="">No site (imaging)</option>
-                    {sites.map((site) => (
-                      <option key={site.id} value={site.id}>
-                        {site.name}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </FormField>
-                <FormField label="Route policy" htmlFor="routePolicy">
-                  <NativeSelect
-                    id="routePolicy"
-                    value={selectedRoutePolicyId}
-                    onChange={(event) =>
-                      setSelectedRoutePolicyId(event.target.value)
-                    }
-                  >
-                    <option value="">No policy</option>
-                    {routePolicies.map((routePolicy) => (
-                      <option key={routePolicy.id} value={routePolicy.id}>
-                        {routePolicy.name}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </FormField>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="enrollment-reusable"
-                    checked={enrollmentReusable}
-                    onCheckedChange={(checked) =>
-                      setEnrollmentReusable(checked === true)
-                    }
-                  />
-                  <Label
-                    htmlFor="enrollment-reusable"
-                    className="text-sm font-normal"
-                  >
-                    Reusable shared token
-                  </Label>
-                </div>
-                {enrollmentReusable ? (
-                  <p className="text-sm text-muted-foreground">
-                    Use the same token across many imaged devices until it
-                    expires or is revoked.
-                  </p>
-                ) : null}
-                <Button
-                  className="w-full sm:w-fit"
-                  onClick={() => {
-                    void handleCreateEnrollmentToken()
-                  }}
-                  disabled={
-                    createOrganization.isPending ||
-                    createEnrollmentToken.isPending
-                  }
-                >
-                  Create token
-                </Button>
-                {enrollmentToken ? (
-                  <CodeBlock label="Enrollment token" value={enrollmentToken} />
-                ) : null}
-              </div>
-
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1">
-                  <p className="font-medium">Run the installer</p>
-                  <p className="text-sm text-muted-foreground">
-                    Create a token, then run Windows or Linux on the device.
-                    Android runs on a workstation and imports the config into
-                    WireGuard on the tablet or phone.
-                  </p>
-                </div>
-                {enrollmentToken ? (
-                  <div className="flex flex-col gap-3">
-                    <CodeBlock label="Windows" value={windowsInstallCommand} />
-                    <CodeBlock label="Linux" value={linuxInstallCommand} />
-                    <CodeBlock label="Android" value={androidInstallCommand} />
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="No token yet"
-                    description="Installer commands appear after you create a token."
-                    bordered
-                  />
-                )}
-                {enrollmentError ? (
-                  <p className="text-sm text-destructive">{enrollmentError}</p>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-
-        <StatStrip
-          items={[
-            {
-              label: "Devices",
-              value: devicesQuery.isLoading ? (
-                <Skeleton className="h-8 w-12" />
-              ) : (
-                devices.length
-              ),
-            },
-            {
-              label: "Organizations",
-              value: organizationsQuery.isLoading ? (
-                <Skeleton className="h-8 w-12" />
-              ) : (
-                organizations.length
-              ),
-            },
-            {
-              label: "Sites",
-              value: sitesQuery.isLoading ? (
-                <Skeleton className="h-8 w-12" />
-              ) : (
-                sites.length
-              ),
-            },
-            {
-              label: "Connectivity",
-              value: healthQuery.isLoading ? (
-                <Skeleton className="h-8 w-16" />
-              ) : healthQuery.data?.ok ? (
-                "Healthy"
-              ) : (
-                "Degraded"
-              ),
-            },
-          ]}
+        <Metric
+          label="Needs attention"
+          value={devices?.needsAttention}
+          hint={
+            devices
+              ? devices.needsAttention === 0
+                ? "Everything is reachable"
+                : "Unreachable or a service is down"
+              : undefined
+          }
+          icon={AlertTriangleIcon}
+          tone={devices && devices.needsAttention > 0 ? "warning" : "neutral"}
+          loading={loading}
         />
+        <Metric
+          label="Open alerts"
+          value={alertSummary?.open}
+          hint={
+            alertSummary
+              ? alertSummary.critical > 0
+                ? `${alertSummary.critical} critical`
+                : alertSummary.acknowledged > 0
+                  ? `${alertSummary.acknowledged} acknowledged`
+                  : "Nothing waiting on you"
+              : undefined
+          }
+          icon={BellRingIcon}
+          tone={
+            alertSummary && alertSummary.critical > 0
+              ? "danger"
+              : alertSummary && alertSummary.open > 0
+                ? "warning"
+                : "neutral"
+          }
+          href="/alerts"
+          loading={alertsQuery.isLoading}
+        />
+        <Metric
+          label="Sessions · 24h"
+          value={summary?.sessions.last24h}
+          hint={
+            summary
+              ? summary.sessions.active > 0
+                ? `${summary.sessions.active} still open`
+                : "None open right now"
+              : undefined
+          }
+          icon={ActivityIcon}
+          href="/connections"
+          loading={loading}
+        />
+      </div>
 
-        <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2 rounded-lg border bg-card/60 px-3 py-2">
-            <span>Records</span>
-            <Badge
-              variant={
-                healthQuery.data?.postgres === "ok"
-                  ? "secondary"
-                  : "destructive"
-              }
-            >
-              {healthLabel(healthQuery.data?.postgres, healthQuery.isLoading)}
-            </Badge>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border bg-card/60 px-3 py-2">
-            <span>Jobs</span>
-            <Badge
-              variant={
-                healthQuery.data?.redis === "ok" ? "secondary" : "destructive"
-              }
-            >
-              {healthLabel(healthQuery.data?.redis, healthQuery.isLoading)}
-            </Badge>
-          </div>
-        </div>
-
-        <section className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-semibold tracking-tight">Devices</h2>
-            <p className="text-sm text-muted-foreground">
-              Live inventory and status from enrolled devices.
-            </p>
-          </div>
-          {devicesQuery.isLoading ? (
-            <div className="flex flex-col gap-3 md:hidden">
-              <Skeleton className="h-28 w-full rounded-xl" />
-              <Skeleton className="h-28 w-full rounded-xl" />
-              <Skeleton className="h-28 w-full rounded-xl" />
-            </div>
-          ) : devices.length === 0 ? (
-            <div className="md:hidden">
-              <EmptyState
-                title="No devices yet"
-                description="Create an enrollment token to add the first device."
-                bordered
-                action={
-                  <Button
-                    className="w-full sm:w-auto"
-                    onClick={() => setEnrollmentOpen(true)}
-                  >
-                    New enrollment token
-                  </Button>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SectionCard
+          title="Needs attention"
+          description="Open alerts, then devices that are unreachable or have a service down."
+          contentClassName="p-0"
+          actions={
+            <Button variant="ghost" size="sm" asChild>
+              <Link
+                href={
+                  alertSummary && alertSummary.open > 0
+                    ? "/alerts"
+                    : "/devices?f.connectivity=offline%2Cnever"
                 }
+              >
+                View all
+                <ArrowRightIcon />
+              </Link>
+            </Button>
+          }
+        >
+          {loading || alertsQuery.isLoading ? (
+            <div className="flex flex-col gap-3 p-6">
+              <Skeleton className="h-5 w-3/4" />
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-5 w-1/2" />
+            </div>
+          ) : (!summary || summary.attention.length === 0) &&
+            (!alertSummary || alertSummary.items.length === 0) ? (
+            <div className="p-6">
+              <EmptyState
+                title="All clear"
+                description="No open alerts, and every enrolled device is reachable."
+                bordered={false}
               />
             </div>
           ) : (
-            <div className="flex flex-col gap-3 md:hidden">
-              {devices.map((device) => {
-                const siteName =
-                  device.siteName ??
-                  (device.siteId
-                    ? (siteNameById.get(device.siteId) ?? "—")
-                    : "—")
-                const vpnStatus = device.vpnRevokedAt
-                  ? "revoked"
-                  : device.vpnLastHandshakeAt
-                    ? "vpn_online"
-                    : "pending"
-                const hasVnc = firstEnabledVncServiceByDeviceId.has(device.id)
-                const hasSsh = firstEnabledSshServiceByDeviceId.has(device.id)
-
-                return (
-                  <div
-                    key={device.id}
-                    role="link"
-                    tabIndex={0}
-                    className="flex w-full cursor-pointer flex-col gap-3 rounded-xl border border-border/80 bg-card p-4 text-left transition-colors hover:bg-muted/40"
-                    onClick={() => {
-                      router.push(`/devices/${device.id}`)
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault()
-                        router.push(`/devices/${device.id}`)
-                      }
-                    }}
+            <ul className="divide-y">
+              {alertSummary?.items.map((alert) => (
+                <li key={alert.id}>
+                  <Link
+                    href={
+                      alert.deviceId
+                        ? `/devices/${alert.deviceId}?tab=network`
+                        : `/alerts?f.kind=${encodeURIComponent(alert.kind)}`
+                    }
+                    className="flex items-center justify-between gap-3 px-6 py-3 text-sm transition-colors hover:bg-muted/40"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 flex-col gap-1">
-                        <span className="font-medium">
-                          {device.displayName}
-                        </span>
-                        {device.hostname ? (
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {device.hostname}
-                          </span>
-                        ) : null}
-                        <span className="text-sm text-muted-foreground">
-                          {siteName}
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <SeverityBadge severity={alert.severity} compact />
+                        <span className="truncate font-medium">
+                          {alert.title}
                         </span>
                       </div>
-                      <Badge
-                        variant={statusVariant[device.status] ?? "secondary"}
-                      >
-                        {statusLabel(device.status)}
-                      </Badge>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {kindLabel(alert.kind)}
+                        {alert.deviceName ? ` · ${alert.deviceName}` : ""}
+                        {alert.siteName ? ` · ${alert.siteName}` : ""}
+                        {alert.occurrences > 1
+                          ? ` · ${alert.occurrences} times`
+                          : ""}
+                      </span>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <CopyableText value={device.vpnIpv4} />
-                      <Badge variant={statusVariant[vpnStatus] ?? "outline"}>
-                        {statusLabel(vpnStatus)}
-                      </Badge>
+                    <span
+                      className="shrink-0 text-xs text-muted-foreground"
+                      title={formatDate(alert.lastSeenAt)}
+                    >
+                      {formatRelativeTime(alert.lastSeenAt)}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+              {summary?.attention.map((device) => (
+                <li key={device.id}>
+                  <Link
+                    href={`/devices/${device.id}`}
+                    className="flex items-center justify-between gap-3 px-6 py-3 text-sm transition-colors hover:bg-muted/40"
+                  >
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate font-medium">
+                        {device.displayName}
+                      </span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {device.siteName ?? "No site"}
+                        {device.offlineServices > 0
+                          ? ` · ${device.offlineServices} ${device.offlineServices === 1 ? "service" : "services"} down`
+                          : ""}
+                      </span>
                     </div>
-                    {hasVnc || hasSsh ? (
-                      <div className="flex flex-wrap gap-2">
-                        {hasVnc ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              void launchVncSession.mutateAsync({
-                                deviceId: device.id,
-                                serviceId: firstEnabledVncServiceByDeviceId.get(
-                                  device.id
-                                )!.id,
-                                connectionMethod: preferredConnectionMethod({
-                                  vpnConnected: adminVpnConnected,
-                                  serviceType: "vnc",
-                                }),
-                              })
-                            }}
-                            disabled={launchVncSession.isPending}
-                          >
-                            VNC
-                          </Button>
-                        ) : null}
-                        {hasSsh ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              void launchSshSession.mutateAsync({
-                                deviceId: device.id,
-                                serviceId: firstEnabledSshServiceByDeviceId.get(
-                                  device.id
-                                )!.id,
-                                connectionMethod: preferredConnectionMethod({
-                                  vpnConnected: adminVpnConnected,
-                                  serviceType: "ssh",
-                                }),
-                              })
-                            }}
-                            disabled={launchSshSession.isPending}
-                          >
-                            SSH
-                          </Button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
+                    <ConnectivityBadge
+                      connectivity={device.connectivity}
+                      lastHandshakeAt={device.lastHandshakeAt}
+                      className="items-end text-right"
+                    />
+                  </Link>
+                </li>
+              ))}
+            </ul>
           )}
+        </SectionCard>
 
-          <div className="hidden overflow-hidden rounded-xl border border-border/80 bg-card md:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Device</TableHead>
-                  <TableHead>Site</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>VPN</TableHead>
-                  <TableHead>Policy</TableHead>
-                  <TableHead>Remote</TableHead>
-                  <TableHead>Last connected</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {devicesQuery.isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="py-10">
-                      <div className="flex flex-col gap-2">
-                        <Skeleton className="h-4 w-full" />
-                        <Skeleton className="h-4 w-4/5" />
-                        <Skeleton className="h-4 w-3/5" />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : devices.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="p-0">
-                      <EmptyState
-                        title="No devices yet"
-                        description="Create an enrollment token to add the first device."
-                        bordered={false}
-                        action={
-                          <Button onClick={() => setEnrollmentOpen(true)}>
-                            New enrollment token
-                          </Button>
-                        }
-                      />
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  devices.map((device) => {
-                    const siteName =
-                      device.siteName ??
-                      (device.siteId
-                        ? (siteNameById.get(device.siteId) ?? "—")
-                        : "—")
-                    const vpnStatus = device.vpnRevokedAt
-                      ? "revoked"
-                      : device.vpnLastHandshakeAt
-                        ? "vpn_online"
-                        : "pending"
-
-                    return (
-                      <TableRow
-                        key={device.id}
-                        className="cursor-pointer"
-                        onClick={() => {
-                          router.push(`/devices/${device.id}`)
-                        }}
+        <SectionCard
+          title="Recent activity"
+          description="Latest recorded changes across your devices and access."
+          contentClassName="p-0"
+          actions={
+            canViewAudit ? (
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/activity">
+                  Activity log
+                  <ArrowRightIcon />
+                </Link>
+              </Button>
+            ) : null
+          }
+        >
+          {loading ? (
+            <div className="flex flex-col gap-3 p-6">
+              <Skeleton className="h-5 w-3/4" />
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-5 w-1/2" />
+            </div>
+          ) : !summary || summary.activity.length === 0 ? (
+            <div className="p-6">
+              <EmptyState
+                title="No activity yet"
+                description="Changes will show up here as they happen."
+                bordered={false}
+              />
+            </div>
+          ) : (
+            <ul className="divide-y">
+              {summary.activity.map((event) => (
+                <li
+                  key={event.id}
+                  className="flex items-center justify-between gap-3 px-6 py-3 text-sm"
+                >
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 whitespace-nowrap"
                       >
-                        <TableCell className="font-medium">
-                          <div className="flex flex-col gap-1">
-                            <span>{device.displayName}</span>
-                            {device.hostname ? (
-                              <span className="font-mono text-xs text-muted-foreground">
-                                {device.hostname}
-                              </span>
-                            ) : null}
-                          </div>
-                        </TableCell>
-                        <TableCell>{siteName}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              statusVariant[device.status] ?? "secondary"
-                            }
-                          >
-                            {statusLabel(device.status)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <CopyableText value={device.vpnIpv4} />
-                            <Badge
-                              variant={statusVariant[vpnStatus] ?? "outline"}
-                            >
-                              {statusLabel(vpnStatus)}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {device.vpnRoutePolicyId
-                            ? (routePolicyNameById.get(
-                                device.vpnRoutePolicyId
-                              ) ?? "—")
-                            : "—"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            {firstEnabledVncServiceByDeviceId.get(device.id) ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void launchVncSession.mutateAsync({
-                                    deviceId: device.id,
-                                    serviceId:
-                                      firstEnabledVncServiceByDeviceId.get(
-                                        device.id
-                                      )!.id,
-                                    connectionMethod: preferredConnectionMethod(
-                                      {
-                                        vpnConnected: adminVpnConnected,
-                                        serviceType: "vnc",
-                                      }
-                                    ),
-                                  })
-                                }}
-                                disabled={launchVncSession.isPending}
-                              >
-                                VNC
-                              </Button>
-                            ) : null}
-                            {firstEnabledSshServiceByDeviceId.get(device.id) ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void launchSshSession.mutateAsync({
-                                    deviceId: device.id,
-                                    serviceId:
-                                      firstEnabledSshServiceByDeviceId.get(
-                                        device.id
-                                      )!.id,
-                                    connectionMethod: preferredConnectionMethod(
-                                      {
-                                        vpnConnected: adminVpnConnected,
-                                        serviceType: "ssh",
-                                      }
-                                    ),
-                                  })
-                                }}
-                                disabled={launchSshSession.isPending}
-                              >
-                                SSH
-                              </Button>
-                            ) : null}
-                            {!firstEnabledVncServiceByDeviceId.get(device.id) &&
-                            !firstEnabledSshServiceByDeviceId.get(device.id)
-                              ? "—"
-                              : null}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {formatDate(
-                            device.vpnLastHandshakeAt ?? device.lastSeenAt
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </section>
+                        {statusLabel(event.eventType)}
+                      </Badge>
+                      {event.deviceId ? (
+                        <Link
+                          href={`/devices/${event.deviceId}?tab=activity`}
+                          className="truncate hover:underline"
+                        >
+                          {event.deviceName ?? "Device"}
+                        </Link>
+                      ) : null}
+                    </div>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {event.actorName ?? event.actorEmail ?? "System"}
+                    </span>
+                  </div>
+                  <span
+                    className="shrink-0 text-xs text-muted-foreground"
+                    title={formatDate(event.createdAt)}
+                  >
+                    {formatRelativeTime(event.createdAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
       </div>
-    </DashboardShell>
+
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-semibold tracking-tight">Devices</h2>
+            <p className="text-sm text-muted-foreground">
+              Most recently seen first. Open the full list to filter, tag, and
+              act in bulk.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/devices">
+              All devices
+              <ArrowRightIcon />
+            </Link>
+          </Button>
+        </div>
+        <DevicesTable
+          variant="compact"
+          pageSize={10}
+          view={devicesView}
+          onViewChange={(patch) =>
+            setDevicesView((current) => ({ ...current, ...patch }))
+          }
+        />
+      </section>
+
+      <footer className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t pt-4 text-xs text-muted-foreground">
+        <span className="font-medium">Control plane</span>
+        <StatusIndicator
+          tone={
+            healthQuery.isLoading
+              ? "neutral"
+              : healthQuery.data?.postgres === "ok"
+                ? "online"
+                : "danger"
+          }
+          label={`Directory ${healthQuery.isLoading ? "checking" : statusLabel(healthQuery.data?.postgres ?? "down")}`}
+          className="text-xs"
+        />
+        <StatusIndicator
+          tone={
+            healthQuery.isLoading
+              ? "neutral"
+              : healthQuery.data?.redis === "ok"
+                ? "online"
+                : "danger"
+          }
+          label={`Background jobs ${healthQuery.isLoading ? "checking" : statusLabel(healthQuery.data?.redis ?? "down")}`}
+          className="text-xs"
+        />
+        {summary ? (
+          <span className="ml-auto">
+            {summary.organizations}{" "}
+            {summary.organizations === 1 ? "organization" : "organizations"} ·{" "}
+            {summary.sites} {summary.sites === 1 ? "site" : "sites"} · updated{" "}
+            {formatRelativeTime(summary.generatedAt)}
+          </span>
+        ) : null}
+      </footer>
+    </div>
   )
 }

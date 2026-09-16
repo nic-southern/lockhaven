@@ -70,6 +70,16 @@ EOF
 
     nft -f "$tmp_file" 2>/dev/null || true
 
+    # New connections arriving over wg0 are logged to NFLOG group 1 with a
+    # prefix that names the chain and verdict; ulogd2 turns those into the
+    # JSON lines the worker ingests as connection events. Established and
+    # related traffic is never logged, so each connection produces one line.
+    flow_group="${LOCKHAVEN_FLOW_NFLOG_GROUP:-1}"
+    log_in_accept="log prefix \"lockhaven-flow-in-accept \" group ${flow_group} counter"
+    log_in_drop="log prefix \"lockhaven-flow-in-drop \" group ${flow_group} counter"
+    log_fwd_accept="log prefix \"lockhaven-flow-fwd-accept \" group ${flow_group} counter"
+    log_fwd_drop="log prefix \"lockhaven-flow-fwd-drop \" group ${flow_group} counter"
+
     {
       cat <<'EOF'
 table inet lockhaven_filter {
@@ -79,6 +89,11 @@ table inet lockhaven_filter {
 
     iif lo accept
     ct state established,related accept
+
+EOF
+      printf '    iifname "wg0" ct state new tcp dport { 22, 80, 443 } %s accept\n' "$log_in_accept"
+      printf '    iifname "wg0" ct state new %s drop\n' "$log_in_drop"
+      cat <<'EOF'
 
     tcp dport 80 accept
     tcp dport 443 accept
@@ -95,6 +110,7 @@ table inet lockhaven_filter {
     ct state established,related accept
 EOF
       if [ -n "$allowed_routes" ]; then
+        printf '    iifname "wg0" ip daddr { %s } ct state new %s accept\n' "$allowed_routes" "$log_fwd_accept"
         printf '    iifname "wg0" ip daddr { %s } accept\n' "$allowed_routes"
       fi
       if [ -n "$admin_forwards" ]; then
@@ -102,10 +118,12 @@ EOF
           source_ip="${forward%%=*}"
           destinations="${forward#*=}"
           if [ -n "$source_ip" ] && [ -n "$destinations" ] && [ "$source_ip" != "$forward" ]; then
+            printf '    iifname "wg0" ip saddr %s ip daddr { %s } ct state new %s accept\n' "$source_ip" "$destinations" "$log_fwd_accept"
             printf '    iifname "wg0" ip saddr %s ip daddr { %s } accept\n' "$source_ip" "$destinations"
           fi
         done
       fi
+      printf '    iifname "wg0" ct state new %s drop\n' "$log_fwd_drop"
       printf '    iifname "wg0" drop\n'
       cat <<'EOF'
   }

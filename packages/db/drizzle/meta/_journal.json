@@ -92,6 +92,55 @@
       "when": 1780600000000,
       "tag": "0012_admin_vpn_same_user_access",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1780700000000,
+      "tag": "0013_identity_rbac",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1780800000000,
+      "tag": "0014_member_default_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1780900000000,
+      "tag": "0015_device_tags_agent_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1781000000000,
+      "tag": "0016_route_policy_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781100000000,
+      "tag": "0017_activity_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781200000000,
+      "tag": "0018_connection_flows",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781300000000,
+      "tag": "0019_device_hostname_guard",
+      "breakpoints": true
     }
   ]
 }

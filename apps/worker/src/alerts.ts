@@ -1,0 +1,155 @@
+import { alerts, and, eq, sql } from "@nms/db"
+import { db } from "@nms/db/client"
+import {
+  alertKindDefaultSeverity,
+  alertKindLabels,
+  type AlertKind,
+  type AuditSeverity,
+} from "@nms/shared"
+
+import { recordEvent } from "./audit"
+
+export type RaiseAlertInput = {
+  kind: AlertKind
+  dedupeKey: string
+  organizationId?: string | null
+  siteId?: string | null
+  deviceId?: string | null
+  title?: string
+  detail?: Record<string, unknown>
+  severity?: AuditSeverity
+}
+
+/**
+ * Opens an alert or, when the same condition is already open, bumps its
+ * occurrence count. Acknowledged alerts keep their acknowledgement; only a
+ * resolved alert followed by a repeat opens a fresh row.
+ */
+export async function raiseAlert(input: RaiseAlertInput) {
+  const now = new Date()
+  const severity = input.severity ?? alertKindDefaultSeverity[input.kind]
+  const title = input.title ?? alertKindLabels[input.kind]
+  const detail = input.detail ?? {}
+
+  const [existing] = await db
+    .select({ id: alerts.id, occurrences: alerts.occurrences })
+    .from(alerts)
+    .where(
+      and(
+        eq(alerts.dedupeKey, input.dedupeKey),
+        sql`${alerts.status} <> 'resolved'`
+      )
+    )
+
+  if (existing) {
+    await db
+      .update(alerts)
+      .set({
+        occurrences: existing.occurrences + 1,
+        lastSeenAt: now,
+        updatedAt: now,
+        severity,
+        detail,
+      })
+      .where(eq(alerts.id, existing.id))
+    return { id: existing.id, created: false as const }
+  }
+
+  const created = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(alerts)
+      .values({
+        organizationId: input.organizationId ?? null,
+        siteId: input.siteId ?? null,
+        deviceId: input.deviceId ?? null,
+        kind: input.kind,
+        severity,
+        status: "open",
+        title,
+        detail,
+        dedupeKey: input.dedupeKey,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+      .returning({ id: alerts.id })
+
+    if (!row) return null
+
+    await recordEvent(
+      {
+        eventType: "alert_raised",
+        organizationId: input.organizationId ?? null,
+        siteId: input.siteId ?? null,
+        deviceId: input.deviceId ?? null,
+        severity,
+        eventData: { alertId: row.id, kind: input.kind, title, ...detail },
+      },
+      tx
+    )
+
+    return row
+  })
+
+  if (!created) {
+    // Lost a race with another writer; treat as a repeat occurrence.
+    return raiseAlert(input)
+  }
+
+  return { id: created.id, created: true as const }
+}
+
+/** Resolves an open alert for the condition, if there is one. */
+export async function resolveAlert(
+  dedupeKey: string,
+  detail: Record<string, unknown> = {}
+) {
+  const now = new Date()
+  const [resolved] = await db
+    .update(alerts)
+    .set({
+      status: "resolved",
+      resolvedAt: now,
+      updatedAt: now,
+      detail: sql`${alerts.detail} || ${JSON.stringify(detail)}::jsonb`,
+    })
+    .where(
+      and(eq(alerts.dedupeKey, dedupeKey), sql`${alerts.status} <> 'resolved'`)
+    )
+    .returning({
+      id: alerts.id,
+      kind: alerts.kind,
+      title: alerts.title,
+      organizationId: alerts.organizationId,
+      siteId: alerts.siteId,
+      deviceId: alerts.deviceId,
+    })
+
+  if (!resolved) return null
+
+  await recordEvent({
+    eventType: "alert_resolved",
+    organizationId: resolved.organizationId,
+    siteId: resolved.siteId,
+    deviceId: resolved.deviceId,
+    eventData: {
+      alertId: resolved.id,
+      kind: resolved.kind,
+      title: resolved.title,
+      resolvedBy: "system",
+      ...detail,
+    },
+  })
+
+  return resolved
+}
+
+export const alertKeys = {
+  newEndpoint: (deviceId: string) => `new_endpoint:${deviceId}`,
+  peerFlapping: (deviceId: string) => `peer_flapping:${deviceId}`,
+  deviceOffline: (deviceId: string) => `device_offline:${deviceId}`,
+  concentratorProbe: (deviceId: string) => `concentrator_probe:${deviceId}`,
+  firewallSync: () => "firewall_sync_failed:hub",
+}
