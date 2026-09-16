@@ -61,6 +61,12 @@ export default function SystemPage() {
   const data = statusQuery.data
   const health = data?.health
   const loading = accessLoading || statusQuery.isLoading
+  const jobsBehind = Boolean(
+    health &&
+    (health.staleJobNames.length > 0 ||
+      health.queue.lying ||
+      health.redis !== "ok")
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -102,7 +108,12 @@ export default function SystemPage() {
               },
               {
                 label: "Background jobs",
-                value: statusLabel(health.redis),
+                value: (
+                  <StatusIndicator
+                    tone={jobsBehind ? "danger" : "online"}
+                    label={jobsBehind ? "Behind" : "Healthy"}
+                  />
+                ),
               },
               {
                 label: "Waiting",
