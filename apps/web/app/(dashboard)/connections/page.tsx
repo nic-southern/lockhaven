@@ -95,7 +95,10 @@ function ConnectionsContent() {
       />
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList variant="line" className="w-full justify-start border-b">
+        <TabsList
+          variant="line"
+          className="w-max min-w-full justify-start border-b"
+        >
           <TabsTrigger value="sessions" className="flex-none px-3">
             Session history
           </TabsTrigger>
