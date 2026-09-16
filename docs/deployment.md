@@ -99,6 +99,16 @@ docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --r
 docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm migrate
 ```
 
+### Edge proxy
+
+Public Console and remote-session hostnames (`APP_HOSTNAME`, `GUAC_HOSTNAME`)
+are advertised with Docker labels on the `proxy` network. Set Caddy
+(caddy-docker-proxy) or Traefik as the single listener on ports 80 and 443.
+Do not run both, and do not add a second Caddy from this Compose file. Web and
+the remote-session service already join `proxy` so a Caddy that watches Docker
+on that network can route the same hostnames Traefik does. If Caddy is the
+listener, leave the `traefik` service stopped so it does not also bind 80/443.
+
 ### Connection Flow Logging
 
 `vpnctl sync-firewall` adds `log`/`counter` rules for every new connection

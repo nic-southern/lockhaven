@@ -17,6 +17,9 @@ services:
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
       - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+    # Bind 80/443 only when Traefik is the edge listener. If Caddy
+    # (caddy-docker-proxy) already listens on the host, do not start this
+    # service — both cannot own those ports.
     ports:
       - "0.0.0.0:80:80"
       - "0.0.0.0:443:443"
@@ -103,6 +106,11 @@ services:
       - traefik.http.services.guacamole.loadbalancer.server.port=8080
       - traefik.http.middlewares.guacamole-auth.forwardauth.address=http://web:3000/api/guacamole/auth
       - traefik.http.middlewares.guacamole-auth.forwardauth.authresponseheaders=X-Authenticated-User
+      - caddy=${GUAC_HOSTNAME}
+      - caddy.forward_auth=http://web:3000
+      - caddy.forward_auth.uri=/api/guacamole/auth # pragma: allowlist secret
+      - caddy.forward_auth.copy_headers=X-Authenticated-User
+      - caddy.reverse_proxy={{upstreams 8080}}
     depends_on:
       guacamole-db:
         condition: service_healthy
@@ -133,6 +141,8 @@ services:
       - traefik.http.routers.web.tls=true
       - traefik.http.routers.web.tls.certresolver=letsencrypt
       - traefik.http.services.web.loadbalancer.server.port=3000
+      - caddy=${APP_HOSTNAME}
+      - caddy.reverse_proxy={{upstreams 3000}}
     depends_on:
       postgres:
         condition: service_healthy
