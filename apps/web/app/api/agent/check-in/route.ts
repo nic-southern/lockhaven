@@ -11,6 +11,7 @@ import { db } from "@nms/db/client"
 import {
   checkInSchema,
   hostnamesMatch,
+  hubCheckInResponse,
   normalizeHostname,
   severityForEvent,
   type AuditEventType,
@@ -252,5 +253,8 @@ export async function POST(request: Request) {
     })
   })
 
-  return Response.json({ ok: true })
+  // PR H will populate `commands` from `device_commands`. Until then Hub
+  // still returns the typed list (empty) so the agent never sees a free-form
+  // shell string.
+  return Response.json(hubCheckInResponse({ commands: [] }))
 }

@@ -295,3 +295,28 @@ export function resolveAgentCommands(inputs: unknown[] | undefined) {
 
   return { accepted, refused }
 }
+
+/**
+ * Hub encoder: drop anything that is not `{ id, kind }` on the allowlist.
+ * Never serializes a shell string, extra keys, or an unknown kind.
+ */
+export function encodeHubCommands(
+  inputs: unknown[] | undefined
+): AgentCommand[] {
+  return resolveAgentCommands(inputs).accepted
+}
+
+export function hubCheckInResponse(args?: {
+  desiredAgentVersion?: string
+  downloadUrl?: string
+  commands?: unknown[]
+}) {
+  return {
+    ok: true as const,
+    ...(args?.desiredAgentVersion
+      ? { desired_agent_version: args.desiredAgentVersion }
+      : {}),
+    ...(args?.downloadUrl ? { download_url: args.downloadUrl } : {}),
+    commands: encodeHubCommands(args?.commands),
+  }
+}

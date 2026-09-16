@@ -116,3 +116,16 @@ test("executor type only accepts allowlisted kinds", () => {
   }
   assert.equal(command.kind, "reboot")
 })
+
+test("executor refuses a smuggled kind and does not spawn", async () => {
+  const { runtime, spawned } = mockRuntime()
+  const result = await executeAgentCommand(
+    {
+      id: "99999999-9999-4999-8999-999999999999",
+      kind: "ssh",
+    } as AgentCommand,
+    runtime
+  )
+  assert.equal(result.status, "refused")
+  assert.equal(spawned.length, 0)
+})
