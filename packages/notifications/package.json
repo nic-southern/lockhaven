@@ -1,0 +1,31 @@
+{
+  "name": "@nms/notifications",
+  "private": true,
+  "type": "module",
+  "main": "./dist/notifications/src/index.js",
+  "types": "./dist/notifications/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/notifications/src/index.d.ts",
+      "default": "./dist/notifications/src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint",
+    "test": "tsx --test src/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nms/shared": "workspace:*",
+    "nodemailer": "^7.0.11",
+    "resend": "^6.1.2",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/nodemailer": "^7.0.2",
+    "tsx": "^4.22.3",
+    "typescript": "^5.9.3"
+  }
+}

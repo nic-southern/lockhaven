@@ -8,6 +8,7 @@ import {
 } from "@nms/shared"
 
 import { recordEvent } from "./audit"
+import { enqueueAlertNotifications } from "./notify"
 
 export type RaiseAlertInput = {
   kind: AlertKind
@@ -103,7 +104,7 @@ export async function raiseAlert(input: RaiseAlertInput) {
         updatedAt: now,
       })
       .onConflictDoNothing()
-      .returning({ id: alerts.id })
+      .returning()
 
     if (!row) return null
 
@@ -118,6 +119,8 @@ export async function raiseAlert(input: RaiseAlertInput) {
       },
       tx
     )
+
+    await enqueueAlertNotifications(tx, row, "alert.opened", now)
 
     return row
   })
@@ -136,43 +139,45 @@ export async function resolveAlert(
   detail: Record<string, unknown> = {}
 ) {
   const now = new Date()
-  const [resolved] = await db
-    .update(alerts)
-    .set({
-      status: "resolved",
-      resolvedAt: now,
-      updatedAt: now,
-      detail: sql`${alerts.detail} || ${JSON.stringify(detail)}::jsonb`,
-    })
-    .where(
-      and(eq(alerts.dedupeKey, dedupeKey), sql`${alerts.status} <> 'resolved'`)
+  return db.transaction(async (tx) => {
+    const [resolved] = await tx
+      .update(alerts)
+      .set({
+        status: "resolved",
+        resolvedAt: now,
+        updatedAt: now,
+        detail: sql`${alerts.detail} || ${JSON.stringify(detail)}::jsonb`,
+      })
+      .where(
+        and(
+          eq(alerts.dedupeKey, dedupeKey),
+          sql`${alerts.status} <> 'resolved'`
+        )
+      )
+      .returning()
+
+    if (!resolved) return null
+
+    await recordEvent(
+      {
+        eventType: "alert_resolved",
+        organizationId: resolved.organizationId,
+        siteId: resolved.siteId,
+        deviceId: resolved.deviceId,
+        eventData: {
+          alertId: resolved.id,
+          kind: resolved.kind,
+          title: resolved.title,
+          resolvedBy: "system",
+          ...detail,
+        },
+      },
+      tx
     )
-    .returning({
-      id: alerts.id,
-      kind: alerts.kind,
-      title: alerts.title,
-      organizationId: alerts.organizationId,
-      siteId: alerts.siteId,
-      deviceId: alerts.deviceId,
-    })
 
-  if (!resolved) return null
-
-  await recordEvent({
-    eventType: "alert_resolved",
-    organizationId: resolved.organizationId,
-    siteId: resolved.siteId,
-    deviceId: resolved.deviceId,
-    eventData: {
-      alertId: resolved.id,
-      kind: resolved.kind,
-      title: resolved.title,
-      resolvedBy: "system",
-      ...detail,
-    },
+    await enqueueAlertNotifications(tx, resolved, "alert.resolved", now)
+    return resolved
   })
-
-  return resolved
 }
 
 export const alertKeys = {

@@ -11,6 +11,7 @@ import {
   KeyRoundIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  MailIcon,
   MapPinIcon,
   MenuIcon,
   MonitorIcon,
@@ -145,6 +146,18 @@ const navSections: NavSection[] = [
         label: "Users",
         icon: UsersIcon,
         requiresUserManagement: true,
+        scopes: ["admin"],
+      },
+    ],
+  },
+  {
+    label: "Settings",
+    items: [
+      {
+        href: "/settings/notifications",
+        label: "Notifications",
+        icon: MailIcon,
+        permissions: ["organization:admin"],
         scopes: ["admin"],
       },
     ],

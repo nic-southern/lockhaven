@@ -23,6 +23,7 @@ import { alertsRouter } from "./routers/alerts"
 import { dashboardRouter } from "./routers/dashboard"
 import { devicesRouter } from "./routers/devices"
 import { networkRouter } from "./routers/network"
+import { notificationsRouter } from "./routers/notifications"
 import { routePoliciesRouter } from "./routers/route-policies"
 import { sessionsPage } from "./routers/sessions-page"
 import { usersRouter } from "./routers/users"
@@ -918,6 +919,7 @@ const accessRouter = createTRPCRouter({
 export const appRouter = createTRPCRouter({
   access: accessRouter,
   users: usersRouter,
+  notifications: notificationsRouter,
   health: publicProcedure.query(() => ({ ok: true })),
   organizations: createTRPCRouter({
     list: adminProcedure.query(async ({ ctx }) => {

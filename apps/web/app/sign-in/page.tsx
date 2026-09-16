@@ -14,7 +14,7 @@ import { authClient, signIn } from "@/lib/auth-client"
 import { getClientProductName } from "@/lib/product-name"
 import { usePasskeySupport } from "@/lib/use-passkey-support"
 
-type Step = "credentials" | "totp" | "backup"
+type Step = "credentials" | "totp" | "backup" | "reset"
 
 function safeNextPath(value: string | null) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
@@ -37,6 +37,7 @@ function SignInForm() {
   const [pending, setPending] = React.useState(false)
   const [passkeyPending, setPasskeyPending] = React.useState(false)
   const passkeySupported = usePasskeySupport()
+  const [resetSent, setResetSent] = React.useState(false)
 
   React.useEffect(() => {
     if (!passkeySupported) {
@@ -58,6 +59,27 @@ function SignInForm() {
 
   function finish() {
     window.location.assign(nextPath)
+  }
+
+  async function handleResetRequest(event: React.FormEvent) {
+    event.preventDefault()
+    setError(null)
+    setPending(true)
+    try {
+      const result = await authClient.requestPasswordReset({
+        email,
+        redirectTo: "/reset-password",
+      })
+      if (result.error && result.error.status !== 404) {
+        setError("We couldn't send that message. Try again in a moment.")
+        return
+      }
+      setResetSent(true)
+    } catch {
+      setError("We couldn't send that message. Try again in a moment.")
+    } finally {
+      setPending(false)
+    }
   }
 
   async function handlePasskey() {
@@ -133,6 +155,51 @@ function SignInForm() {
     } finally {
       setPending(false)
     }
+  }
+
+  if (step === "reset") {
+    return (
+      <AuthShell
+        title={resetSent ? "Check your inbox" : "Reset your password"}
+        description={
+          resetSent
+            ? "If an account exists for that address, we sent a message with a link to choose a new password."
+            : "Enter the email you use to sign in. We'll send a link if we find a matching account."
+        }
+        footer={
+          <button
+            type="button"
+            className="underline-offset-4 hover:underline"
+            onClick={() => {
+              setStep("credentials")
+              setResetSent(false)
+              setError(null)
+            }}
+          >
+            Back to sign in
+          </button>
+        }
+      >
+        {resetSent ? null : (
+          <form className="flex flex-col gap-5" onSubmit={handleResetRequest}>
+            <FormField label="Email" htmlFor="reset-email">
+              <Input
+                id="reset-email"
+                type="email"
+                autoComplete="username"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+              />
+            </FormField>
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            <Button type="submit" className="w-full" disabled={pending}>
+              {pending ? "Sending…" : "Send reset link"}
+            </Button>
+          </form>
+        )}
+      </AuthShell>
+    )
   }
 
   if (step !== "credentials") {
@@ -252,6 +319,19 @@ function SignInForm() {
             required
           />
         </FormField>
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            onClick={() => {
+              setStep("reset")
+              setError(null)
+              setResetSent(false)
+            }}
+          >
+            Forgot password?
+          </button>
+        </div>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <Button
           type="submit"
