@@ -12,10 +12,26 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+# GNU install exits 1 when source and dest are the same inode (the git tree
+# on the droplet is /opt/lockhaven). Skip the copy in that case and keep
+# the existing scripts executable.
+install_script() {
+  local src dest src_path dest_path
+  src="$1"
+  dest="$2"
+  src_path="$(readlink -f "$src")"
+  dest_path="$(readlink -f "$dest")"
+  if [ "$src_path" = "$dest_path" ]; then
+    chmod 0755 "$dest"
+    return
+  fi
+  install -m 0755 "$src" "$dest"
+}
+
 install -d -m 0755 "${ROOT_DIR}/scripts"
 if [ -f "${SCRIPT_DIR}/../../scripts/backup.sh" ]; then
-  install -m 0755 "${SCRIPT_DIR}/../../scripts/backup.sh" "${ROOT_DIR}/scripts/backup.sh"
-  install -m 0755 "${SCRIPT_DIR}/../../scripts/restore.sh" "${ROOT_DIR}/scripts/restore.sh"
+  install_script "${SCRIPT_DIR}/../../scripts/backup.sh" "${ROOT_DIR}/scripts/backup.sh"
+  install_script "${SCRIPT_DIR}/../../scripts/restore.sh" "${ROOT_DIR}/scripts/restore.sh"
 fi
 
 install -m 0644 "${SCRIPT_DIR}/lockhaven-backup.service" "${UNIT_DIR}/lockhaven-backup.service"
