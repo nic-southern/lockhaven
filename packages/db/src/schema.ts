@@ -1,6 +1,7 @@
 import {
   bigint,
   boolean,
+  doublePrecision,
   inet,
   index,
   integer,
@@ -971,3 +972,98 @@ export type NotificationChannel = typeof notificationChannels.$inferSelect
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
 export type ConnectionEvent = typeof connectionEvents.$inferSelect
 export type ConnectionDailyRow = typeof connectionDaily.$inferSelect
+
+export const deviceMetricsLatest = pgTable("device_metrics_latest", {
+  deviceId: uuid("device_id")
+    .primaryKey()
+    .references(() => devices.id, { onDelete: "cascade" }),
+  collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
+  uptimeSeconds: bigint("uptime_seconds", { mode: "number" }).notNull(),
+  cpuLoad1: doublePrecision("cpu_load1"),
+  cpuLoad5: doublePrecision("cpu_load5"),
+  cpuLoad15: doublePrecision("cpu_load15"),
+  cpuCores: integer("cpu_cores"),
+  memoryTotalBytes: bigint("memory_total_bytes", { mode: "number" }),
+  memoryAvailableBytes: bigint("memory_available_bytes", { mode: "number" }),
+  memoryUsedBytes: bigint("memory_used_bytes", { mode: "number" }),
+  disks: jsonb("disks")
+    .$type<Array<Record<string, unknown>>>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  network: jsonb("network")
+    .$type<Array<Record<string, unknown>>>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  wgHandshakeAgeSeconds: integer("wg_handshake_age_seconds"),
+  rebootRequired: boolean("reboot_required").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+})
+
+export const deviceMetricsSamples = pgTable(
+  "device_metrics_samples",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    sampledAt: timestamp("sampled_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    uptimeSeconds: bigint("uptime_seconds", { mode: "number" }).notNull(),
+    cpuLoad1: doublePrecision("cpu_load1"),
+    cpuLoad5: doublePrecision("cpu_load5"),
+    cpuLoad15: doublePrecision("cpu_load15"),
+    cpuCores: integer("cpu_cores"),
+    memoryTotalBytes: bigint("memory_total_bytes", { mode: "number" }),
+    memoryAvailableBytes: bigint("memory_available_bytes", { mode: "number" }),
+    memoryUsedBytes: bigint("memory_used_bytes", { mode: "number" }),
+    disks: jsonb("disks")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    network: jsonb("network")
+      .$type<Array<Record<string, unknown>>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    wgHandshakeAgeSeconds: integer("wg_handshake_age_seconds"),
+    rebootRequired: boolean("reboot_required").notNull().default(false),
+  },
+  (table) => ({
+    deviceSampledIdx: index("device_metrics_samples_device_sampled_idx").on(
+      table.deviceId,
+      table.sampledAt
+    ),
+    sampledAtIdx: index("device_metrics_samples_sampled_at_idx").on(
+      table.sampledAt
+    ),
+  })
+)
+
+export const devicePackages = pgTable(
+  "device_packages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    version: text("version").notNull(),
+    source: text("source").notNull().default("unknown"),
+    availableVersion: text("available_version"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    deviceNameSourceIdx: uniqueIndex(
+      "device_packages_device_name_source_idx"
+    ).on(table.deviceId, table.name, table.source),
+    deviceIdx: index("device_packages_device_idx").on(table.deviceId),
+  })
+)
+
+export type DeviceMetricsLatest = typeof deviceMetricsLatest.$inferSelect
+export type DeviceMetricsSample = typeof deviceMetricsSamples.$inferSelect
+export type DevicePackage = typeof devicePackages.$inferSelect

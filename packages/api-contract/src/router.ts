@@ -26,6 +26,7 @@ import { networkRouter } from "./routers/network"
 import { notificationsRouter } from "./routers/notifications"
 import { routePoliciesRouter } from "./routers/route-policies"
 import { sessionsPage } from "./routers/sessions-page"
+import { telemetryRouter } from "./routers/telemetry"
 import { usersRouter } from "./routers/users"
 import {
   buildOrderBy,
@@ -1279,6 +1280,7 @@ export const appRouter = createTRPCRouter({
   dashboard: dashboardRouter,
   network: networkRouter,
   alerts: alertsRouter,
+  telemetry: telemetryRouter,
   managementServices: createTRPCRouter({
     list: permissionProcedure("device:view")
       .input(z.object({ deviceId: z.string().uuid().optional() }).optional())

@@ -1,0 +1,14 @@
+[Unit]
+Description=Lockhaven endpoint agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /opt/lockhaven/agent/dist/apps/agent/src/index.js run
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

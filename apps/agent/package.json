@@ -1,23 +1,22 @@
 {
-  "name": "@nms/shared",
+  "name": "@nms/agent",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
+  "version": "0.1.0",
+  "bin": {
+    "lockhaven-agent": "./dist/apps/agent/src/index.js"
   },
   "scripts": {
+    "dev": "tsx watch src/index.ts run",
     "build": "tsc -p tsconfig.json",
+    "start": "node dist/apps/agent/src/index.js",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test src/*.test.ts src/**/*.test.ts"
   },
   "dependencies": {
-    "zod": "^4.1.13"
+    "@nms/shared": "workspace:*",
+    "@nms/vpn": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

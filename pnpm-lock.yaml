@@ -82,6 +82,25 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  apps/agent:
+    dependencies:
+      '@nms/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@nms/vpn':
+        specifier: workspace:*
+        version: link:../../packages/vpn
+    devDependencies:
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.9.0
+      tsx:
+        specifier: ^4.22.3
+        version: 4.23.13
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   apps/web:
     dependencies:
       '@better-auth/passkey':
@@ -422,6 +441,9 @@ importers:
       '@types/node':
         specifier: ^25.5.0
         version: 25.9.0
+      tsx:
+        specifier: ^4.22.3
+        version: 4.23.13
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

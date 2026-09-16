@@ -186,6 +186,18 @@ $response = Invoke-EnrollmentRequest -Uri $enrollUri -Body $payload
 $secretPath = Join-Path $env:TEMP "$TunnelName.check-in-secret.txt"
 Set-Content -Path $secretPath -Value $response.check_in_secret -Encoding Ascii
 
+$stateDir = Join-Path $env:ProgramData "Lockhaven"
+New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+$statePath = Join-Path $stateDir "agent.json"
+@{
+  deviceId = $response.device_id
+  checkInSecret = $response.check_in_secret
+  baseUrl = $BaseUrl.TrimEnd("/")
+  hostname = $Hostname
+  vpnIpv4 = $response.vpn_ipv4
+  tunnelName = $TunnelName
+} | ConvertTo-Json | Set-Content -Path $statePath -Encoding UTF8
+
 $configPath = Join-Path $env:TEMP "$TunnelName.conf"
 $config = @"
 [Interface]
