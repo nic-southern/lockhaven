@@ -23,6 +23,7 @@
   "dependencies": {
     "@better-auth/drizzle-adapter": "^1.6.11",
     "@better-auth/passkey": "1.6.11",
+    "@better-auth/sso": "1.6.11",
     "@nms/db": "workspace:*",
     "@nms/notifications": "workspace:*",
     "@nms/shared": "workspace:*",

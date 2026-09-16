@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@better-auth/passkey": "1.6.11",
+    "@better-auth/sso": "1.6.11",
     "@nms/api-contract": "workspace:*",
     "@nms/auth": "workspace:*",
     "@nms/db": "workspace:*",

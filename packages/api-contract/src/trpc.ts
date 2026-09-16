@@ -13,7 +13,19 @@ const t = initTRPC.context<ApiContext>().create()
  */
 function assertSecuritySetupComplete(actor: NonNullable<ApiContext["actor"]>) {
   const security = actor.security
-  if (security && (security.mustChangePassword || !security.twoFactorEnabled)) {
+  if (!security) {
+    return
+  }
+  if (security.mustChangePassword) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Finish setting up your account security to continue.",
+    })
+  }
+  if (security.ssoMfaTrusted) {
+    return
+  }
+  if (!security.twoFactorEnabled) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Finish setting up your account security to continue.",

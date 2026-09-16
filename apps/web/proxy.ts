@@ -30,10 +30,17 @@ type SessionUser = {
   status?: string | null
   twoFactorEnabled?: boolean | null
   mustChangePassword?: boolean | null
+  ssoMfaTrusted?: boolean | null
 }
 
 function needsSecuritySetup(user: SessionUser) {
-  return user.mustChangePassword === true || user.twoFactorEnabled !== true
+  if (user.mustChangePassword === true) {
+    return true
+  }
+  if (user.ssoMfaTrusted === true) {
+    return false
+  }
+  return user.twoFactorEnabled !== true
 }
 
 export async function proxy(request: NextRequest) {

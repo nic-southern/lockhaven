@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useSearchParams } from "next/navigation"
-import { FingerprintIcon, KeyRoundIcon } from "lucide-react"
+import { FingerprintIcon, KeyRoundIcon, ShieldCheckIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { AuthShell } from "@/components/auth/auth-shell"
@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator"
 import { FormField } from "@/components/dashboard/form-field"
 import { authClient, signIn } from "@/lib/auth-client"
 import { getClientProductName } from "@/lib/product-name"
+import { trpc } from "@/lib/trpc"
 import { usePasskeySupport } from "@/lib/use-passkey-support"
 
 type Step = "credentials" | "totp" | "backup" | "reset"
@@ -38,6 +39,16 @@ function SignInForm() {
   const [passkeyPending, setPasskeyPending] = React.useState(false)
   const passkeySupported = usePasskeySupport()
   const [resetSent, setResetSent] = React.useState(false)
+  const [ssoPending, setSsoPending] = React.useState(false)
+  const ssoStatus = trpc.sso.status.useQuery()
+  const sso = ssoStatus.data
+  const emailLooksComplete = /.+@.+\..+/.test(email.trim())
+  const ssoHint = trpc.sso.hint.useQuery(
+    { email: email.trim() },
+    { enabled: emailLooksComplete }
+  )
+  const passwordEnabled =
+    sso?.passwordEnabled !== false && ssoHint.data?.required !== true
 
   React.useEffect(() => {
     if (!passkeySupported) {
@@ -59,6 +70,51 @@ function SignInForm() {
 
   function finish() {
     window.location.assign(nextPath)
+  }
+
+  async function handleSso() {
+    setError(null)
+    setSsoPending(true)
+    try {
+      const method = ssoHint.data?.signInMethod ?? sso?.signInMethod
+      const providerId = ssoHint.data?.providerId ?? sso?.providerId
+      if (method === "sso") {
+        if (!email.trim() && !providerId) {
+          setError("Enter your email to continue with SSO.")
+          return
+        }
+        const result = await authClient.signIn.sso({
+          ...(providerId ? { providerId } : {}),
+          ...(email.trim() ? { email: email.trim() } : {}),
+          callbackURL: nextPath,
+          errorCallbackURL: "/sign-in?reason=sso",
+        })
+        if (result?.error) {
+          setError("We couldn't complete sign-in. Try again.")
+        }
+        return
+      }
+      if (!providerId) {
+        setError(
+          emailLooksComplete
+            ? "We couldn't complete sign-in. Try again."
+            : "Enter your email to continue with SSO."
+        )
+        return
+      }
+      const result = await signIn.oauth2({
+        providerId,
+        callbackURL: nextPath,
+        errorCallbackURL: "/sign-in?reason=sso",
+      })
+      if (result?.error) {
+        setError("We couldn't complete sign-in. Try again.")
+      }
+    } catch {
+      setError("We couldn't complete sign-in. Try again.")
+    } finally {
+      setSsoPending(false)
+    }
   }
 
   async function handleResetRequest(event: React.FormEvent) {
@@ -275,15 +331,59 @@ function SignInForm() {
           This account is currently suspended. Contact an administrator.
         </p>
       ) : null}
+      {reason === "sso" ? (
+        <p className="text-sm text-destructive">
+          {"We couldn't complete sign-in. Try again."}
+        </p>
+      ) : null}
+      {sso?.unavailable ? (
+        <p className="text-sm text-destructive">
+          Sign-in is temporarily unavailable. Try again later.
+        </p>
+      ) : null}
 
-      {passkeySupported ? (
+      {sso?.enabled && !sso.unavailable && !passwordEnabled ? (
+        <FormField label="Email" htmlFor="sso-email">
+          <Input
+            id="sso-email"
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            required
+          />
+        </FormField>
+      ) : null}
+
+      {sso?.enabled && !sso.unavailable ? (
+        <Button
+          type="button"
+          variant="default"
+          className="h-11 w-full gap-2"
+          onClick={handleSso}
+          disabled={ssoPending || pending || passkeyPending}
+        >
+          <ShieldCheckIcon className="size-4" />
+          {ssoPending ? "Redirecting…" : "Sign in with SSO"}
+        </Button>
+      ) : null}
+
+      {sso?.enabled && !sso.unavailable && passwordEnabled ? (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground uppercase">
+          <Separator className="flex-1" />
+          or
+          <Separator className="flex-1" />
+        </div>
+      ) : null}
+
+      {passwordEnabled && passkeySupported ? (
         <>
           <Button
             type="button"
-            variant="default"
+            variant={sso?.enabled ? "outline" : "default"}
             className="h-11 w-full gap-2"
             onClick={handlePasskey}
-            disabled={passkeyPending || pending}
+            disabled={passkeyPending || pending || ssoPending}
           >
             <FingerprintIcon className="size-4" />
             {passkeyPending
@@ -298,51 +398,57 @@ function SignInForm() {
         </>
       ) : null}
 
-      <form className="flex flex-col gap-5" onSubmit={handleCredentials}>
-        <FormField label="Email" htmlFor="email">
-          <Input
-            id="email"
-            type="email"
-            autoComplete="username webauthn"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-        </FormField>
-        <FormField label="Password" htmlFor="password">
-          <Input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
-        </FormField>
-        <div className="flex justify-end">
-          <button
-            type="button"
-            className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-            onClick={() => {
-              setStep("reset")
-              setError(null)
-              setResetSent(false)
-            }}
+      {error && !passwordEnabled ? (
+        <p className="text-sm text-destructive">{error}</p>
+      ) : null}
+
+      {!passwordEnabled ? null : (
+        <form className="flex flex-col gap-5" onSubmit={handleCredentials}>
+          <FormField label="Email" htmlFor="email">
+            <Input
+              id="email"
+              type="email"
+              autoComplete="username webauthn"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </FormField>
+          <FormField label="Password" htmlFor="password">
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </FormField>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+              onClick={() => {
+                setStep("reset")
+                setError(null)
+                setResetSent(false)
+              }}
+            >
+              Forgot password?
+            </button>
+          </div>
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          <Button
+            type="submit"
+            variant={sso?.enabled || passkeySupported ? "outline" : "default"}
+            className="w-full gap-2"
+            disabled={pending || passkeyPending || ssoPending}
           >
-            Forgot password?
-          </button>
-        </div>
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <Button
-          type="submit"
-          variant={passkeySupported ? "outline" : "default"}
-          className="w-full gap-2"
-          disabled={pending || passkeyPending}
-        >
-          <KeyRoundIcon className="size-4" />
-          {pending ? "Signing in…" : "Sign in with password"}
-        </Button>
-      </form>
+            <KeyRoundIcon className="size-4" />
+            {pending ? "Signing in…" : "Sign in with password"}
+          </Button>
+        </form>
+      )}
     </AuthShell>
   )
 }
