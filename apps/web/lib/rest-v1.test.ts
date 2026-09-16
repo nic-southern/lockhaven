@@ -12,6 +12,7 @@ import {
 
 const deviceId = "11111111-1111-4111-8111-111111111111"
 const alertId = "22222222-2222-4111-8111-111111111111"
+const assetId = "44444444-4444-4444-8444-111111111111"
 
 function caller(calls: string[]): RestV1Caller {
   return {
@@ -80,6 +81,16 @@ function caller(calls: string[]): RestV1Caller {
       async page() {
         calls.push("audit.page")
         return { items: [], nextCursor: null, total: 0 }
+      },
+    },
+    assets: {
+      async page() {
+        calls.push("assets.page")
+        return { items: [{ id: "asset-1" }], nextCursor: null, total: 1 }
+      },
+      async byId(input) {
+        calls.push(`assets.byId:${input.id}`)
+        return { id: input.id, tag: "PRN-1" }
       },
     },
   }
@@ -156,6 +167,12 @@ test("one REST round-trip per resource", async () => {
   const activity = await roundTrip("GET", ["activity"], restCaller)
   assert.equal(activity.status, 200)
 
+  const assets = await roundTrip("GET", ["assets"], restCaller)
+  assert.equal(assets.status, 200)
+
+  const asset = await roundTrip("GET", ["assets", assetId], restCaller)
+  assert.equal(asset.status, 200)
+
   assert.deepEqual(calls, [
     "devices.page",
     `devices.byId:${deviceId}`,
@@ -167,6 +184,8 @@ test("one REST round-trip per resource", async () => {
     `alerts.resolve:${alertId}`,
     "sessions.page",
     "audit.page",
+    "assets.page",
+    `assets.byId:${assetId}`,
   ])
 })
 
@@ -197,6 +216,8 @@ test("OpenAPI document covers each REST resource", () => {
     "/alerts/{id}/resolve",
     "/sessions",
     "/activity",
+    "/assets",
+    "/assets/{id}",
     "/openapi.json",
   ]) {
     assert.ok(path in restV1OpenApi.paths, `missing ${path}`)

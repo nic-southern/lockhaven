@@ -1,11 +1,13 @@
 import {
   bigint,
   boolean,
+  date,
   doublePrecision,
   inet,
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -43,7 +45,13 @@ import {
   type AgentChannel,
   type AgentCommandKind,
   type AgentReleasePlatform,
+  type AssetStatus,
+  type CustomFieldAppliesTo,
+  type CustomFieldType,
+  type CustomFieldValues,
   type DeviceCommandStatus,
+  type SiteBusinessHours,
+  type SiteContact,
 } from "@nms/shared"
 
 export const statusEnum = pgEnum("device_status", deviceStatuses)
@@ -292,6 +300,12 @@ export const sites = pgTable("sites", {
     .default(false),
   requireApproval: boolean("require_approval").notNull().default(false),
   agentChannel: text("agent_channel").$type<AgentChannel>(),
+  address: text("address"),
+  contacts: jsonb("contacts")
+    .$type<SiteContact[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  businessHours: jsonb("business_hours").$type<SiteBusinessHours>(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -327,6 +341,92 @@ export const siteMemberships = pgTable(
   })
 )
 
+export const assets = pgTable(
+  "assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    tag: text("tag").notNull(),
+    vendor: text("vendor"),
+    model: text("model"),
+    serial: text("serial"),
+    hostname: text("hostname"),
+    status: text("status").$type<AssetStatus>().notNull().default("stock"),
+    purchaseDate: date("purchase_date", { mode: "string" }),
+    purchaseCost: numeric("purchase_cost", { precision: 12, scale: 2 }),
+    warrantyExpiresOn: date("warranty_expires_on", { mode: "string" }),
+    notes: text("notes"),
+    customFields: jsonb("custom_fields")
+      .$type<CustomFieldValues>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationTagIdx: uniqueIndex("assets_organization_tag_idx").on(
+      table.organizationId,
+      table.tag
+    ),
+    organizationSerialIdx: uniqueIndex("assets_organization_serial_idx")
+      .on(table.organizationId, table.serial)
+      .where(sql`${table.serial} is not null`),
+    organizationStatusIdx: index("assets_organization_status_idx").on(
+      table.organizationId,
+      table.status
+    ),
+    siteIdx: index("assets_site_idx").on(table.siteId),
+    warrantyIdx: index("assets_warranty_expires_on_idx").on(
+      table.warrantyExpiresOn
+    ),
+  })
+)
+
+export const customFieldDefinitions = pgTable(
+  "custom_field_definitions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    fieldType: text("field_type")
+      .$type<CustomFieldType>()
+      .notNull()
+      .default("text"),
+    appliesTo: text("applies_to")
+      .$type<CustomFieldAppliesTo>()
+      .notNull()
+      .default("both"),
+    required: boolean("required").notNull().default(false),
+    options: text("options")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationKeyIdx: uniqueIndex(
+      "custom_field_definitions_organization_key_idx"
+    ).on(table.organizationId, table.key),
+  })
+)
+
 export const devices = pgTable(
   "devices",
   {
@@ -348,6 +448,14 @@ export const devices = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
+    notes: text("notes"),
+    assetId: uuid("asset_id").references(() => assets.id, {
+      onDelete: "set null",
+    }),
+    customFields: jsonb("custom_fields")
+      .$type<CustomFieldValues>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     checkInSecretHash: text("check_in_secret_hash"),
     /**
      * Set by an administrator to let the next check-in adopt a new hostname.
@@ -374,6 +482,9 @@ export const devices = pgTable(
     siteIdx: index("devices_site_idx").on(table.siteId),
     lastSeenIdx: index("devices_last_seen_idx").on(table.lastSeenAt),
     tagsIdx: index("devices_tags_idx").using("gin", table.tags),
+    assetIdx: uniqueIndex("devices_asset_id_idx")
+      .on(table.assetId)
+      .where(sql`${table.assetId} is not null`),
   })
 )
 
@@ -773,6 +884,9 @@ export const alerts = pgTable(
     deviceId: uuid("device_id").references(() => devices.id, {
       onDelete: "cascade",
     }),
+    assetId: uuid("asset_id").references(() => assets.id, {
+      onDelete: "set null",
+    }),
     kind: text("kind").$type<AlertKind>().notNull(),
     severity: text("severity").$type<AuditSeverity>().notNull(),
     status: text("status").$type<AlertStatus>().notNull().default("open"),
@@ -825,6 +939,7 @@ export const alerts = pgTable(
       table.status
     ),
     deviceIdx: index("alerts_device_idx").on(table.deviceId),
+    assetIdx: index("alerts_asset_idx").on(table.assetId),
     snoozedUntilIdx: index("alerts_snoozed_until_idx")
       .on(table.snoozedUntil)
       .where(sql`${table.snoozedUntil} is not null`),
@@ -1229,6 +1344,8 @@ export type Organization = typeof organizations.$inferSelect
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
 export type SiteMembership = typeof siteMemberships.$inferSelect
+export type Asset = typeof assets.$inferSelect
+export type CustomFieldDefinition = typeof customFieldDefinitions.$inferSelect
 export type AuthUser = typeof user.$inferSelect
 export type AuthSession = typeof session.$inferSelect
 export type Passkey = typeof passkey.$inferSelect

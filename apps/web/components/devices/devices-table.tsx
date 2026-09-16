@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { CopyableText } from "@/components/dashboard/copyable-text"
+import { CsvImportDialog } from "@/components/dashboard/csv-import-dialog"
 import {
   DataTable,
   DataTableColumnHeader,
@@ -152,6 +153,8 @@ const csvColumns = [
   { header: "Last seen", value: (row: DeviceRow) => row.lastSeenAt },
   { header: "Enrolled", value: (row: DeviceRow) => row.createdAt },
   { header: "Serial", value: (row: DeviceRow) => row.serialNumber },
+  { header: "Asset", value: (row: DeviceRow) => row.assetTag },
+  { header: "Notes", value: (row: DeviceRow) => row.notes },
   { header: "Id", value: (row: DeviceRow) => row.id },
 ]
 
@@ -187,6 +190,18 @@ export function DevicesTable({
   const canRevoke = can("device:revoke_vpn")
   const canDelete = can("device:delete")
   const compact = variant === "compact"
+  const [importOpen, setImportOpen] = React.useState(false)
+  const [importOrgId, setImportOrgId] = React.useState("")
+  const organizationsQuery = trpc.organizations.list.useQuery(undefined, {
+    enabled: canUpdate && !compact,
+  })
+  const organizations = organizationsQuery.data ?? []
+  const resolvedImportOrgId = importOrgId || organizations[0]?.id || ""
+  const importCsv = trpc.devices.importCsv.useMutation({
+    async onSuccess() {
+      await utils.devices.page.invalidate()
+    },
+  })
 
   const [pagination, setPagination] = React.useState<PaginationState>({
     pageIndex: 0,
@@ -801,16 +816,28 @@ export function DevicesTable({
         }
         toolbarActions={
           compact ? null : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9"
-              onClick={() => void exportCsv()}
-              disabled={total === 0}
-            >
-              <DownloadIcon />
-              Export
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={() => void exportCsv()}
+                disabled={total === 0}
+              >
+                <DownloadIcon />
+                Export
+              </Button>
+              {canUpdate ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => setImportOpen(true)}
+                >
+                  Import
+                </Button>
+              ) : null}
+            </>
           )
         }
         enableRowSelection={!compact && canUpdate}
@@ -907,6 +934,28 @@ export function DevicesTable({
             ids: bulkIds,
           } as DeviceBulkAction)
         }}
+      />
+
+      <CsvImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        title="Update devices"
+        description="Match rows by id, serial, or host name. Existing devices are updated; new ones are not created."
+        templateName="devices-template.csv"
+        templateCsv={[
+          "id,serial,hostname,display_name,tags,site,notes,asset_tag",
+          ",SN-100,front-desk,Front desk,office,Main,Keep nearby,PRN-1",
+        ].join("\n")}
+        organizations={organizationsQuery.data ?? []}
+        organizationId={resolvedImportOrgId}
+        onOrganizationIdChange={setImportOrgId}
+        pending={importCsv.isPending}
+        onImport={async (csv) =>
+          importCsv.mutateAsync({
+            organizationId: resolvedImportOrgId,
+            csv,
+          })
+        }
       />
     </>
   )

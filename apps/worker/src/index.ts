@@ -8,6 +8,7 @@ import { Queue, Worker } from "bullmq"
 import Redis from "ioredis"
 import { inArray, isNotNull, lte } from "drizzle-orm"
 
+import { tryLinkDevicesToAssets } from "@nms/api-contract"
 import {
   accessRequests,
   adminVpnProfiles,
@@ -68,6 +69,7 @@ import { processNotificationDeliveries } from "./notify"
 import { PeerStateStore, type StoredPeerState } from "./peer-state"
 import { sendReportSchedules } from "./report-schedules"
 import { evaluateAgentVersions } from "./fleet"
+import { evaluateWarranties } from "./warranties"
 import { refreshRemoteSessions } from "./sessions"
 import { pruneUptimeHistory, rollupUptime } from "./uptime"
 
@@ -420,6 +422,8 @@ async function reconcileVpnPeers() {
       siteId: devices.siteId,
       displayName: devices.displayName,
       hostname: devices.hostname,
+      serialNumber: devices.serialNumber,
+      assetId: devices.assetId,
     })
     .from(vpnIdentities)
     .innerJoin(devices, eq(devices.id, vpnIdentities.deviceId))
@@ -434,6 +438,15 @@ async function reconcileVpnPeers() {
   const previousStates = await peerStateStore.loadAll()
   const nextStates = new Map<string, StoredPeerState>()
   const retiredStateKeys: string[] = []
+
+  const pendingAssetLinks: Array<{
+    id: string
+    organizationId: string
+    siteId: string | null
+    assetId: string | null
+    serialNumber: string | null
+    hostname: string | null
+  }> = []
 
   for (const identity of identities) {
     knownPublicKeys.add(identity.wireguardPublicKey)
@@ -535,7 +548,21 @@ async function reconcileVpnPeers() {
           txBytes: peer.txBytes,
         })
         .where(eq(vpnIdentities.id, identity.id))
+      if (!identity.assetId) {
+        pendingAssetLinks.push({
+          id: identity.deviceId,
+          organizationId: identity.organizationId,
+          siteId: identity.siteId,
+          assetId: identity.assetId,
+          serialNumber: identity.serialNumber,
+          hostname: identity.hostname,
+        })
+      }
     }
+  }
+
+  if (pendingAssetLinks.length > 0) {
+    await tryLinkDevicesToAssets(db, pendingAssetLinks)
   }
 
   for (const key of previousStates.keys()) {
@@ -816,6 +843,7 @@ const schedules: Array<{ name: string; everyMs: number }> = [
   { name: "rollup-uptime", everyMs: 60 * 60 * 1000 },
   { name: "send-report-schedules", everyMs: 60 * 60 * 1000 },
   { name: "evaluate-agent-versions", everyMs: 60_000 },
+  { name: "evaluate-warranties", everyMs: 60 * 60 * 1000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ]
 
@@ -903,6 +931,9 @@ async function main() {
             break
           case "evaluate-agent-versions":
             await evaluateAgentVersions()
+            break
+          case "evaluate-warranties":
+            await evaluateWarranties()
             break
           case "prune-history":
             await pruneHistory()

@@ -6,6 +6,7 @@ import {
   eq,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   or,
   sql,
@@ -17,6 +18,7 @@ import { z } from "zod"
 import { authorize, type ActorPrincipal } from "@nms/auth"
 import {
   agentReleases,
+  assets,
   auditEvents,
   devices,
   managementServiceCredentials,
@@ -24,14 +26,17 @@ import {
   organizations,
   routePolicies,
   sites,
+  user,
   vpnIdentities,
 } from "@nms/db"
 import {
+  customFieldValuesSchema,
   deviceBulkActionSchema,
   deviceConnectivityStates,
   deviceStatuses,
   deviceTagsSchema,
   entriesFromRoutes,
+  parseDeviceBulkCsv,
   type DeviceConnectivity,
   type DeviceStatus,
 } from "@nms/shared"
@@ -65,6 +70,9 @@ const deviceUpdateInput = z.object({
   displayName: z.string().trim().min(1).max(120).optional(),
   hostname: z.string().trim().min(1).max(253).optional().nullable(),
   siteId: z.string().uuid().optional().nullable(),
+  notes: z.string().trim().max(4000).optional().nullable(),
+  assetId: z.string().uuid().optional().nullable(),
+  customFields: customFieldValuesSchema.optional(),
 })
 
 const deviceRoutePolicyInput = z.object({
@@ -91,6 +99,10 @@ function deviceRowSelection() {
     serialNumber: devices.serialNumber,
     agentVersion: devices.agentVersion,
     tags: devices.tags,
+    notes: devices.notes,
+    assetId: devices.assetId,
+    assetTag: assets.tag,
+    customFields: devices.customFields,
     status: devices.status,
     lastSeenAt: devices.lastSeenAt,
     createdAt: devices.createdAt,
@@ -117,6 +129,7 @@ function deviceBase(ctx: ApiContext) {
     .leftJoin(organizations, eq(organizations.id, devices.organizationId))
     .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
     .leftJoin(routePolicies, eq(routePolicies.id, vpnIdentities.routePolicyId))
+    .leftJoin(assets, eq(assets.id, devices.assetId))
 }
 
 function withNone(values: string[], column: AnyPgColumn) {
@@ -511,36 +524,64 @@ export const devicesRouter = createTRPCRouter({
         .where(eq(managementServices.deviceId, record.id))
         .orderBy(desc(managementServices.createdAt))
 
-      const [[enrollmentEvent], [routePolicy]] = await Promise.all([
-        ctx.db
-          .select({ createdAt: auditEvents.createdAt })
-          .from(auditEvents)
-          .where(
-            and(
-              eq(auditEvents.deviceId, record.id),
-              eq(auditEvents.eventType, "device_enrolled")
+      const [[enrollmentEvent], [routePolicy], [lastTouched]] =
+        await Promise.all([
+          ctx.db
+            .select({ createdAt: auditEvents.createdAt })
+            .from(auditEvents)
+            .where(
+              and(
+                eq(auditEvents.deviceId, record.id),
+                eq(auditEvents.eventType, "device_enrolled")
+              )
             )
-          )
-          .orderBy(desc(auditEvents.createdAt))
-          .limit(1),
-        identity?.routePolicyId
-          ? ctx.db
-              .select({
-                id: routePolicies.id,
-                name: routePolicies.name,
-                routes: routePolicies.routes,
-                entries: routePolicies.entries,
-                color: routePolicies.color,
-              })
-              .from(routePolicies)
-              .where(eq(routePolicies.id, identity.routePolicyId))
-              .limit(1)
-          : Promise.resolve([null]),
-      ])
+            .orderBy(desc(auditEvents.createdAt))
+            .limit(1),
+          identity?.routePolicyId
+            ? ctx.db
+                .select({
+                  id: routePolicies.id,
+                  name: routePolicies.name,
+                  routes: routePolicies.routes,
+                  entries: routePolicies.entries,
+                  color: routePolicies.color,
+                })
+                .from(routePolicies)
+                .where(eq(routePolicies.id, identity.routePolicyId))
+                .limit(1)
+            : Promise.resolve([null]),
+          ctx.db
+            .select({
+              at: auditEvents.createdAt,
+              userId: auditEvents.actorUserId,
+              name: user.name,
+              email: user.email,
+              eventType: auditEvents.eventType,
+            })
+            .from(auditEvents)
+            .innerJoin(user, eq(user.id, auditEvents.actorUserId))
+            .where(
+              and(
+                eq(auditEvents.deviceId, record.id),
+                isNotNull(auditEvents.actorUserId)
+              )
+            )
+            .orderBy(desc(auditEvents.createdAt))
+            .limit(1),
+        ])
 
       return {
         ...record,
         enrolledAt: enrollmentEvent?.createdAt ?? record.createdAt,
+        lastTouched: lastTouched
+          ? {
+              at: lastTouched.at,
+              userId: lastTouched.userId,
+              name: lastTouched.name,
+              email: lastTouched.email,
+              eventType: lastTouched.eventType,
+            }
+          : null,
         routePolicy: routePolicy ?? null,
         vpnIdentity: identity
           ? { ...identity, wireguardPresharedKey: undefined }
@@ -628,9 +669,40 @@ export const devicesRouter = createTRPCRouter({
       if (input.displayName !== undefined) patch.displayName = input.displayName
       if (input.hostname !== undefined) patch.hostname = input.hostname
       if (input.siteId !== undefined) patch.siteId = input.siteId
+      if (input.notes !== undefined) patch.notes = input.notes
+      if (input.customFields !== undefined) {
+        patch.customFields = input.customFields
+      }
+      if (input.assetId !== undefined) {
+        if (input.assetId) {
+          const [asset] = await ctx.db
+            .select()
+            .from(assets)
+            .where(eq(assets.id, input.assetId))
+          if (!asset || asset.organizationId !== existing.organizationId) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "That asset belongs to a different organization.",
+            })
+          }
+        }
+        patch.assetId = input.assetId
+      }
 
       if (Object.keys(patch).length === 0) {
         throw new TRPCError({ code: "BAD_REQUEST" })
+      }
+
+      if (patch.assetId) {
+        await ctx.db
+          .update(devices)
+          .set({ assetId: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(devices.assetId, patch.assetId),
+              sql`${devices.id} <> ${existing.id}`
+            )
+          )
       }
 
       const [record] = await ctx.db
@@ -652,6 +724,8 @@ export const devicesRouter = createTRPCRouter({
           previousSiteId: existing.siteId,
           displayName: input.displayName ?? existing.displayName,
           hostname: input.hostname ?? existing.hostname,
+          notes: input.notes ?? existing.notes,
+          assetId: input.assetId ?? existing.assetId,
         },
       })
 
@@ -1004,6 +1078,146 @@ export const devicesRouter = createTRPCRouter({
       })
 
       return { updated: ids.length, skipped }
+    }),
+  importCsv: permissionProcedure("device:update")
+    .input(
+      z.object({
+        organizationId: z.string().uuid(),
+        csv: z.string().max(1_000_000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertAuthorized(ctx.actor, "device:update", {
+        kind: "device",
+        organizationId: input.organizationId,
+        siteId: null,
+      })
+      const parsed = parseDeviceBulkCsv(input.csv)
+      const errors = [...parsed.errors]
+      let updated = 0
+
+      const siteRows = await ctx.db
+        .select({ id: sites.id, name: sites.name })
+        .from(sites)
+        .where(eq(sites.organizationId, input.organizationId))
+      const assetRows = await ctx.db
+        .select({ id: assets.id, tag: assets.tag })
+        .from(assets)
+        .where(eq(assets.organizationId, input.organizationId))
+
+      for (const row of parsed.rows) {
+        let device: typeof devices.$inferSelect | undefined
+        if (row.id) {
+          const [match] = await ctx.db
+            .select()
+            .from(devices)
+            .where(
+              and(
+                eq(devices.id, row.id),
+                eq(devices.organizationId, input.organizationId)
+              )
+            )
+          device = match
+        } else if (row.serial) {
+          const [match] = await ctx.db
+            .select()
+            .from(devices)
+            .where(
+              and(
+                eq(devices.organizationId, input.organizationId),
+                sql`replace(upper(coalesce(${devices.serialNumber}, '')), '-', '') = ${row.serial.replace(/[\s-]+/g, "").toUpperCase()}`
+              )
+            )
+            .limit(1)
+          device = match
+        } else if (row.hostname) {
+          const [match] = await ctx.db
+            .select()
+            .from(devices)
+            .where(
+              and(
+                eq(devices.organizationId, input.organizationId),
+                ilike(devices.hostname, row.hostname)
+              )
+            )
+            .limit(1)
+          device = match
+        }
+
+        if (!device) {
+          errors.push({ row: row.row, message: "Device was not found." })
+          continue
+        }
+        if (
+          !canActOn(ctx.actor, "device:update", {
+            organizationId: device.organizationId,
+            siteId: device.siteId,
+          })
+        ) {
+          errors.push({ row: row.row, message: "No access to that device." })
+          continue
+        }
+
+        let siteId = device.siteId
+        if (row.site) {
+          const site = /^[0-9a-f-]{36}$/i.test(row.site)
+            ? siteRows.find((entry) => entry.id === row.site)
+            : siteRows.find(
+                (entry) => entry.name.toLowerCase() === row.site!.toLowerCase()
+              )
+          if (!site) {
+            errors.push({ row: row.row, message: "Site was not found." })
+            continue
+          }
+          siteId = site.id
+        }
+
+        let assetId = device.assetId
+        if (row.assetTag) {
+          const asset = assetRows.find(
+            (entry) => entry.tag.toLowerCase() === row.assetTag!.toLowerCase()
+          )
+          if (!asset) {
+            errors.push({ row: row.row, message: "Asset tag was not found." })
+            continue
+          }
+          assetId = asset.id
+        }
+
+        const patch: Partial<typeof devices.$inferInsert> = {
+          updatedAt: new Date(),
+        }
+        if (row.displayName) patch.displayName = row.displayName
+        if (row.notes !== null) patch.notes = row.notes
+        if (row.tags.length > 0) patch.tags = row.tags
+        if (row.site) patch.siteId = siteId
+        if (row.assetTag) patch.assetId = assetId
+
+        if (Object.keys(patch).length <= 1) {
+          continue
+        }
+
+        await ctx.db.update(devices).set(patch).where(eq(devices.id, device.id))
+        await writeAuditEvent(ctx, {
+          eventType: "device_updated",
+          organizationId: device.organizationId,
+          deviceId: device.id,
+          eventData: { deviceId: device.id, bulk: true, row: row.row },
+        })
+        updated += 1
+      }
+
+      await writeAuditEvent(ctx, {
+        eventType: "inventory_imported",
+        organizationId: input.organizationId,
+        eventData: {
+          kind: "devices",
+          updated,
+          errorCount: errors.length,
+        },
+      })
+
+      return { created: 0, updated, skipped: errors.length, errors }
     }),
   services: permissionProcedure("device:view")
     .input(z.object({ deviceId: z.string().uuid() }))

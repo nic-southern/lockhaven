@@ -22,6 +22,8 @@ import { auditRouter } from "./routers/activity"
 import { alertsRouter } from "./routers/alerts"
 import { apiKeysRouter } from "./routers/api-keys"
 import { alertPoliciesRouter } from "./routers/alert-policies"
+import { assetsRouter } from "./routers/assets"
+import { customFieldsRouter } from "./routers/custom-fields"
 import { dashboardRouter } from "./routers/dashboard"
 import { devicesRouter } from "./routers/devices"
 import { maintenanceRouter } from "./routers/maintenance"
@@ -82,7 +84,10 @@ import {
   enrollmentTokenUpdateSchema,
   membershipStatuses,
   organizationRoles,
+  parseSiteBulkCsv,
   remoteSessionRequestSchema,
+  siteBusinessHoursSchema,
+  siteContactSchema,
   siteRoles,
   type ServiceType,
 } from "@nms/shared"
@@ -526,6 +531,9 @@ const siteCreateInput = z.object({
   name: z.string().min(1),
   timezone: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  address: z.string().trim().max(500).optional().nullable(),
+  contacts: z.array(siteContactSchema).max(8).optional(),
+  businessHours: siteBusinessHoursSchema.nullable().optional(),
   requireAccessReason: z.boolean().optional(),
   requireApproval: z.boolean().optional(),
 })
@@ -535,6 +543,9 @@ const siteUpdateInput = z.object({
   name: z.string().min(1),
   timezone: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  address: z.string().trim().max(500).optional().nullable(),
+  contacts: z.array(siteContactSchema).max(8).optional(),
+  businessHours: siteBusinessHoursSchema.nullable().optional(),
   requireAccessReason: z.boolean().optional(),
   requireApproval: z.boolean().optional(),
 })
@@ -933,6 +944,8 @@ export const appRouter = createTRPCRouter({
   sso: ssoRouter,
   reports: reportsRouter,
   fleet: fleetRouter,
+  assets: assetsRouter,
+  customFields: customFieldsRouter,
   accessRequests: accessRequestsRouter,
   system: systemRouter,
   health: publicProcedure.query(() => ({ ok: true })),
@@ -1074,6 +1087,9 @@ export const appRouter = createTRPCRouter({
             name: input.name,
             timezone: input.timezone ?? null,
             notes: input.notes ?? null,
+            address: input.address ?? null,
+            contacts: input.contacts ?? [],
+            businessHours: input.businessHours ?? null,
             requireAccessReason: input.requireAccessReason ?? false,
             requireApproval: input.requireApproval ?? false,
           })
@@ -1125,6 +1141,9 @@ export const appRouter = createTRPCRouter({
             name: input.name,
             timezone: input.timezone ?? null,
             notes: input.notes ?? null,
+            address: input.address ?? null,
+            contacts: input.contacts ?? [],
+            businessHours: input.businessHours ?? null,
             ...(input.requireAccessReason === undefined
               ? {}
               : { requireAccessReason: input.requireAccessReason }),
@@ -1152,6 +1171,96 @@ export const appRouter = createTRPCRouter({
           .where(eq(siteSshCredentials.siteId, record.id))
 
         return mapSiteWithSshCredential(record, sshCredential ?? null)
+      }),
+    importCsv: adminProcedure
+      .input(
+        z.object({
+          organizationId: z.string().uuid(),
+          csv: z.string().max(1_000_000),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        assertAuthorized(ctx.actor, "site:admin", {
+          kind: "organization",
+          organizationId: input.organizationId,
+        })
+        const [organization] = await ctx.db
+          .select({ id: organizations.id, name: organizations.name })
+          .from(organizations)
+          .where(eq(organizations.id, input.organizationId))
+        if (!organization) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        const parsed = parseSiteBulkCsv(input.csv)
+        const errors = [...parsed.errors]
+        let created = 0
+
+        const existingSites = await ctx.db
+          .select({ id: sites.id, name: sites.name })
+          .from(sites)
+          .where(eq(sites.organizationId, input.organizationId))
+
+        for (const row of parsed.rows) {
+          const orgMatch =
+            row.organization.toLowerCase() ===
+              organization.name.toLowerCase() ||
+            row.organization === organization.id
+          if (!orgMatch) {
+            errors.push({
+              row: row.row,
+              message: "Organization does not match this import.",
+            })
+            continue
+          }
+          if (
+            existingSites.some(
+              (site) => site.name.toLowerCase() === row.name.toLowerCase()
+            )
+          ) {
+            errors.push({
+              row: row.row,
+              message: "A site with that name already exists.",
+            })
+            continue
+          }
+
+          const [record] = await ctx.db
+            .insert(sites)
+            .values({
+              organizationId: input.organizationId,
+              name: row.name,
+              timezone: row.timezone,
+              notes: row.notes,
+              address: row.address,
+              contacts: row.contact ? [row.contact] : [],
+            })
+            .returning()
+          const keyPair = generateSiteSshKeyPair(
+            record.name.replaceAll(/\s+/g, "-").toLowerCase()
+          )
+          await upsertSiteSshCredential(
+            ctx.db,
+            record.id,
+            "root",
+            keyPair.privateKey,
+            keyPair.publicKey
+          )
+          existingSites.push({ id: record.id, name: record.name })
+          created += 1
+        }
+
+        await writeAuditEvent(ctx, {
+          organizationId: input.organizationId,
+          eventType: "inventory_imported",
+          eventData: {
+            kind: "sites",
+            created,
+            errorCount: errors.length,
+          },
+        })
+
+        return { created, updated: 0, skipped: errors.length, errors }
       }),
     generateSshCredential: adminProcedure
       .input(

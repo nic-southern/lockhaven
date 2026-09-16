@@ -1,4 +1,4 @@
-import { requestInfoFromHeaders } from "@nms/api-contract"
+import { requestInfoFromHeaders, tryLinkDeviceToAsset } from "@nms/api-contract"
 import {
   agentReleases,
   and,
@@ -282,6 +282,15 @@ export async function POST(request: Request) {
       now,
       metrics: input.metrics,
       packages: input.packages,
+    })
+
+    await tryLinkDeviceToAsset(tx, {
+      id: device.id,
+      organizationId: device.organizationId,
+      siteId: device.siteId,
+      assetId: device.assetId,
+      serialNumber: device.serialNumber,
+      hostname: adoptHostname ? input.hostname : device.hostname,
     })
 
     return settleDeviceCommands(tx, {

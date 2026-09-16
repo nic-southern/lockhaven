@@ -4,8 +4,11 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
+import { definitionAppliesTo } from "@nms/shared"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { CodeBlock } from "@/components/dashboard/code-block"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { FormField } from "@/components/dashboard/form-field"
@@ -38,6 +41,13 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
   const invalidate = useInvalidateDevice(device.id)
 
   const sitesQuery = trpc.sites.list.useQuery(undefined, { enabled: canUpdate })
+  const assetsQuery = trpc.assets.list.useQuery(undefined, {
+    enabled: canUpdate,
+  })
+  const customFieldsQuery = trpc.customFields.list.useQuery(
+    { organizationId: device.organizationId },
+    { enabled: canUpdate }
+  )
   const routePoliciesQuery = trpc.routePolicies.list.useQuery(undefined, {
     enabled: canUpdate,
   })
@@ -45,6 +55,18 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
   const [displayName, setDisplayName] = React.useState(device.displayName)
   const [hostname, setHostname] = React.useState(device.hostname ?? "")
   const [siteId, setSiteId] = React.useState(device.siteId ?? "")
+  const [notes, setNotes] = React.useState(device.notes ?? "")
+  const [assetId, setAssetId] = React.useState(device.assetId ?? "")
+  const [customFields, setCustomFields] = React.useState<
+    Record<string, string>
+  >(
+    Object.fromEntries(
+      Object.entries(device.customFields ?? {}).map(([key, value]) => [
+        key,
+        value == null ? "" : String(value),
+      ])
+    )
+  )
   const [routePolicyId, setRoutePolicyId] = React.useState(
     device.vpnIdentity?.routePolicyId ?? ""
   )
@@ -57,13 +79,34 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
     setDisplayName(device.displayName)
     setHostname(device.hostname ?? "")
     setSiteId(device.siteId ?? "")
+    setNotes(device.notes ?? "")
+    setAssetId(device.assetId ?? "")
+    setCustomFields(
+      Object.fromEntries(
+        Object.entries(device.customFields ?? {}).map(([key, value]) => [
+          key,
+          value == null ? "" : String(value),
+        ])
+      )
+    )
     setRoutePolicyId(device.vpnIdentity?.routePolicyId ?? "")
   }
 
   const detailsDirty =
     displayName.trim() !== device.displayName ||
     hostname.trim() !== (device.hostname ?? "") ||
-    siteId !== (device.siteId ?? "")
+    siteId !== (device.siteId ?? "") ||
+    notes !== (device.notes ?? "") ||
+    assetId !== (device.assetId ?? "") ||
+    JSON.stringify(customFields) !==
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(device.customFields ?? {}).map(([key, value]) => [
+            key,
+            value == null ? "" : String(value),
+          ])
+        )
+      )
   const policyDirty =
     routePolicyId !== (device.vpnIdentity?.routePolicyId ?? "")
 
@@ -163,6 +206,55 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
                 }))}
               />
             </FormField>
+            <FormField label="Asset" htmlFor="device-asset">
+              <SelectField
+                id="device-asset"
+                value={assetId}
+                onValueChange={setAssetId}
+                emptyLabel="Not linked"
+                options={(assetsQuery.data ?? [])
+                  .filter(
+                    (asset) =>
+                      asset.organizationId === device.organizationId &&
+                      (!asset.deviceId || asset.deviceId === device.id)
+                  )
+                  .map((asset) => ({
+                    value: asset.id,
+                    label: asset.tag,
+                  }))}
+              />
+            </FormField>
+            <FormField
+              label="Notes"
+              htmlFor="device-notes"
+              className="md:col-span-2"
+            >
+              <Textarea
+                id="device-notes"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+              />
+            </FormField>
+            {(customFieldsQuery.data ?? [])
+              .filter((field) => definitionAppliesTo(field.appliesTo, "device"))
+              .map((field) => (
+                <FormField
+                  key={field.id}
+                  label={field.label}
+                  htmlFor={`device-field-${field.key}`}
+                >
+                  <Input
+                    id={`device-field-${field.key}`}
+                    value={customFields[field.key] ?? ""}
+                    onChange={(event) =>
+                      setCustomFields((current) => ({
+                        ...current,
+                        [field.key]: event.target.value,
+                      }))
+                    }
+                  />
+                </FormField>
+              ))}
           </div>
           <div className="mt-6 flex gap-2">
             <Button
@@ -177,6 +269,9 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
                   displayName: displayName.trim(),
                   hostname: hostname.trim() || null,
                   siteId: siteId || null,
+                  notes: notes.trim() || null,
+                  assetId: assetId || null,
+                  customFields,
                 })
               }
             >
@@ -189,6 +284,18 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
                   setDisplayName(device.displayName)
                   setHostname(device.hostname ?? "")
                   setSiteId(device.siteId ?? "")
+                  setNotes(device.notes ?? "")
+                  setAssetId(device.assetId ?? "")
+                  setCustomFields(
+                    Object.fromEntries(
+                      Object.entries(device.customFields ?? {}).map(
+                        ([key, value]) => [
+                          key,
+                          value == null ? "" : String(value),
+                        ]
+                      )
+                    )
+                  )
                 }}
               >
                 Discard

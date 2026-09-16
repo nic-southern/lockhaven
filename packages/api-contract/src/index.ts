@@ -1,3 +1,4 @@
+export { tryLinkDeviceToAsset, tryLinkDevicesToAssets } from "./asset-link"
 export * from "./context"
 export * from "./list"
 export * from "./reporting-data"

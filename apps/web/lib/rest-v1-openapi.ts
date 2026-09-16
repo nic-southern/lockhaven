@@ -138,6 +138,34 @@ export const restV1OpenApi = {
         responses: { "200": { description: "Paged activity list" } },
       },
     },
+    "/assets": {
+      get: {
+        summary: "List assets",
+        parameters: [
+          { $ref: "#/components/parameters/limit" },
+          { $ref: "#/components/parameters/cursor" },
+          { $ref: "#/components/parameters/search" },
+        ],
+        responses: { "200": { description: "Paged asset list" } },
+      },
+    },
+    "/assets/{id}": {
+      get: {
+        summary: "Get an asset",
+        parameters: [
+          {
+            name: "id",
+            in: "path",
+            required: true,
+            schema: { type: "string", format: "uuid" },
+          },
+        ],
+        responses: {
+          "200": { description: "Asset" },
+          "404": { description: "Not found" },
+        },
+      },
+    },
     "/openapi.json": {
       get: {
         summary: "OpenAPI document",
