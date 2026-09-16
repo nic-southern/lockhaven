@@ -17,7 +17,10 @@ export const WORKER_JOB_SCHEDULES = [
   { name: "refresh-sessions", everyMs: 15_000 },
   { name: "flow-ingest", everyMs: 15_000 },
   { name: "notify", everyMs: 15_000 },
+  { name: "escalate-alerts", everyMs: 60_000 },
   { name: "rollup-connections", everyMs: 10 * 60 * 1000 },
+  { name: "rollup-uptime", everyMs: 60 * 60 * 1000 },
+  { name: "send-report-schedules", everyMs: 60 * 60 * 1000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ] as const
 

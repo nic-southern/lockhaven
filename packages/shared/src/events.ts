@@ -62,6 +62,10 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   access_request_denied: "notice",
   sso_settings_updated: "notice",
   sso_login_failed: "warning",
+  report_schedule_created: "notice",
+  report_schedule_updated: "notice",
+  report_schedule_deleted: "notice",
+  report_schedule_sent: "info",
 }
 
 /** Default severity for an event type; explicit overrides win at write time. */
