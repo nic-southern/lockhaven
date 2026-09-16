@@ -67,6 +67,7 @@ import { offlineAlertHours } from "./lifecycle"
 import { processNotificationDeliveries } from "./notify"
 import { PeerStateStore, type StoredPeerState } from "./peer-state"
 import { sendReportSchedules } from "./report-schedules"
+import { evaluateAgentVersions } from "./fleet"
 import { refreshRemoteSessions } from "./sessions"
 import { pruneUptimeHistory, rollupUptime } from "./uptime"
 
@@ -814,6 +815,7 @@ const schedules: Array<{ name: string; everyMs: number }> = [
   { name: "rollup-connections", everyMs: 10 * 60 * 1000 },
   { name: "rollup-uptime", everyMs: 60 * 60 * 1000 },
   { name: "send-report-schedules", everyMs: 60 * 60 * 1000 },
+  { name: "evaluate-agent-versions", everyMs: 60_000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ]
 
@@ -898,6 +900,9 @@ async function main() {
             break
           case "send-report-schedules":
             await sendReportSchedules()
+            break
+          case "evaluate-agent-versions":
+            await evaluateAgentVersions()
             break
           case "prune-history":
             await pruneHistory()

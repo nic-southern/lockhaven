@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import {
   ActivityIcon,
   BellRingIcon,
+  BoxesIcon,
   ClipboardCheckIcon,
   CableIcon,
   CalendarClockIcon,
@@ -86,6 +87,12 @@ const navSections: NavSection[] = [
         href: "/devices",
         label: "Devices",
         icon: MonitorIcon,
+        permissions: ["device:view"],
+      },
+      {
+        href: "/fleet",
+        label: "Fleet",
+        icon: BoxesIcon,
         permissions: ["device:view"],
       },
       {

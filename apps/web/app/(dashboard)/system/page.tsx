@@ -30,6 +30,7 @@ const jobLabels: Record<string, string> = {
   "rollup-connections": "Connection summaries",
   "rollup-uptime": "Uptime summaries",
   "send-report-schedules": "Scheduled reports",
+  "evaluate-agent-versions": "Agent versions",
   "prune-history": "History retention",
 }
 

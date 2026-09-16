@@ -15,6 +15,8 @@
 - Hub SSO is `0025_sso` (`organization_sso_settings`, `sso_provider`,
   `user.sso_mfa_trusted`).
 - Hub reporting is `0026_reporting` (`device_uptime_daily`, `report_schedules`).
+- Hub agent fleet is `0027_agent_fleet` (`agent_releases`, `device_commands`,
+  organization and site `agent_channel`).
 - Rebuild the schema package after any migration changes with `pnpm build:packages`.
 
 ## Bootstrapping

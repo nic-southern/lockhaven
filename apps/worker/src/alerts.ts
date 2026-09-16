@@ -250,4 +250,5 @@ export const alertKeys = {
   deviceOffline: (deviceId: string) => `device_offline:${deviceId}`,
   concentratorProbe: (deviceId: string) => `concentrator_probe:${deviceId}`,
   firewallSync: () => "firewall_sync_failed:hub",
+  agentOutdated: (deviceId: string) => `agent_outdated:${deviceId}`,
 }

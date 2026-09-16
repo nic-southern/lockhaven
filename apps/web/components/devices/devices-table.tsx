@@ -70,6 +70,7 @@ export const DEVICES_DEFAULT_VIEW: TableViewState = {
     status: false,
     vpnLatestEndpoint: false,
     agentVersion: false,
+    behind: false,
     createdAt: false,
   },
 }
@@ -106,6 +107,19 @@ export const DEVICES_BUILT_IN_VIEWS: SavedView[] = [
     state: {
       ...DEVICES_DEFAULT_VIEW,
       columnFilters: [{ id: "connectivity", value: ["revoked"] }],
+    },
+  },
+  {
+    id: "behind",
+    name: "Agent behind",
+    builtIn: true,
+    state: {
+      ...DEVICES_DEFAULT_VIEW,
+      columnVisibility: {
+        ...DEVICES_DEFAULT_VIEW.columnVisibility,
+        agentVersion: true,
+      },
+      columnFilters: [{ id: "behind", value: ["true"] }],
     },
   },
 ]
@@ -276,6 +290,24 @@ export function DevicesTable({
         ),
       },
     ]
+    if (data.behind.some((entry) => entry.count > 0)) {
+      list.splice(1, 0, {
+        columnId: "behind",
+        title: "Agent",
+        options: [
+          {
+            value: "true",
+            label: "Behind",
+            count: data.behind.find((entry) => entry.value === "true")?.count,
+          },
+          {
+            value: "false",
+            label: "Up to date",
+            count: data.behind.find((entry) => entry.value === "false")?.count,
+          },
+        ],
+      })
+    }
     if (!scopedSiteId && data.siteId.length > 1) {
       list.push({
         columnId: "siteId",
@@ -550,6 +582,15 @@ export function DevicesTable({
         ),
       },
       {
+        id: "behind",
+        accessorFn: () => "",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Agent freshness" />
+        ),
+        meta: { label: "Agent freshness" },
+        enableHiding: true,
+      },
+      {
         id: "lastSeenAt",
         accessorKey: "lastSeenAt",
         header: ({ column }) => (
@@ -688,6 +729,7 @@ export function DevicesTable({
             vpnLatestEndpoint: false,
             routePolicyId: false,
             agentVersion: false,
+            behind: false,
             createdAt: false,
             status: false,
             osFamily: false,

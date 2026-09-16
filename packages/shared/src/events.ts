@@ -66,6 +66,11 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   report_schedule_updated: "notice",
   report_schedule_deleted: "notice",
   report_schedule_sent: "info",
+  agent_release_created: "notice",
+  agent_release_updated: "notice",
+  agent_release_deleted: "notice",
+  agent_channel_updated: "notice",
+  device_command_enqueued: "notice",
 }
 
 /** Default severity for an event type; explicit overrides win at write time. */
@@ -80,6 +85,7 @@ export const alertKinds = [
   "firewall_sync_failed",
   "concentrator_probe",
   "check_in_secret_mismatch",
+  "agent_outdated",
 ] as const
 
 export type AlertKind = (typeof alertKinds)[number]
@@ -104,6 +110,7 @@ export const alertKindLabels: Record<AlertKind, string> = {
   firewall_sync_failed: "Firewall sync failed",
   concentrator_probe: "Unexpected traffic to the hub",
   check_in_secret_mismatch: "Check-in secret rejected",
+  agent_outdated: "Agent outdated",
 }
 
 export const alertKindDefaultSeverity: Record<AlertKind, AuditSeverity> = {
@@ -113,6 +120,7 @@ export const alertKindDefaultSeverity: Record<AlertKind, AuditSeverity> = {
   firewall_sync_failed: "critical",
   concentrator_probe: "warning",
   check_in_secret_mismatch: "critical",
+  agent_outdated: "warning",
 }
 
 export const notificationChannelTypes = ["email", "webhook"] as const

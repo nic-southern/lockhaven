@@ -1,10 +1,13 @@
 import { requestInfoFromHeaders } from "@nms/api-contract"
 import {
+  agentReleases,
   and,
   auditEvents,
   devices,
   eq,
   managementServices,
+  organizations,
+  sites,
   vpnIdentities,
 } from "@nms/db"
 import { db } from "@nms/db/client"
@@ -18,6 +21,7 @@ import {
 } from "@nms/shared"
 
 import { ingestDeviceTelemetry } from "@/lib/device-telemetry"
+import { desiredCheckInRelease, settleDeviceCommands } from "@/lib/agent-fleet"
 
 import { agentSecretMatches } from "@/lib/agent-secret"
 import {
@@ -183,7 +187,35 @@ export async function POST(request: Request) {
       : "vpn_online"
     : "offline"
 
-  await db.transaction(async (tx: TransactionClient) => {
+  const [[organization], siteRows, releaseRows] = await Promise.all([
+    db
+      .select({ agentChannel: organizations.agentChannel })
+      .from(organizations)
+      .where(eq(organizations.id, device.organizationId)),
+    device.siteId
+      ? db
+          .select({ agentChannel: sites.agentChannel })
+          .from(sites)
+          .where(eq(sites.id, device.siteId))
+      : Promise.resolve([] as Array<{ agentChannel: string | null }>),
+    db
+      .select({
+        version: agentReleases.version,
+        channel: agentReleases.channel,
+        platform: agentReleases.platform,
+        downloadUrl: agentReleases.downloadUrl,
+      })
+      .from(agentReleases),
+  ])
+
+  const desired = desiredCheckInRelease({
+    releases: releaseRows,
+    siteChannel: siteRows[0]?.agentChannel,
+    organizationChannel: organization?.agentChannel,
+    osFamily: input.os_family,
+  })
+
+  const commands = await db.transaction(async (tx: TransactionClient) => {
     await tx
       .update(devices)
       .set({
@@ -251,10 +283,19 @@ export async function POST(request: Request) {
       metrics: input.metrics,
       packages: input.packages,
     })
+
+    return settleDeviceCommands(tx, {
+      deviceId: input.device_id,
+      results: input.command_results,
+      now,
+    })
   })
 
-  // PR H will populate `commands` from `device_commands`. Until then Hub
-  // still returns the typed list (empty) so the agent never sees a free-form
-  // shell string.
-  return Response.json(hubCheckInResponse({ commands: [] }))
+  return Response.json(
+    hubCheckInResponse({
+      desiredAgentVersion: desired?.version,
+      downloadUrl: desired?.downloadUrl,
+      commands,
+    })
+  )
 }
