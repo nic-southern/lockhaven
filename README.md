@@ -221,6 +221,9 @@ Compose file and containers need:
 - `MAIL_FROM`, plus `RESEND_API_KEY` or `SMTP_URL` for outbound mail
 - `SESSION_RECORDING_ROOT` and `SESSION_RECORDING_RETENTION_DAYS` for
   session recordings (optional; defaults are set in Compose)
+- `SSO_OIDC_ISSUER`, `SSO_OIDC_DISCOVERY_URL`, `SSO_OIDC_CLIENT_ID`,
+  `SSO_OIDC_CLIENT_SECRET`, and `SSO_ALLOWED_DOMAINS` for single sign-on
+  (optional until a real client secret is set on the host)
 - `WEB_IMAGE` and `WORKER_IMAGE`
 
 You can use the published Lockhaven images directly; you only need to build and

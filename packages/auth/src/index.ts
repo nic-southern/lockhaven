@@ -6,7 +6,8 @@ import {
   createAuthMiddleware,
   getSessionFromCtx,
 } from "better-auth/api"
-import { haveIBeenPwned, twoFactor } from "better-auth/plugins"
+import { haveIBeenPwned, twoFactor, genericOAuth } from "better-auth/plugins"
+import { sso } from "@better-auth/sso"
 import { eq } from "drizzle-orm"
 // Referenced so declaration emit can name passkey option types.
 import type {} from "@simplewebauthn/server"
@@ -22,10 +23,19 @@ import {
 
 import { recordAuthEvent, requestContextFromHeaders } from "./audit"
 import { hashPassword, verifyPassword } from "./password"
+import {
+  getPlatformSsoConfig,
+  localSignInBlockedForEmail,
+  provisionSsoLogin,
+  ssoGenericOAuthConfig,
+  ssoUserInfoFromTokens,
+  trustedSsoProviderIds,
+} from "./sso"
 export * from "./access"
 export * from "./api-keys"
 export * from "./audit"
 export { hashPassword, verifyPassword } from "./password"
+export * from "./sso"
 
 export const SESSION_MAX_AGE_SECONDS = 12 * 60 * 60
 export const SESSION_REFRESH_AGE_SECONDS = 60 * 60
@@ -38,11 +48,30 @@ const LOGIN_COMPLETION_PATHS = new Set([
   "/passkey/verify-authentication",
 ])
 
+function isSsoCompletionPath(path: string) {
+  return (
+    path.startsWith("/oauth2/callback") ||
+    path.startsWith("/sso/callback") ||
+    path.startsWith("/sso/saml2/callback") ||
+    path.startsWith("/sso/saml2/sp/acs")
+  )
+}
+
 const LOGIN_METHOD_BY_PATH: Record<string, string> = {
   "/sign-in/email": "password",
   "/two-factor/verify-totp": "password+totp",
   "/two-factor/verify-backup-code": "password+backup_code",
   "/passkey/verify-authentication": "passkey",
+}
+
+function loginMethodForPath(path: string) {
+  if (LOGIN_METHOD_BY_PATH[path]) {
+    return LOGIN_METHOD_BY_PATH[path]
+  }
+  if (isSsoCompletionPath(path)) {
+    return "sso"
+  }
+  return "password"
 }
 
 type AuthHookContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0]
@@ -152,6 +181,8 @@ export const auth = betterAuth({
     customRules: {
       "/sign-in/email": { window: 60, max: 8 },
       "/sign-in/passkey": { window: 60, max: 15 },
+      "/sign-in/oauth2": { window: 60, max: 15 },
+      "/sign-in/sso": { window: 60, max: 15 },
       "/two-factor/verify-totp": { window: 60, max: 8 },
       "/two-factor/verify-backup-code": { window: 300, max: 5 },
       "/change-password": { window: 300, max: 5 },
@@ -187,6 +218,13 @@ export const auth = betterAuth({
       verify: ({ password, hash }) => verifyPassword(password, hash),
     },
   },
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: trustedSsoProviderIds(),
+      allowDifferentEmails: false,
+    },
+  },
   session: {
     expiresIn: SESSION_MAX_AGE_SECONDS,
     updateAge: SESSION_REFRESH_AGE_SECONDS,
@@ -214,10 +252,36 @@ export const auth = betterAuth({
         defaultValue: false,
         input: false,
       },
+      ssoMfaTrusted: {
+        type: "boolean",
+        required: false,
+        defaultValue: false,
+        input: false,
+      },
     },
   },
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/sign-in/email" || ctx.path === "/sign-in/passkey") {
+        const block = await localSignInBlockedForEmail(bodyEmail(ctx.body))
+        if (block.blocked) {
+          await recordAuthEvent({
+            eventType: "sso_login_failed",
+            eventData: {
+              email: bodyEmail(ctx.body),
+              method: "password",
+              reason: block.reason,
+            },
+            request: requestContextFromHeaders(ctx.headers),
+          })
+          throw new APIError("FORBIDDEN", {
+            message:
+              block.reason === "idp_unavailable"
+                ? "Sign-in is temporarily unavailable. Try again later."
+                : "Sign in with SSO to continue.",
+          })
+        }
+      }
       if (ctx.path === "/sign-out") {
         const session = await getSessionFromCtx(ctx).catch(() => null)
         if (session?.user) {
@@ -240,7 +304,19 @@ export const auth = betterAuth({
           eventType: "admin_login_failed",
           eventData: {
             email: bodyEmail(ctx.body),
-            method: LOGIN_METHOD_BY_PATH[ctx.path] ?? "password",
+            method: loginMethodForPath(ctx.path),
+            reason: returned.body?.code ?? returned.status,
+          },
+          request,
+        })
+        return
+      }
+
+      if (isSsoCompletionPath(ctx.path) && failed) {
+        await recordAuthEvent({
+          eventType: "sso_login_failed",
+          eventData: {
+            method: "sso",
             reason: returned.body?.code ?? returned.status,
           },
           request,
@@ -278,7 +354,7 @@ export const auth = betterAuth({
             actorUserId: newSession.user.id,
             eventData: {
               sessionId: newSession.session.id,
-              method: LOGIN_METHOD_BY_PATH[ctx.path] ?? "password",
+              method: loginMethodForPath(ctx.path),
             },
             request,
           })
@@ -286,6 +362,42 @@ export const auth = betterAuth({
         if (ctx.path !== "/two-factor/verify-totp") {
           return
         }
+      }
+
+      if (isSsoCompletionPath(ctx.path)) {
+        const newSession = ctx.context.newSession
+        if (newSession?.user?.id) {
+          const provisioned = await provisionSsoLogin({
+            userId: newSession.user.id,
+            email: newSession.user.email,
+          })
+          if (!provisioned.ok && provisioned.reason === "domain") {
+            await recordAuthEvent({
+              eventType: "sso_login_failed",
+              actorUserId: newSession.user.id,
+              eventData: { method: "sso", reason: "domain" },
+              request,
+            })
+            throw new APIError("FORBIDDEN", {
+              message: "Sign in with SSO to continue.",
+            })
+          }
+          const now = new Date()
+          await db
+            .update(schema.user)
+            .set({ lastLoginAt: now, updatedAt: now })
+            .where(eq(schema.user.id, newSession.user.id))
+          await recordAuthEvent({
+            eventType: "sso_login",
+            actorUserId: newSession.user.id,
+            eventData: {
+              sessionId: newSession.session.id,
+              method: "sso",
+            },
+            request,
+          })
+        }
+        return
       }
 
       if (
@@ -412,6 +524,68 @@ export const auth = betterAuth({
     ...(isProduction() && process.env.DISABLE_PWNED_PASSWORD_CHECK !== "true"
       ? [haveIBeenPwned()]
       : []),
+    ...(ssoGenericOAuthConfig()
+      ? [
+          genericOAuth({
+            config: [
+              {
+                ...ssoGenericOAuthConfig()!,
+                getUserInfo: async (tokens) => {
+                  const result = await ssoUserInfoFromTokens(tokens)
+                  if (!result.ok) {
+                    throw new APIError("FORBIDDEN", {
+                      message:
+                        result.reason === "inactive"
+                          ? "This account is currently suspended. Contact an administrator."
+                          : "Sign in with SSO to continue.",
+                    })
+                  }
+                  return result.user
+                },
+              },
+            ],
+          }),
+        ]
+      : []),
+    sso({
+      provisionUser: async ({ user: ssoUser, userInfo }) => {
+        const claims =
+          userInfo && typeof userInfo === "object"
+            ? (userInfo as Record<string, unknown>)
+            : {}
+        await provisionSsoLogin({
+          userId: ssoUser.id,
+          email: ssoUser.email,
+          claims,
+        })
+      },
+      provisionUserOnEveryLogin: true,
+      organizationProvisioning: { disabled: true },
+      providersLimit: 0,
+      trustEmailVerified: true,
+      ...(getPlatformSsoConfig().saml.enabled
+        ? {
+            defaultSSO: [
+              {
+                domain: getPlatformSsoConfig().allowedDomains[0] ?? "*",
+                providerId: getPlatformSsoConfig().saml.providerId,
+                samlConfig: {
+                  issuer: getPlatformSsoConfig().issuer,
+                  entryPoint: getPlatformSsoConfig().saml.entryPoint,
+                  cert: getPlatformSsoConfig().saml.cert,
+                  audience:
+                    getPlatformSsoConfig().saml.audience || getAuthBaseUrl(),
+                  callbackUrl: `${getAuthBaseUrl()}/api/auth/sso/saml2/callback/${getPlatformSsoConfig().saml.providerId}`,
+                  spMetadata: {
+                    entityID: getAuthBaseUrl(),
+                    binding: "post",
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    }),
   ],
 })
 

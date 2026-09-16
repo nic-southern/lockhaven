@@ -446,6 +446,9 @@ export const auditEventTypeSchema = z.enum([
   "access_request_created",
   "access_request_approved",
   "access_request_denied",
+  "sso_settings_updated",
+  "sso_login",
+  "sso_login_failed",
 ])
 
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>

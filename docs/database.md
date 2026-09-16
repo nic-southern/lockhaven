@@ -11,6 +11,9 @@
 - Keep migration filenames in a single numeric sequence.
 - Generate new migrations with `pnpm --filter @nms/db db:generate`.
 - Apply them with `pnpm --filter @nms/db db:migrate`.
+- Hub MSP work uses `0021`–`0039`. Client-agent telemetry uses `0040+`.
+- Hub SSO is `0025_sso` (`organization_sso_settings`, `sso_provider`,
+  `user.sso_mfa_trusted`).
 - Rebuild the schema package after any migration changes with `pnpm build:packages`.
 
 ## Bootstrapping

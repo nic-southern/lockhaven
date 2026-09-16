@@ -30,6 +30,7 @@ export type ActorSecurityState = {
   mustChangePassword: boolean
   passkeyCount: number
   lastLoginAt: Date | null
+  ssoMfaTrusted: boolean
 }
 
 export type ActorPrincipal = {

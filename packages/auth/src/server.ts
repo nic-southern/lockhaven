@@ -127,6 +127,7 @@ export async function resolveAdminPrincipalByEmail(
       mustChangePassword: record.mustChangePassword,
       passkeyCount: Number(passkeyCountRow?.total ?? 0),
       lastLoginAt: record.lastLoginAt,
+      ssoMfaTrusted: record.ssoMfaTrusted,
     },
     uiScope: "admin",
   }

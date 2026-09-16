@@ -161,6 +161,20 @@ the session ends. Override with:
 - `ACCESS_REQUEST_TTL_HOURS` — how long an access request stays valid
   (default `8`).
 
+### Single sign-on
+
+The Console can sign people in through the company identity provider.
+Set `SSO_OIDC_*` in `.env.deploy` and keep the client secret on the host.
+See [Single sign-on](sso.md).
+
+- `SSO_OIDC_ISSUER` — default `https://auth.newmarketsecurity.com/realms/nms`.
+- `SSO_OIDC_DISCOVERY_URL` — OpenID discovery document.
+- `SSO_OIDC_CLIENT_ID` — default `lockhaven`.
+- `SSO_OIDC_CLIENT_SECRET` — host-only; use `replace_me` in examples.
+- `SSO_ALLOWED_DOMAINS` — comma-separated email domains allowed to join.
+- `SSO_REQUIRED` — when `true`, local sign-in is closed.
+- `SSO_TRUST_IDP_MFA` — skip the in-app authenticator after SSO.
+
 ### Production Expectations
 
 - Use the published Lockhaven images, or build and push your own customized web

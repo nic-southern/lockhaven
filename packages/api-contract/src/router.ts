@@ -34,6 +34,7 @@ import { accessRequestsRouter } from "./routers/access-requests"
 import { systemRouter } from "./routers/system"
 import { telemetryRouter } from "./routers/telemetry"
 import { usersRouter } from "./routers/users"
+import { ssoRouter } from "./routers/sso"
 import { getRemoteAccessProvider } from "./remote-session-provider"
 import {
   consumeAccessRequest,
@@ -927,6 +928,7 @@ export const appRouter = createTRPCRouter({
   users: usersRouter,
   apiKeys: apiKeysRouter,
   notifications: notificationsRouter,
+  sso: ssoRouter,
   accessRequests: accessRequestsRouter,
   system: systemRouter,
   health: publicProcedure.query(() => ({ ok: true })),

@@ -36,6 +36,8 @@ import {
   type RoutePolicyColor,
   type RoutePolicyEntry,
   type SiteGrant,
+  type SsoClaimsMap,
+  type SsoProtocol,
 } from "@nms/shared"
 
 export const statusEnum = pgEnum("device_status", deviceStatuses)
@@ -106,6 +108,7 @@ export const user = pgTable("user", {
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
   invitedBy: text("invited_by"),
+  ssoMfaTrusted: boolean("sso_mfa_trusted").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1254,6 +1257,84 @@ export const devicePackages = pgTable(
   })
 )
 
+export const organizationSsoSettings = pgTable(
+  "organization_sso_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(false),
+    required: boolean("required").notNull().default(false),
+    protocol: text("protocol").$type<SsoProtocol>().notNull().default("oidc"),
+    usePlatformIdp: boolean("use_platform_idp").notNull().default(true),
+    allowedDomains: jsonb("allowed_domains")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    trustIdpMfa: boolean("trust_idp_mfa").notNull().default(false),
+    claimsMap: jsonb("claims_map")
+      .$type<SsoClaimsMap>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    defaultOrganizationRole: organizationRoleEnum("default_organization_role")
+      .notNull()
+      .default("technician"),
+    providerId: text("provider_id"),
+    issuer: text("issuer"),
+    discoveryUrl: text("discovery_url"),
+    clientId: text("client_id"),
+    clientSecret: jsonb("client_secret").$type<{
+      ciphertext: string
+      iv: string
+      authTag: string
+    } | null>(),
+    samlEntryPoint: text("saml_entry_point"),
+    samlCertificate: text("saml_certificate"),
+    samlAudience: text("saml_audience"),
+    samlMetadataXml: text("saml_metadata_xml"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationIdx: uniqueIndex(
+      "organization_sso_settings_organization_idx"
+    ).on(table.organizationId),
+    providerIdx: uniqueIndex("organization_sso_settings_provider_idx")
+      .on(table.providerId)
+      .where(sql`${table.providerId} is not null`),
+  })
+)
+
+export const ssoProvider = pgTable(
+  "sso_provider",
+  {
+    id: text("id").primaryKey(),
+    issuer: text("issuer").notNull(),
+    domain: text("domain").notNull(),
+    oidcConfig: text("oidc_config"),
+    samlConfig: text("saml_config"),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    providerId: text("provider_id").notNull(),
+    organizationId: text("organization_id"),
+  },
+  (table) => ({
+    providerIdIdx: uniqueIndex("sso_provider_provider_id_idx").on(
+      table.providerId
+    ),
+    organizationIdx: index("sso_provider_organization_idx").on(
+      table.organizationId
+    ),
+  })
+)
+
 export type DeviceMetricsLatest = typeof deviceMetricsLatest.$inferSelect
 export type DeviceMetricsSample = typeof deviceMetricsSamples.$inferSelect
 export type DevicePackage = typeof devicePackages.$inferSelect
+export type OrganizationSsoSettings =
+  typeof organizationSsoSettings.$inferSelect
+export type SsoProvider = typeof ssoProvider.$inferSelect
