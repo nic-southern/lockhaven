@@ -228,7 +228,12 @@ async function syncBetterAuthProvider(
 export const ssoRouter = createTRPCRouter({
   status: publicProcedure.query(async ({ ctx }) => {
     const platform = getPlatformSsoConfig()
-    const rows = await ctx.db.select().from(organizationSsoSettings)
+    let rows: Array<typeof organizationSsoSettings.$inferSelect> = []
+    try {
+      rows = await ctx.db.select().from(organizationSsoSettings)
+    } catch {
+      rows = []
+    }
     const orgEnabled = rows.some((row) => row.enabled)
     const required =
       platform.required || rows.some((row) => row.enabled && row.required)
@@ -270,7 +275,12 @@ export const ssoRouter = createTRPCRouter({
     .input(z.object({ email: z.string().email().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const platform = getPlatformSsoConfig()
-      const rows = await ctx.db.select().from(organizationSsoSettings)
+      let rows: Array<typeof organizationSsoSettings.$inferSelect> = []
+      try {
+        rows = await ctx.db.select().from(organizationSsoSettings)
+      } catch {
+        rows = []
+      }
       const email = input?.email?.toLowerCase() ?? null
       const policy = email ? matchOrgSsoSettings(email, rows, platform) : null
       return {
