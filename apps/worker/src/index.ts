@@ -282,6 +282,7 @@ async function observePeer(args: {
   if (flapping) {
     await raiseAlert({
       kind: "peer_flapping",
+      mode: "condition",
       dedupeKey: alertKeys.peerFlapping(identity.deviceId),
       organizationId: identity.organizationId,
       siteId: identity.siteId,
@@ -313,6 +314,7 @@ async function observePeer(args: {
   ) {
     await raiseAlert({
       kind: "device_offline",
+      mode: "condition",
       dedupeKey: alertKeys.deviceOffline(identity.deviceId),
       organizationId: identity.organizationId,
       siteId: identity.siteId,
@@ -373,6 +375,7 @@ async function syncFirewall(command: string[]) {
 
   await raiseAlert({
     kind: "firewall_sync_failed",
+    mode: "condition",
     dedupeKey: alertKeys.firewallSync(),
     detail: { message: result.message, lastAttemptAt: now.toISOString() },
   })
@@ -637,51 +640,105 @@ function ensureHostRoute(value: string) {
   return value.includes("/") ? value.trim() : `${ip}/32`
 }
 
+/** How many service probes run at once. */
+const SERVICE_PROBE_CONCURRENCY = 8
+
+/** A tunnel with no handshake in this window is treated as down. */
+const TUNNEL_ONLINE_WINDOW_MS = 3 * 60 * 1000
+
+async function mapConcurrent<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>
+) {
+  let next = 0
+  const runners = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (next < items.length) {
+        const item = items[next++]
+        await fn(item)
+      }
+    }
+  )
+  await Promise.all(runners)
+}
+
+/**
+ * Probes each published service over the tunnel. Devices whose tunnel is
+ * down are marked without a probe: every one would otherwise cost a full
+ * connect timeout, which is what let this job fall minutes behind.
+ */
 async function refreshServiceHealth() {
-  const services = await db.select().from(managementServices)
-
-  for (const service of services) {
-    const [device] = await db
-      .select()
-      .from(devices)
-      .where(eq(devices.id, service.deviceId))
-    if (!device) {
-      continue
-    }
-
-    const identity = await db
-      .select()
-      .from(vpnIdentities)
-      .where(eq(vpnIdentities.deviceId, device.id))
-      .then((rows) => rows[0] ?? null)
-
-    if (!identity) {
-      continue
-    }
-
-    const host = normalizeVpnIpv4(String(identity.vpnIpv4))
-    const reachable = await tcpReachable(host, service.port)
-    const status = deriveDeviceStatus({
-      handshakeAt: identity.lastHandshakeAt,
-      serviceReachable: reachable,
-      revoked: Boolean(identity.revokedAt),
+  const now = new Date()
+  const rows = await db
+    .select({
+      serviceId: managementServices.id,
+      port: managementServices.port,
+      deviceId: devices.id,
+      vpnIpv4: vpnIdentities.vpnIpv4,
+      lastHandshakeAt: vpnIdentities.lastHandshakeAt,
+      revokedAt: vpnIdentities.revokedAt,
     })
+    .from(managementServices)
+    .innerJoin(devices, eq(devices.id, managementServices.deviceId))
+    .innerJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
 
-    await db
-      .update(devices)
-      .set({
+  const results = new Map<string, boolean>()
+
+  await mapConcurrent(rows, SERVICE_PROBE_CONCURRENCY, async (row) => {
+    const tunnelUp =
+      !row.revokedAt &&
+      row.lastHandshakeAt !== null &&
+      now.getTime() - row.lastHandshakeAt.getTime() < TUNNEL_ONLINE_WINDOW_MS
+    const reachable = tunnelUp
+      ? await tcpReachable(normalizeVpnIpv4(String(row.vpnIpv4)), row.port)
+      : false
+    results.set(row.serviceId, reachable)
+  })
+
+  const deviceStatus = new Map<
+    string,
+    { status: ReturnType<typeof deriveDeviceStatus>; online: boolean }
+  >()
+
+  for (const row of rows) {
+    const reachable = results.get(row.serviceId) ?? false
+    const status = deriveDeviceStatus({
+      handshakeAt: row.lastHandshakeAt,
+      serviceReachable: reachable,
+      revoked: Boolean(row.revokedAt),
+    })
+    // A device with several services is online if any of them answers.
+    const current = deviceStatus.get(row.deviceId)
+    if (
+      !current ||
+      (status === "service_online" && current.status !== "service_online")
+    ) {
+      deviceStatus.set(row.deviceId, {
         status,
-        lastSeenAt: new Date(),
+        online: status !== "offline" && status !== "revoked",
       })
-      .where(eq(devices.id, device.id))
+    }
 
     await db
       .update(managementServices)
       .set({
         healthStatus: reachable ? "online" : "offline",
-        lastCheckedAt: new Date(),
+        lastCheckedAt: now,
       })
-      .where(eq(managementServices.id, service.id))
+      .where(eq(managementServices.id, row.serviceId))
+  }
+
+  for (const [deviceId, entry] of deviceStatus) {
+    await db
+      .update(devices)
+      .set({
+        status: entry.status,
+        // Only contact over the tunnel counts as having seen the device.
+        ...(entry.online ? { lastSeenAt: now } : {}),
+      })
+      .where(eq(devices.id, deviceId))
   }
 }
 
@@ -696,10 +753,62 @@ async function pruneHistory() {
   await pruneConnectionHistory(now)
 }
 
+/**
+ * Periodic jobs and how often each recurs. A job scheduler keeps exactly one
+ * pending instance per job, so a slow pass delays the next one instead of
+ * piling up a backlog that runs hours late.
+ */
+const schedules: Array<{ name: string; everyMs: number }> = [
+  { name: "reconcile-vpn", everyMs: 15_000 },
+  { name: "refresh-services", everyMs: 30_000 },
+  { name: "refresh-sessions", everyMs: 15_000 },
+  { name: "flow-ingest", everyMs: 15_000 },
+  { name: "rollup-connections", everyMs: 10 * 60 * 1000 },
+  { name: "prune-history", everyMs: 60 * 60 * 1000 },
+]
+
+/**
+ * Earlier releases enqueued a fresh job every tick regardless of progress and
+ * kept every finished job forever. Clear whatever that left behind so the
+ * schedulers start from an empty queue.
+ */
+async function clearLegacyBacklog(queue: Queue) {
+  const waiting = await queue.getJobCountByTypes("wait", "delayed", "paused")
+  if (waiting > 0) {
+    await queue.drain(true)
+    console.info("dropped stale queued jobs", { count: waiting })
+  }
+  for (const state of ["completed", "failed"] as const) {
+    let removed = 0
+    for (;;) {
+      const ids = await queue.clean(0, 10_000, state)
+      removed += ids.length
+      if (ids.length < 10_000) break
+    }
+    if (removed > 0) {
+      console.info("removed retained job records", { state, count: removed })
+    }
+  }
+}
+
 async function main() {
   const queue = new Queue("management-maintenance", {
     connection,
+    defaultJobOptions: {
+      removeOnComplete: true,
+      removeOnFail: { count: 200 },
+    },
   })
+
+  await clearLegacyBacklog(queue)
+
+  for (const schedule of schedules) {
+    await queue.upsertJobScheduler(
+      schedule.name,
+      { every: schedule.everyMs },
+      { name: schedule.name, data: {} }
+    )
+  }
 
   const worker = new Worker(
     "management-maintenance",
@@ -729,47 +838,22 @@ async function main() {
     },
     {
       connection,
-      concurrency: 2,
+      concurrency: 4,
     }
   )
 
   worker.on("completed", (job) => {
-    console.info("completed", job.name)
+    const durationMs =
+      job.finishedOn && job.processedOn ? job.finishedOn - job.processedOn : 0
+    console.info("completed", job.name, `${durationMs}ms`)
   })
 
   worker.on("failed", (job, error) => {
     console.error("failed", job?.name, error)
   })
-
-  await queue.addBulk([
-    { name: "reconcile-vpn", data: {} },
-    { name: "refresh-services", data: {} },
-    { name: "refresh-sessions", data: {} },
-    { name: "flow-ingest", data: {} },
-    { name: "rollup-connections", data: {} },
-    { name: "prune-history", data: {} },
-  ])
-
-  setInterval(() => {
-    void queue.add("reconcile-vpn", {})
-    void queue.add("refresh-services", {})
-    void queue.add("refresh-sessions", {})
-    void queue.add("flow-ingest", {})
-  }, 15_000)
-
-  setInterval(
-    () => {
-      void queue.add("rollup-connections", {})
-    },
-    10 * 60 * 1000
-  )
-
-  setInterval(
-    () => {
-      void queue.add("prune-history", {})
-    },
-    60 * 60 * 1000
-  )
 }
 
-void main()
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
