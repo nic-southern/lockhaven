@@ -38,7 +38,7 @@ export function DataTablePagination<TData>({
   const end = Math.min(rowCount, (pageIndex + 1) * pageSize)
 
   return (
-    <div className="flex flex-col gap-3 px-1 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-1 text-sm text-muted-foreground">
       <div className="flex items-center gap-2 tabular-nums">
         {selectedCount > 0 ? (
           <span>
@@ -52,7 +52,7 @@ export function DataTablePagination<TData>({
           </span>
         ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-4 sm:gap-6">
+      <div className="ml-auto flex flex-wrap items-center gap-3 sm:gap-6">
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline">Rows per page</span>
           <Select
@@ -77,7 +77,8 @@ export function DataTablePagination<TData>({
         </div>
         <div className="flex items-center gap-1">
           <span className="mr-2 tabular-nums">
-            Page {pageCount === 0 ? 0 : pageIndex + 1} of {pageCount}
+            Page {pageCount === 0 ? 1 : pageIndex + 1} of{" "}
+            {Math.max(1, pageCount)}
           </span>
           <Button
             variant="outline"

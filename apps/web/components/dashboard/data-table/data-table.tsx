@@ -121,6 +121,13 @@ function normalizeSearch(value: unknown) {
   return String(value)
 }
 
+/**
+ * Full-width cells (empty states, expanded details) live inside a table that
+ * may be wider than its scroll container. Sizing them to the container and
+ * pinning them to its left edge keeps them readable without side-scrolling.
+ */
+const PINNED_TO_VIEWPORT = "sticky left-0 w-[100cqw]"
+
 export function DataTable<TData, TValue>({
   columns,
   data,
@@ -374,7 +381,7 @@ export function DataTable<TData, TValue>({
           tableClassName
         )}
       >
-        <Table>
+        <Table containerClassName="@container/table">
           <TableHeader className="bg-muted/40">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="hover:bg-transparent">
@@ -426,20 +433,22 @@ export function DataTable<TData, TValue>({
             ) : rows.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={visibleColumnCount} className="p-0">
-                  {hasSourceRows && isFiltered ? (
-                    <EmptyState
-                      title={filteredEmptyTitle}
-                      description={filteredEmptyDescription}
-                      bordered={false}
-                    />
-                  ) : (
-                    <EmptyState
-                      title={emptyTitle}
-                      description={emptyDescription}
-                      action={emptyAction}
-                      bordered={false}
-                    />
-                  )}
+                  <div className={PINNED_TO_VIEWPORT}>
+                    {hasSourceRows && isFiltered ? (
+                      <EmptyState
+                        title={filteredEmptyTitle}
+                        description={filteredEmptyDescription}
+                        bordered={false}
+                      />
+                    ) : (
+                      <EmptyState
+                        title={emptyTitle}
+                        description={emptyDescription}
+                        action={emptyAction}
+                        bordered={false}
+                      />
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             ) : (
@@ -491,7 +500,9 @@ export function DataTable<TData, TValue>({
                         className="bg-muted/30 hover:bg-muted/30"
                       >
                         <TableCell colSpan={visibleColumnCount} className="p-0">
-                          {renderExpanded(row.original)}
+                          <div className={PINNED_TO_VIEWPORT}>
+                            {renderExpanded(row.original)}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : null}
