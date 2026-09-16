@@ -18,21 +18,37 @@ export type RaiseAlertInput = {
   title?: string
   detail?: Record<string, unknown>
   severity?: AuditSeverity
+  /**
+   * `event` (default): each call is a distinct happening and counts as a new
+   * occurrence while the alert stays open.
+   * `condition`: the caller re-asserts an ongoing state on every pass, so an
+   * open alert only has its last-seen time refreshed; the occurrence count
+   * records how many times the condition began.
+   */
+  mode?: "event" | "condition"
 }
 
+/** How stale an open condition alert may get before its last-seen time is rewritten. */
+const CONDITION_TOUCH_INTERVAL_MS = 60_000
+
 /**
- * Opens an alert or, when the same condition is already open, bumps its
- * occurrence count. Acknowledged alerts keep their acknowledgement; only a
- * resolved alert followed by a repeat opens a fresh row.
+ * Opens an alert or, when the same condition is already open, records the
+ * repeat. Acknowledged alerts keep their acknowledgement; only a resolved
+ * alert followed by a repeat opens a fresh row.
  */
 export async function raiseAlert(input: RaiseAlertInput) {
   const now = new Date()
   const severity = input.severity ?? alertKindDefaultSeverity[input.kind]
   const title = input.title ?? alertKindLabels[input.kind]
   const detail = input.detail ?? {}
+  const mode = input.mode ?? "event"
 
   const [existing] = await db
-    .select({ id: alerts.id, occurrences: alerts.occurrences })
+    .select({
+      id: alerts.id,
+      occurrences: alerts.occurrences,
+      lastSeenAt: alerts.lastSeenAt,
+    })
     .from(alerts)
     .where(
       and(
@@ -42,6 +58,19 @@ export async function raiseAlert(input: RaiseAlertInput) {
     )
 
   if (existing) {
+    if (mode === "condition") {
+      const fresh =
+        now.getTime() - existing.lastSeenAt.getTime() <
+        CONDITION_TOUCH_INTERVAL_MS
+      if (!fresh) {
+        await db
+          .update(alerts)
+          .set({ lastSeenAt: now, updatedAt: now, severity, detail })
+          .where(eq(alerts.id, existing.id))
+      }
+      return { id: existing.id, created: false as const }
+    }
+
     await db
       .update(alerts)
       .set({
