@@ -22,6 +22,8 @@ export const rateLimitPolicies = {
   checkInPerAddress: { capacity: 240, refillPerSecond: 120 / 60 },
   signInPerAddress: { capacity: 10, refillPerSecond: 5 / 60 },
   twoFactorPerAddress: { capacity: 8, refillPerSecond: 4 / 60 },
+  apiKeyAuthPerAddress: { capacity: 30, refillPerSecond: 15 / 60 },
+  apiKeyPerKey: { capacity: 120, refillPerSecond: 2 },
 } satisfies Record<string, TokenBucketOptions>
 
 let limiter: RateLimiter | null = null

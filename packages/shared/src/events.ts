@@ -55,6 +55,8 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   notification_channel_created: "notice",
   notification_channel_updated: "notice",
   notification_channel_deleted: "notice",
+  api_key_created: "notice",
+  api_key_revoked: "notice",
 }
 
 /** Default severity for an event type; explicit overrides win at write time. */

@@ -43,6 +43,8 @@ export type ActorPrincipal = {
   siteMemberships: SiteMembership[]
   security?: ActorSecurityState
   uiScope?: UiScope
+  /** Present when this actor was resolved from a bearer API key. */
+  apiKeyId?: string
 }
 
 export type AdminPrincipal = ActorPrincipal
@@ -218,6 +220,93 @@ export function hasPermission(
   return permissions.includes(required)
 }
 
+/** Permissions that appear in both lists, preserving grant order. */
+export function intersectPermissions(
+  ownerPermissions: Permission[],
+  grants: Permission[]
+): Permission[] {
+  const allowed = new Set(ownerPermissions)
+  const seen = new Set<Permission>()
+  const result: Permission[] = []
+  for (const permission of grants) {
+    if (!allowed.has(permission) || seen.has(permission)) {
+      continue
+    }
+    seen.add(permission)
+    result.push(permission)
+  }
+  return result
+}
+
+export type ApiKeyGrant = {
+  id: string
+  organizationId: string | null
+  permissions: Permission[]
+}
+
+/**
+ * Builds the actor used for bearer API key requests. Effective permissions are
+ * the intersection of the key's grants and the owner's permissions. Org-scoped
+ * keys never inherit platform-wide access.
+ */
+export function actorForApiKey(
+  owner: ActorPrincipal,
+  key: ApiKeyGrant
+): ActorPrincipal {
+  const permissions = intersectPermissions(owner.permissions, key.permissions)
+  const platformPermissions = intersectPermissions(
+    owner.platformPermissions,
+    key.permissions
+  )
+
+  if (key.organizationId) {
+    const existing = owner.organizationMemberships.filter(
+      (membership) =>
+        membership.organizationId === key.organizationId &&
+        membership.status === "active"
+    )
+    const organizationMemberships =
+      existing.length > 0
+        ? existing
+        : hasPlatformWideAccess(owner)
+          ? [
+              {
+                id: `api-key:${key.id}`,
+                organizationId: key.organizationId,
+                role: "owner" as const,
+                status: "active" as const,
+              },
+            ]
+          : []
+    const siteMemberships = owner.siteMemberships.filter(
+      (membership) => membership.organizationId === key.organizationId
+    )
+    const principal: ActorPrincipal = {
+      id: owner.id,
+      email: owner.email,
+      name: owner.name,
+      platformRole: "member",
+      platformPermissions: [],
+      permissions,
+      organizationMemberships,
+      siteMemberships,
+      apiKeyId: key.id,
+    }
+    principal.uiScope = uiScopeFor(principal)
+    return principal
+  }
+
+  const principal: ActorPrincipal = {
+    ...owner,
+    platformPermissions,
+    permissions,
+    apiKeyId: key.id,
+    security: undefined,
+  }
+  principal.uiScope = uiScopeFor(principal)
+  return principal
+}
+
 export function organizationMembershipFor(
   actor: ActorPrincipal,
   organizationId: string
@@ -275,6 +364,10 @@ export function authorize(
   permission: Permission,
   resource: AuthorizationResource
 ): AuthorizationDecision {
+  if (actor.apiKeyId && !hasPermission(actor.permissions, permission)) {
+    return { allowed: false, reason: "api_key_grant" }
+  }
+
   if (actor.platformRole === "owner") {
     return { allowed: true, reason: "platform_owner" }
   }

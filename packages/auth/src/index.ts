@@ -23,6 +23,7 @@ import {
 import { recordAuthEvent, requestContextFromHeaders } from "./audit"
 import { hashPassword, verifyPassword } from "./password"
 export * from "./access"
+export * from "./api-keys"
 export * from "./audit"
 export { hashPassword, verifyPassword } from "./password"
 
