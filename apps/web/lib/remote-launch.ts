@@ -3,11 +3,17 @@ export type RemoteLaunchResult = {
   nativeUrl: string | null
   /** One-time ticket that can be exchanged for the session secret. */
   launchTicket?: string | null
-  mode: "guacamole" | "native"
+  mode: "guacamole" | "native" | "pending_approval" // pragma: allowlist secret
+  request?: {
+    id: string
+    status: string
+    expiresAt: Date | string
+    reason: string | null
+  } | null
 } | null
 
 export type RemoteLaunchOpenResult = {
-  mode: "native" | "guacamole"
+  mode: "native" | "guacamole" | "pending_approval" // pragma: allowlist secret
   copiedSecret: boolean
 }
 
@@ -25,6 +31,10 @@ export async function openRemoteLaunchResult(
 ): Promise<RemoteLaunchOpenResult | null> {
   if (!result) {
     return null
+  }
+
+  if (result.mode === "pending_approval") {
+    return { mode: "pending_approval", copiedSecret: false }
   }
 
   if (result.mode === "native" && result.nativeUrl) {

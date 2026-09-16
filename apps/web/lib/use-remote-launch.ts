@@ -21,6 +21,10 @@ export function useRemoteLaunch(options?: { onSettled?: () => void }) {
           return redeemed.secret
         },
       })
+      if (opened?.mode === "pending_approval") {
+        toast.message("Waiting for approval")
+        return
+      }
       if (opened?.mode === "native" && opened.copiedSecret) {
         toast.success("VNC password copied — paste it when prompted")
       }

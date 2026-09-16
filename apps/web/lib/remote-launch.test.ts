@@ -28,3 +28,19 @@ test("prefers native launch for VNC and SSH when on VPN", () => {
 test("openRemoteLaunchResult is a no-op for empty results", async () => {
   assert.equal(await openRemoteLaunchResult(null), null)
 })
+
+test("pending approval does not open a session window", async () => {
+  const opened = await openRemoteLaunchResult({
+    url: null,
+    nativeUrl: null,
+    launchTicket: null,
+    mode: "pending_approval",
+    request: {
+      id: "11111111-1111-4111-8111-111111111111",
+      status: "pending",
+      expiresAt: "2026-09-16T20:00:00.000Z",
+      reason: "Replace a failed disk",
+    },
+  })
+  assert.deepEqual(opened, { mode: "pending_approval", copiedSecret: false })
+})

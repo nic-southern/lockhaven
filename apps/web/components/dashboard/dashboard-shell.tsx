@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import {
   ActivityIcon,
   BellRingIcon,
+  ClipboardCheckIcon,
   CableIcon,
   CalendarClockIcon,
   ChevronDownIcon,
@@ -97,6 +98,13 @@ const navSections: NavSection[] = [
         label: "Sessions",
         icon: CableIcon,
         permissions: ["device:view"],
+      },
+      {
+        href: "/approvals",
+        label: "Approvals",
+        icon: ClipboardCheckIcon,
+        permissions: ["organization:admin", "site:admin"],
+        scopes: ["admin"],
       },
       {
         href: "/alerts",

@@ -57,6 +57,9 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   notification_channel_deleted: "notice",
   api_key_created: "notice",
   api_key_revoked: "notice",
+  access_request_created: "notice",
+  access_request_approved: "notice",
+  access_request_denied: "notice",
 }
 
 /** Default severity for an event type; explicit overrides win at write time. */
@@ -114,6 +117,7 @@ export const notificationDeliveryEvents = [
   "alert.opened",
   "alert.resolved",
   "alert.escalated",
+  "access.requested",
   "channel.test",
 ] as const
 export type NotificationDeliveryEvent =

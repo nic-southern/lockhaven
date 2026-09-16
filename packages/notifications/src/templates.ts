@@ -177,6 +177,37 @@ export function renderChannelTestEmail(input: {
   return { subject, text, html }
 }
 
+export function renderAccessRequestedEmail(input: {
+  deviceName: string
+  siteName: string
+  requesterName: string
+  reason: string | null
+  approvalsUrl: string
+  productName?: string
+}): RenderedMail {
+  const productName = input.productName ?? getProductName()
+  const subject = `${productName}: access request for ${input.deviceName}`
+  const reasonLine = input.reason
+    ? `Reason: ${input.reason}`
+    : "No reason was given."
+  const text = [
+    `${input.requesterName} asked to start a session on ${input.deviceName} (${input.siteName}).`,
+    "",
+    reasonLine,
+    "",
+    "Review the request:",
+    input.approvalsUrl,
+  ].join("\n")
+  const html = wrapHtml(
+    productName,
+    "Access needs review",
+    `<p style="margin:0 0 16px;line-height:1.5;">${escapeHtml(input.requesterName)} asked to start a session on ${escapeHtml(input.deviceName)} (${escapeHtml(input.siteName)}).</p>
+      ${input.reason ? `<p style="margin:0 0 16px;line-height:1.5;">${escapeHtml(input.reason)}</p>` : `<p style="margin:0 0 16px;line-height:1.5;color:#71717a;">No reason was given.</p>`}
+      <p style="margin:0;"><a href="${escapeHtml(input.approvalsUrl)}" style="display:inline-block;padding:10px 16px;background:#18181b;color:#fafafa;border-radius:8px;text-decoration:none;">Review request</a></p>`
+  )
+  return { subject, text, html }
+}
+
 export function inviteMailFromToken(input: {
   name: string
   token: string

@@ -6,14 +6,17 @@ import net from "node:net"
 
 import { Queue, Worker } from "bullmq"
 import Redis from "ioredis"
+import { inArray, isNotNull, lte } from "drizzle-orm"
 
 import {
+  accessRequests,
   adminVpnProfiles,
   devices,
   eq,
   isNull,
   and,
   managementServices,
+  remoteSessions,
   routePolicies,
   sql,
   vpnIdentities,
@@ -25,6 +28,9 @@ import {
   PEER_FLAP_WINDOW_MS,
   PEER_SAMPLE_INTERVAL_MS,
   PEER_SAMPLE_RETENTION_DAYS,
+  pruneSessionRecordingFiles,
+  sessionRecordingRetentionDays,
+  sessionRecordingRoot,
 } from "@nms/shared"
 import {
   buildAddPeerCommand,
@@ -759,6 +765,33 @@ async function pruneHistory() {
     .delete(vpnPeerSamples)
     .where(sql`${vpnPeerSamples.sampledAt} < ${cutoff}`)
   await pruneConnectionHistory(now)
+
+  await db
+    .update(accessRequests)
+    .set({ status: "expired", updatedAt: now })
+    .where(
+      and(
+        inArray(accessRequests.status, ["pending", "approved"]),
+        lte(accessRequests.expiresAt, now)
+      )
+    )
+
+  const recordingCutoff = new Date(
+    now.getTime() - sessionRecordingRetentionDays() * 24 * 60 * 60 * 1000
+  )
+  await pruneSessionRecordingFiles({
+    root: sessionRecordingRoot(),
+    cutoff: recordingCutoff,
+  })
+  await db
+    .update(remoteSessions)
+    .set({ recordingPath: null })
+    .where(
+      and(
+        isNotNull(remoteSessions.recordingPath),
+        lte(remoteSessions.endedAt, recordingCutoff)
+      )
+    )
 }
 
 /**

@@ -234,6 +234,8 @@ type UpsertConnectionInput = {
   password?: string | null
   username?: string | null
   privateKey?: string | null
+  recordingRoot?: string | null
+  recordingName?: string | null
 }
 
 class GuacamoleConnectionStore {
@@ -380,6 +382,23 @@ class GuacamoleConnectionStore {
         )
       }
 
+      const recordingRoot = input.recordingRoot?.trim()
+      if (recordingRoot) {
+        const recordingName =
+          input.recordingName?.trim() || input.connectionName
+        await client.query(
+          // pragma: allowlist secret
+          `
+            INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value) -- pragma: allowlist secret
+            VALUES
+              ($1, 'recording-path', $2),
+              ($1, 'recording-name', $3),
+              ($1, 'create-recording-path', 'true')
+          `,
+          [connectionId, recordingRoot, recordingName]
+        )
+      }
+
       await client.query("COMMIT")
 
       return connectionId
@@ -442,6 +461,34 @@ class GuacamoleConnectionStore {
     )
     return result.rows[0]?.connection_id ?? null
   }
+
+  async connectionHistory(connectionName: string) {
+    const result = await this.pool.query<{
+      history_id: number
+      start_date: Date | null
+      end_date: Date | null
+    }>(
+      `
+        SELECT
+          h.history_id,
+          h.start_date,
+          h.end_date
+        FROM guacamole_connection_history h -- pragma: allowlist secret
+        JOIN guacamole_connection c ON c.connection_id = h.connection_id -- pragma: allowlist secret
+        WHERE c.connection_name = $1
+        ORDER BY h.start_date DESC
+        LIMIT 1
+      `,
+      [connectionName]
+    )
+    const row = result.rows[0]
+    if (!row) return null
+    return {
+      historyId: String(row.history_id),
+      startedAt: row.start_date,
+      endedAt: row.end_date,
+    }
+  }
 }
 
 export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
@@ -476,6 +523,7 @@ export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
 
     const launchId = request.launchId ?? randomUUID()
     const connectionName = `nms-${request.deviceId}-${request.serviceId}-${launchId}`
+    const recordingRoot = sessionRecordingRootFromEnv() // pragma: allowlist secret
     const connectionId = await this.store.upsertConnection({
       connectionName,
       protocol: request.serviceType,
@@ -484,6 +532,8 @@ export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
       password: request.password,
       username: request.username,
       privateKey: request.privateKey,
+      recordingRoot,
+      recordingName: connectionName,
     })
 
     return {
@@ -571,4 +621,15 @@ export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
   async getSessionActivity(sessionIds: string[]) {
     return this.store.connectionActivity(sessionIds)
   }
+
+  async getSessionHistory(connectionName: string) {
+    return this.store.connectionHistory(connectionName)
+  }
+}
+
+function sessionRecordingRootFromEnv() {
+  // pragma: allowlist secret
+  const value = process.env.SESSION_RECORDING_ROOT?.trim()
+  if (value === "") return null
+  return value ?? "/var/lib/guacamole/recordings" // pragma: allowlist secret
 }

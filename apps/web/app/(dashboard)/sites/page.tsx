@@ -27,7 +27,7 @@ import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
 import { SelectField } from "@/components/dashboard/select-field"
-import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { trpc } from "@/lib/trpc"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -57,6 +57,8 @@ export default function SitesPage() {
   const [editName, setEditName] = React.useState("")
   const [editTimezone, setEditTimezone] = React.useState("")
   const [editNotes, setEditNotes] = React.useState("")
+  const [editRequireReason, setEditRequireReason] = React.useState(false)
+  const [editRequireApproval, setEditRequireApproval] = React.useState(false)
 
   const createSite = trpc.sites.create.useMutation({
     async onSuccess() {
@@ -143,6 +145,8 @@ export default function SitesPage() {
       setEditName(selectedSite.name)
       setEditTimezone(selectedSite.timezone ?? "")
       setEditNotes(selectedSite.notes ?? "")
+      setEditRequireReason(Boolean(selectedSite.requireAccessReason))
+      setEditRequireApproval(Boolean(selectedSite.requireApproval))
     }
   }, [selectedSite])
 
@@ -398,6 +402,30 @@ export default function SitesPage() {
                 onChange={(event) => setEditNotes(event.target.value)}
               />
             </FormField>
+            <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 md:col-span-2">
+              <div>
+                <p className="text-sm font-medium">Require a reason</p>
+                <p className="text-xs text-muted-foreground">
+                  People must say why they need access before connecting.
+                </p>
+              </div>
+              <Switch
+                checked={editRequireReason}
+                onCheckedChange={setEditRequireReason}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 md:col-span-2">
+              <div>
+                <p className="text-sm font-medium">Require approval</p>
+                <p className="text-xs text-muted-foreground">
+                  A reviewer must approve access before a session starts.
+                </p>
+              </div>
+              <Switch
+                checked={editRequireApproval}
+                onCheckedChange={setEditRequireApproval}
+              />
+            </div>
             <div className="flex flex-wrap gap-3 md:col-span-2">
               <Button
                 className="w-full sm:w-auto"
@@ -407,6 +435,8 @@ export default function SitesPage() {
                     name: editName,
                     timezone: editTimezone || null,
                     notes: editNotes || null,
+                    requireAccessReason: editRequireReason,
+                    requireApproval: editRequireApproval,
                   })
                 }}
                 disabled={!editName || updateSite.isPending}

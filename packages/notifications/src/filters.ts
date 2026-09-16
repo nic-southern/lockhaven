@@ -23,6 +23,15 @@ export function severityRank(severity: AuditSeverity) {
   return rank === -1 ? 0 : rank
 }
 
+export function channelMatchesSite(
+  filter: Pick<ChannelFilter, "siteIds">,
+  siteId: string | null | undefined
+) {
+  if (filter.siteIds.length === 0) return true
+  if (!siteId) return false
+  return filter.siteIds.includes(siteId)
+}
+
 export function channelMatchesAlert(
   filter: ChannelFilter,
   alert: AlertMatchInput
@@ -33,10 +42,5 @@ export function channelMatchesAlert(
   if (filter.alertKinds.length > 0 && !filter.alertKinds.includes(alert.kind)) {
     return false
   }
-  if (filter.siteIds.length > 0) {
-    if (!alert.siteId || !filter.siteIds.includes(alert.siteId)) {
-      return false
-    }
-  }
-  return true
+  return channelMatchesSite(filter, alert.siteId)
 }

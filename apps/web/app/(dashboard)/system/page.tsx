@@ -293,6 +293,7 @@ export default function SystemPage() {
                     ["Peer samples", data?.retention.peerSamples],
                     ["Connection history", data?.retention.connectionHistory],
                     ["Daily summaries", data?.retention.dailySummaries],
+                    ["Session recordings", data?.retention.sessionRecordings],
                   ] as const
                 ).map(([label, row]) => (
                   <tr key={label} className="border-b last:border-0">

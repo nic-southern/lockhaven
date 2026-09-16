@@ -3,11 +3,13 @@ import {
   buildWebhookEnvelope,
   serializeWebhookBody,
   type AlertNotificationSnapshot,
+  type AccessRequestNotificationSnapshot,
   type NotificationDeliveryEvent,
 } from "./payload"
 import { getProductName } from "./product"
 import { webhookHeaders } from "./signature"
 import {
+  renderAccessRequestedEmail,
   renderAlertEscalatedEmail,
   renderAlertOpenedEmail,
   renderAlertResolvedEmail,
@@ -32,6 +34,7 @@ export async function deliverNotification(input: {
   destination: NotificationDestination
   event: NotificationDeliveryEvent
   alert?: AlertNotificationSnapshot | null
+  accessRequest?: AccessRequestNotificationSnapshot | null
   mailer?: Mailer
   from?: string
   now?: Date
@@ -42,6 +45,7 @@ export async function deliverNotification(input: {
       destination,
       event,
       alert: input.alert ?? null,
+      accessRequest: input.accessRequest ?? null,
       mailer: input.mailer,
       from: input.from,
     })
@@ -50,6 +54,7 @@ export async function deliverNotification(input: {
     destination,
     event,
     alert: input.alert ?? null,
+    accessRequest: input.accessRequest ?? null,
     now: input.now,
   })
 }
@@ -57,11 +62,30 @@ export async function deliverNotification(input: {
 function mailForEvent(
   event: NotificationDeliveryEvent,
   alert: AlertNotificationSnapshot | null,
+  accessRequest: AccessRequestNotificationSnapshot | null,
   channelName: string
 ) {
   const productName = getProductName()
   if (event === "channel.test") {
     return renderChannelTestEmail({ channelName, productName })
+  }
+  if (event === "access.requested") {
+    if (!accessRequest) {
+      throw new Error("Access request snapshot missing for this delivery")
+    }
+    const baseUrl =
+      process.env.APP_BASE_URL ??
+      process.env.BETTER_AUTH_URL ??
+      "http://localhost:3000"
+    return renderAccessRequestedEmail({
+      deviceName: accessRequest.deviceName,
+      siteName: accessRequest.siteName,
+      requesterName:
+        accessRequest.requesterName || accessRequest.requesterEmail,
+      reason: accessRequest.reason,
+      approvalsUrl: new URL("/approvals", baseUrl).toString(),
+      productName,
+    })
   }
   if (!alert) {
     throw new Error("Alert snapshot missing for this delivery")
@@ -79,6 +103,7 @@ async function deliverEmail(input: {
   destination: EmailDestination
   event: NotificationDeliveryEvent
   alert: AlertNotificationSnapshot | null
+  accessRequest: AccessRequestNotificationSnapshot | null
   mailer?: Mailer
   from?: string
 }) {
@@ -89,6 +114,7 @@ async function deliverEmail(input: {
   const rendered = mailForEvent(
     input.event,
     input.alert,
+    input.accessRequest,
     input.destination.channelName
   )
   const mailer = input.mailer ?? getMailer()
@@ -106,12 +132,14 @@ async function deliverWebhook(input: {
   destination: WebhookDestination
   event: NotificationDeliveryEvent
   alert: AlertNotificationSnapshot | null
+  accessRequest: AccessRequestNotificationSnapshot | null
   now?: Date
 }) {
   const body = serializeWebhookBody(
     buildWebhookEnvelope({
       event: input.event,
       alert: input.alert,
+      accessRequest: input.accessRequest,
       occurredAt: input.now,
     })
   )

@@ -124,6 +124,16 @@ test("provisions a VNC connection without a password when none is saved", async 
     /^https:\/\/guac\.example\.com\/guacamole\/#\/client\//
   )
   assert.ok(!queries.some((entry) => String(entry.text).includes("'password'")))
+  assert.ok(
+    queries.some((entry) => String(entry.text).includes("recording-path"))
+  )
+  assert.ok(
+    queries.some(
+      (entry) =>
+        Array.isArray(entry.values) &&
+        entry.values.includes("nms-device-1-service-1-launch-1")
+    )
+  )
 })
 
 test("provisions an SSH connection with username and private key", async () => {
@@ -360,6 +370,92 @@ test("closes an active Guacamole session through the admin API", async () => {
   )
 })
 
+test("looks up session history by connection name", async () => {
+  // pragma: allowlist secret
+  const pool = {
+    query: async (text: string, values?: unknown[]) => {
+      assert.match(String(text), /connection_history/)
+      assert.deepEqual(values, ["nms-device-1-service-1-launch-1"])
+      return {
+        rows: [
+          {
+            history_id: 99,
+            start_date: new Date("2026-09-16T12:00:00.000Z"),
+            end_date: new Date("2026-09-16T12:08:00.000Z"),
+          },
+        ],
+      }
+    },
+    connect: async () => {
+      throw new Error("connect should not be used")
+    },
+  } as unknown as Pool
+
+  const provider = new GuacamoleRemoteAccessProvider( // pragma: allowlist secret
+    {
+      baseUrl: "https://guac.example.com/[REDACTED]/",
+      databaseUrl:
+        "postgresql://[REDACTED]:replace_me@[REDACTED]-db:5432/[REDACTED]_db",
+    },
+    pool
+  )
+
+  const history = await provider.getSessionHistory(
+    "nms-device-1-service-1-launch-1"
+  )
+  assert.deepEqual(history, {
+    historyId: "99",
+    startedAt: new Date("2026-09-16T12:00:00.000Z"),
+    endedAt: new Date("2026-09-16T12:08:00.000Z"),
+  })
+})
+
+test("omits recording parameters when SESSION_RECORDING_ROOT is empty", async () => {
+  const previous = process.env.SESSION_RECORDING_ROOT
+  process.env.SESSION_RECORDING_ROOT = ""
+  const queries: Array<{ text: string }> = []
+  const client = {
+    query: async (text: string) => {
+      queries.push({ text })
+      if (text.includes("SELECT connection_id")) return { rows: [] }
+      if (text.includes("RETURNING connection_id")) {
+        return { rows: [{ connection_id: 45 }] }
+      }
+      return { rows: [] }
+    },
+    release: () => undefined,
+  }
+  const pool = { connect: async () => client } as unknown as Pool
+  const provider = new GuacamoleRemoteAccessProvider( // pragma: allowlist secret
+    {
+      baseUrl: "https://guac.example.com/[REDACTED]/",
+      databaseUrl:
+        "postgresql://[REDACTED]:replace_me@[REDACTED]-db:5432/[REDACTED]_db",
+    },
+    pool
+  )
+
+  try {
+    await provider.createSession({
+      deviceId: "device-1",
+      serviceId: "service-1",
+      serviceType: "vnc",
+      adminUserId: "admin-1",
+      connectionMethod: "guacamole", // pragma: allowlist secret
+      hostname: "10.80.0.40",
+      port: 5900,
+      launchId: "launch-off",
+    })
+    assert.equal(
+      queries.some((entry) => String(entry.text).includes("recording-path")),
+      false
+    )
+  } finally {
+    if (previous === undefined) delete process.env.SESSION_RECORDING_ROOT
+    else process.env.SESSION_RECORDING_ROOT = previous
+  }
+})
+
 test("closeSession is a no-op when the gateway has no matching connection", async () => {
   const calls: Array<{ url: string }> = []
   const pool = {
@@ -369,7 +465,7 @@ test("closeSession is a no-op when the gateway has no matching connection", asyn
     },
   } as unknown as Pool
 
-  const provider = new GuacamoleRemoteAccessProvider(
+  const provider = new GuacamoleRemoteAccessProvider( // pragma: allowlist secret
     {
       baseUrl: "https://guac.example.com/guacamole/",
       databaseUrl:

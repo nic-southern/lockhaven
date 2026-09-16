@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { channelMatchesAlert } from "./filters"
+import { channelMatchesAlert, channelMatchesSite } from "./filters"
 
 test("matches when filters are empty", () => {
   assert.equal(
@@ -84,4 +84,11 @@ test("restricts to selected sites and ignores siteless alerts", () => {
     ),
     false
   )
+})
+
+test("matches access-request sites without alert filters", () => {
+  assert.equal(channelMatchesSite({ siteIds: [] }, "site-a"), true)
+  assert.equal(channelMatchesSite({ siteIds: ["site-a"] }, "site-a"), true)
+  assert.equal(channelMatchesSite({ siteIds: ["site-a"] }, "site-b"), false)
+  assert.equal(channelMatchesSite({ siteIds: ["site-a"] }, null), false)
 })

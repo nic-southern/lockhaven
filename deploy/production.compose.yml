@@ -74,6 +74,7 @@ services:
     network_mode: host
     volumes:
       - guacamole_drive:/drive
+      - guacamole_recordings:/var/lib/guacamole/recordings # pragma: allowlist secret
 
   guacamole:
     image: guacamole/guacamole:1.6.0
@@ -87,6 +88,7 @@ services:
       POSTGRESQL_USER: guacamole
       POSTGRESQL_PASSWORD: ${GUACAMOLE_DB_PASSWORD}
       API_SESSION_TIMEOUT: ${GUACAMOLE_API_SESSION_TIMEOUT:-1440}
+      RECORDING_SEARCH_PATH: /var/lib/guacamole/recordings # pragma: allowlist secret
       HTTP_AUTH_ENABLED: "true"
       HTTP_AUTH_HEADER: X-Authenticated-User
       REMOTE_IP_VALVE_ENABLED: "true"
@@ -94,6 +96,8 @@ services:
     networks:
       - default
       - proxy
+    volumes:
+      - guacamole_recordings:/var/lib/guacamole/recordings # pragma: allowlist secret
     extra_hosts:
       - host.docker.internal:host-gateway
     labels:
@@ -131,6 +135,8 @@ services:
       LOCKHAVEN_WEB_IMAGE: ${WEB_IMAGE}
       LOCKHAVEN_WORKER_IMAGE: ${WORKER_IMAGE}
       NODE_ENV: production
+    volumes:
+      - guacamole_recordings:/var/lib/guacamole/recordings # pragma: allowlist secret
     networks:
       - default
       - proxy
@@ -175,6 +181,7 @@ services:
     volumes:
       - /usr/local/sbin/vpnctl:/usr/local/sbin/vpnctl:ro
       - /var/log/lockhaven:/var/log/lockhaven:ro
+      - guacamole_recordings:/var/lib/guacamole/recordings # pragma: allowlist secret
     depends_on:
       postgres:
         condition: service_healthy
@@ -205,6 +212,7 @@ volumes:
   postgres_data:
   guacamole_postgres_data:
   guacamole_drive:
+  guacamole_recordings: # pragma: allowlist secret
   letsencrypt:
 
 networks:

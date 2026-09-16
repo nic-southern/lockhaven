@@ -219,6 +219,8 @@ Compose file and containers need:
 - `REMOTE_ACCESS_PROVIDER`
 - `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`, and `ADMIN_ROLE`
 - `MAIL_FROM`, plus `RESEND_API_KEY` or `SMTP_URL` for outbound mail
+- `SESSION_RECORDING_ROOT` and `SESSION_RECORDING_RETENTION_DAYS` for
+  session recordings (optional; defaults are set in Compose)
 - `WEB_IMAGE` and `WORKER_IMAGE`
 
 You can use the published Lockhaven images directly; you only need to build and

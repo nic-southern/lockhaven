@@ -1,12 +1,18 @@
-import { count, min, sql } from "drizzle-orm"
+import { count, isNotNull, min, sql } from "drizzle-orm"
 import Redis from "ioredis"
 import { Pool } from "pg"
 
-import { connectionDaily, connectionEvents, vpnPeerSamples } from "@nms/db"
+import {
+  connectionDaily,
+  connectionEvents,
+  remoteSessions,
+  vpnPeerSamples,
+} from "@nms/db"
 import {
   FLOW_RETENTION_DAYS_DEFAULT,
   FLOW_ROLLUP_RETENTION_DAYS_DEFAULT,
   PEER_SAMPLE_RETENTION_DAYS,
+  sessionRecordingRetentionDays,
   WORKER_FLOW_LOG_KEY,
   WORKER_HEARTBEAT_KEY,
   WORKER_QUEUE_KEY,
@@ -91,26 +97,34 @@ export const systemRouter = createTRPCRouter({
       flowLog,
     })
 
-    const [peerSamples, connectionHistory, dailySummaries] = await Promise.all([
-      ctx.db
-        .select({
-          total: count(),
-          oldest: min(vpnPeerSamples.sampledAt),
-        })
-        .from(vpnPeerSamples),
-      ctx.db
-        .select({
-          total: count(),
-          oldest: min(connectionEvents.occurredAt),
-        })
-        .from(connectionEvents),
-      ctx.db
-        .select({
-          total: count(),
-          oldest: min(connectionDaily.day),
-        })
-        .from(connectionDaily),
-    ])
+    const [peerSamples, connectionHistory, dailySummaries, sessionRecordings] =
+      await Promise.all([
+        ctx.db
+          .select({
+            total: count(),
+            oldest: min(vpnPeerSamples.sampledAt),
+          })
+          .from(vpnPeerSamples),
+        ctx.db
+          .select({
+            total: count(),
+            oldest: min(connectionEvents.occurredAt),
+          })
+          .from(connectionEvents),
+        ctx.db
+          .select({
+            total: count(),
+            oldest: min(connectionDaily.day),
+          })
+          .from(connectionDaily),
+        ctx.db
+          .select({
+            total: count(),
+            oldest: min(remoteSessions.startedAt),
+          })
+          .from(remoteSessions)
+          .where(isNotNull(remoteSessions.recordingPath)),
+      ])
 
     const [controlPlaneBytes, sessionGatewayBytes] = await Promise.all([
       databaseSizeBytes(process.env.DATABASE_URL),
@@ -152,6 +166,11 @@ export const systemRouter = createTRPCRouter({
             process.env.FLOW_ROLLUP_RETENTION_DAYS,
             FLOW_ROLLUP_RETENTION_DAYS_DEFAULT
           ),
+        },
+        sessionRecordings: {
+          count: Number(sessionRecordings[0]?.total ?? 0),
+          oldestAt: sessionRecordings[0]?.oldest ?? null,
+          keepDays: sessionRecordingRetentionDays(),
         },
       },
     }

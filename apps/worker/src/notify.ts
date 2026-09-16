@@ -16,6 +16,7 @@ import {
   nextAttemptAt,
   webhookChannelConfigSchema,
   type AlertNotificationSnapshot,
+  type AccessRequestNotificationSnapshot,
   type NotificationDeliveryEvent,
 } from "@nms/notifications"
 import { decryptSecret } from "@nms/remote-access"
@@ -58,14 +59,27 @@ function asAlertSnapshot(
   }
 }
 
-function snapshotFromPayload(
-  payload: Record<string, unknown>
-): AlertNotificationSnapshot | null {
+function snapshotFromPayload(payload: Record<string, unknown>): {
+  alert: AlertNotificationSnapshot | null
+  accessRequest: AccessRequestNotificationSnapshot | null
+} {
   const alert = payload.alert
-  if (!alert || typeof alert !== "object") return null
-  const row = alert as AlertNotificationSnapshot
-  if (!row.id || !row.kind || !row.severity || !row.title) return null
-  return row
+  let alertSnapshot: AlertNotificationSnapshot | null = null
+  if (alert && typeof alert === "object") {
+    const row = alert as AlertNotificationSnapshot
+    if (row.id && row.kind && row.severity && row.title) {
+      alertSnapshot = row
+    }
+  }
+  const accessRequest = payload.accessRequest
+  let accessSnapshot: AccessRequestNotificationSnapshot | null = null
+  if (accessRequest && typeof accessRequest === "object") {
+    const row = accessRequest as AccessRequestNotificationSnapshot
+    if (row.id && row.deviceName && row.requesterEmail) {
+      accessSnapshot = row
+    }
+  }
+  return { alert: alertSnapshot, accessRequest: accessSnapshot }
 }
 
 export async function enqueueAlertNotifications(
@@ -173,12 +187,14 @@ export async function destinationForChannel(channel: NotificationChannel) {
 export async function sendChannelMessage(
   channel: NotificationChannel,
   event: NotificationDeliveryEvent,
-  alert: AlertNotificationSnapshot | null = null
+  alert: AlertNotificationSnapshot | null = null,
+  accessRequest: AccessRequestNotificationSnapshot | null = null
 ) {
   return deliverNotification({
     destination: await destinationForChannel(channel),
     event,
     alert,
+    accessRequest,
   })
 }
 
@@ -216,11 +232,13 @@ export async function processNotificationDeliveries(now = new Date()) {
   })
 
   for (const row of claimed) {
+    const snapshots = snapshotFromPayload(row.delivery.payload)
     await settleDelivery(
       row.delivery.id,
       row.channel,
       row.delivery.event,
-      snapshotFromPayload(row.delivery.payload),
+      snapshots.alert,
+      snapshots.accessRequest,
       now
     )
   }
@@ -233,10 +251,16 @@ async function settleDelivery(
   channel: NotificationChannel,
   event: NotificationDeliveryEvent,
   alert: AlertNotificationSnapshot | null,
+  accessRequest: AccessRequestNotificationSnapshot | null,
   now: Date
 ) {
   try {
-    const lastResponse = await sendChannelMessage(channel, event, alert)
+    const lastResponse = await sendChannelMessage(
+      channel,
+      event,
+      alert,
+      accessRequest
+    )
     await db
       .update(notificationDeliveries)
       .set({

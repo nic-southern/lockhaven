@@ -31,6 +31,7 @@ import { trpc } from "@/lib/trpc"
 import { useAdminVpnConnected } from "@/lib/use-admin-vpn-connected"
 import { usePermissions } from "@/lib/use-permissions"
 import { useRemoteLaunch } from "@/lib/use-remote-launch"
+import { AccessReasonDialog } from "@/components/sessions/access-reason-dialog"
 
 import {
   type DeviceDetail,
@@ -86,12 +87,101 @@ export function ConnectTab({
   const { connected: adminVpnConnected } = useAdminVpnConnected()
   const invalidate = useInvalidateDevice(device.id)
   const canUpdate = can("device:update")
+  const utils = trpc.useUtils()
 
   const [launchingId, setLaunchingId] = React.useState<string | null>(null)
-  const launch = useRemoteLaunch({ onSettled: () => setLaunchingId(null) })
+  const launch = useRemoteLaunch({
+    onSettled: () => {
+      setLaunchingId(null)
+      void utils.accessRequests.mine.invalidate()
+    },
+  })
   const [methodOverrides, setMethodOverrides] = React.useState<
     Record<string, RemoteConnectionMethod>
   >({})
+  const [reasonPrompt, setReasonPrompt] = React.useState<{
+    serviceId: string
+    method: RemoteConnectionMethod
+  } | null>(null)
+
+  const requirementsQuery = trpc.sessions.launchRequirements.useQuery({
+    deviceId: device.id,
+  })
+  const mineQuery = trpc.accessRequests.mine.useQuery(
+    { deviceId: device.id },
+    { refetchInterval: 8_000 }
+  )
+
+  const launchedRequestIds = React.useRef(new Set<string>())
+  const requirements = requirementsQuery.data
+  const pendingByService = React.useMemo(() => {
+    const map = new Map<string, NonNullable<typeof mineQuery.data>[number]>()
+    for (const request of mineQuery.data ?? []) {
+      if (request.status === "pending" || request.status === "approved") {
+        map.set(request.serviceId, request)
+      }
+    }
+    return map
+  }, [mineQuery.data])
+
+  React.useEffect(() => {
+    const approved = (mineQuery.data ?? []).filter(
+      (request) => request.status === "approved"
+    )
+    for (const request of approved) {
+      if (launchedRequestIds.current.has(request.id)) continue
+      if (launch.isPending || launchingId) continue
+      launchedRequestIds.current.add(request.id)
+      setLaunchingId(request.serviceId)
+      launch.mutate(
+        {
+          deviceId: device.id,
+          serviceId: request.serviceId,
+          connectionMethod:
+            (request.connectionMethod as RemoteConnectionMethod) ??
+            BROWSER_CONNECTION_METHOD,
+          accessRequestId: request.id,
+          reason: request.reason ?? undefined,
+        },
+        {
+          onError: () => {
+            launchedRequestIds.current.delete(request.id)
+          },
+        }
+      )
+    }
+  }, [mineQuery.data, launch, launchingId, device.id])
+
+  function startLaunch(serviceId: string, method: RemoteConnectionMethod) {
+    const requireReason = Boolean(requirements?.requireAccessReason)
+    const requireApproval = Boolean(requirements?.requireApproval)
+    const outstanding = pendingByService.get(serviceId)
+    if (outstanding?.status === "pending") {
+      toast.message("Waiting for approval")
+      return
+    }
+    if (outstanding?.status === "approved") {
+      setLaunchingId(serviceId)
+      launch.mutate({
+        deviceId: device.id,
+        serviceId,
+        connectionMethod: method,
+        accessRequestId: outstanding.id,
+        reason: outstanding.reason ?? undefined,
+      })
+      return
+    }
+    if (requireReason || requireApproval) {
+      setReasonPrompt({ serviceId, method })
+      return
+    }
+    setLaunchingId(serviceId)
+    launch.mutate({
+      deviceId: device.id,
+      serviceId,
+      connectionMethod: method,
+    })
+  }
 
   const createService = trpc.managementServices.create.useMutation({
     async onSuccess() {
@@ -260,18 +350,14 @@ export function ConnectTab({
                             launch.isPending ||
                             launchingId === service.id
                           }
-                          onClick={() => {
-                            setLaunchingId(service.id)
-                            launch.mutate({
-                              deviceId: device.id,
-                              serviceId: service.id,
-                              connectionMethod: method,
-                            })
-                          }}
+                          onClick={() => startLaunch(service.id, method)}
                         >
-                          {launchingId === service.id
-                            ? "Starting…"
-                            : `Connect with ${serviceTypeLabel[entry.type]}`}
+                          {pendingByService.get(service.id)?.status ===
+                          "pending"
+                            ? "Waiting for approval"
+                            : launchingId === service.id
+                              ? "Starting…"
+                              : `Connect with ${serviceTypeLabel[entry.type]}`}
                         </Button>
                       </>
                     ) : (
@@ -342,6 +428,33 @@ export function ConnectTab({
           </>
         ) : null}
       </p>
+      <AccessReasonDialog
+        open={reasonPrompt !== null}
+        onOpenChange={(open) => {
+          if (!open) setReasonPrompt(null)
+        }}
+        requireReason={Boolean(requirements?.requireAccessReason)}
+        requireApproval={Boolean(requirements?.requireApproval)}
+        pending={launch.isPending}
+        onConfirm={(reason) => {
+          if (!reasonPrompt) return
+          setLaunchingId(reasonPrompt.serviceId)
+          launch.mutate(
+            {
+              deviceId: device.id,
+              serviceId: reasonPrompt.serviceId,
+              connectionMethod: reasonPrompt.method,
+              reason: reason || undefined,
+            },
+            {
+              onSettled: () => {
+                setReasonPrompt(null)
+                void utils.accessRequests.mine.invalidate()
+              },
+            }
+          )
+        }}
+      />
     </div>
   )
 }

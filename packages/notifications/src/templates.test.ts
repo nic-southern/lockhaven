@@ -4,6 +4,7 @@ import test from "node:test"
 import { inviteAcceptUrl } from "./product"
 import {
   inviteMailFromToken,
+  renderAccessRequestedEmail,
   renderAlertEscalatedEmail,
   renderAlertOpenedEmail,
   renderAlertResolvedEmail,
@@ -81,4 +82,21 @@ test("renders password reset, opened, resolved, and escalation mail", () => {
   })
   assert.match(escalated.subject, /needs attention/)
   assert.match(escalated.text, /escalated/)
+})
+
+test("renders an access request for reviewers", () => {
+  const mail = renderAccessRequestedEmail({
+    deviceName: "Front desk PC",
+    siteName: "Downtown",
+    requesterName: "Alex Rivera",
+    reason: "Replace a failed disk",
+    approvalsUrl: "https://console.example.com/approvals",
+    productName: "Lockhaven",
+  })
+  assert.match(mail.subject, /Front desk PC/)
+  assert.match(mail.text, /Alex Rivera/)
+  assert.match(mail.text, /Replace a failed disk/)
+  assert.match(mail.text, /https:\/\/console.example.com\/approvals/)
+  assert.equal(mail.text.includes("JSON"), false)
+  assert.equal(mail.text.includes("Guacamole"), false) // pragma: allowlist secret
 })

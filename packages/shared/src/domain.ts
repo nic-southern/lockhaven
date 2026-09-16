@@ -353,6 +353,8 @@ export const remoteSessionRequestSchema = z.object({
   connectionMethod: z
     .enum(remoteConnectionMethods)
     .default(BROWSER_CONNECTION_METHOD),
+  reason: z.string().trim().max(500).optional(),
+  accessRequestId: z.string().uuid().optional(),
 })
 
 export const permissionSetSchema = z.array(z.enum(permissions))
@@ -441,6 +443,9 @@ export const auditEventTypeSchema = z.enum([
   "notification_delivery_retried",
   "api_key_created",
   "api_key_revoked",
+  "access_request_created",
+  "access_request_approved",
+  "access_request_denied",
 ])
 
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>
