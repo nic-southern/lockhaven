@@ -88,14 +88,14 @@ function Metric({
   loading: boolean
 }) {
   const body = (
-    <div className="flex h-full flex-col gap-3 rounded-xl border border-border/80 bg-card p-4 transition-colors group-hover:bg-muted/40">
+    <div className="flex h-full flex-col gap-2 rounded-xl border border-border/80 bg-card p-3.5 transition-colors group-hover:bg-muted/40 sm:gap-3 sm:p-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        <span className="truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase sm:text-xs">
           {label}
         </span>
         <Icon
           className={cn(
-            "size-4",
+            "size-4 shrink-0",
             tone === "online" && "text-emerald-500",
             tone === "warning" && "text-amber-500",
             tone === "danger" && "text-red-500",
@@ -107,7 +107,7 @@ function Metric({
       {loading ? (
         <Skeleton className="h-8 w-16" />
       ) : (
-        <span className="text-3xl font-semibold tracking-tight tabular-nums">
+        <span className="text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">
           {value ?? 0}
         </span>
       )}
@@ -178,14 +178,14 @@ function Overview() {
           <>
             {canEnroll ? (
               <Button
-                className="w-full sm:w-auto"
+                className="flex-1 sm:flex-none"
                 onClick={() => setEnrollmentOpen(!enrollmentOpen)}
               >
                 {enrollmentOpen ? "Hide enrollment" : "Add device"}
               </Button>
             ) : null}
             {uiScope === "admin" && canEnroll ? (
-              <Button variant="outline" className="w-full sm:w-auto" asChild>
+              <Button variant="outline" className="flex-1 sm:flex-none" asChild>
                 <Link href="/enrollment-tokens">Manage tokens</Link>
               </Button>
             ) : null}
@@ -197,7 +197,7 @@ function Overview() {
         <EnrollDeviceCard onClose={() => setEnrollmentOpen(false)} />
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-1">
         <Metric
           label="Online now"
           value={devices?.online}
@@ -325,7 +325,7 @@ function Overview() {
                     <div className="flex min-w-0 flex-col gap-1">
                       <div className="flex min-w-0 items-center gap-2">
                         <SeverityBadge severity={alert.severity} compact />
-                        <span className="truncate font-medium">
+                        <span className="line-clamp-2 font-medium sm:line-clamp-1">
                           {alert.title}
                         </span>
                       </div>
