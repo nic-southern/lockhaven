@@ -13,6 +13,8 @@ export const DEVICE_TABS = [
   "connect",
   "services",
   "network",
+  "metrics",
+  "software",
   "activity",
   "settings",
 ] as const
@@ -37,6 +39,9 @@ export function useInvalidateDevice(deviceId: string) {
       utils.managementServices.page.invalidate(),
       utils.dashboard.summary.invalidate(),
       utils.audit.page.invalidate(),
+      utils.telemetry.metricsLatest.invalidate(),
+      utils.telemetry.metricsSamples.invalidate(),
+      utils.telemetry.packages.invalidate(),
     ])
   }, [utils, deviceId])
 }

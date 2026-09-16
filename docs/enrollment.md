@@ -14,7 +14,26 @@
    `LOCKHAVEN_VNC_PASSWORD`) when present.
 8. The agent includes that secret on `POST /api/agent/check-in` so the API can
    accept status updates for the enrolled device.
-9. The worker reconciles the server peer and status tables.
+9. Optional check-in fields `metrics` and `packages` report disk, memory, CPU
+   load, uptime, network counters, WireGuard handshake age, and installed
+   software. Existing hostname and secret fields stay required.
+10. Check-in responses may include `commands`. Those are a closed whitelist
+    (`reboot`, `restart`, `update`) — never a shell or SSH string. The client
+    refuses anything else.
+11. The worker reconciles the server peer and status tables.
+
+The endpoint agent in `apps/agent` enrolls with `POST /api/enroll`, checks in
+on a timer, and can install itself as a systemd unit, Windows scheduled task,
+or macOS launchd daemon:
+
+```
+pnpm --filter @nms/agent build
+lockhaven-agent enroll --token <token> --base-url <url>
+lockhaven-agent install-service
+```
+
+The Linux installer also writes `/var/lib/lockhaven/agent.json` so an already
+enrolled host can start the agent without enrolling again.
 
 For Windows devices, the enrollment script can generate the keypair, call the
 API over your app hostname, install WireGuard if needed, import the tunnel,

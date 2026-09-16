@@ -16,6 +16,8 @@ import {
   type AuditEventType,
 } from "@nms/shared"
 
+import { ingestDeviceTelemetry } from "@/lib/device-telemetry"
+
 import { agentSecretMatches } from "@/lib/agent-secret"
 import {
   addressKey,
@@ -241,6 +243,13 @@ export async function POST(request: Request) {
           )
         )
     }
+
+    await ingestDeviceTelemetry(tx, {
+      deviceId: input.device_id,
+      now,
+      metrics: input.metrics,
+      packages: input.packages,
+    })
   })
 
   return Response.json({ ok: true })

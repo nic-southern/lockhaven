@@ -207,7 +207,23 @@ PersistentKeepalive = ${persistent_keepalive}
 EOF
 
 printf '%s\n' "$check_in_secret" >"$secret_path"
-chmod 0600 "$config_path" "$secret_path"
+device_id="$(printf '%s' "$response" | json_get device_id)"
+python3 - "$device_id" "$check_in_secret" "${base_url%/}" "$hostname" "$vpn_ipv4" "$tunnel_name" <<'PY'
+import json, sys
+device_id, secret, base_url, hostname, vpn_ipv4, tunnel_name = sys.argv[1:]
+path = "/var/lib/lockhaven/agent.json"
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump({
+        "deviceId": device_id,
+        "checkInSecret": secret,
+        "baseUrl": base_url,
+        "hostname": hostname,
+        "vpnIpv4": vpn_ipv4,
+        "tunnelName": tunnel_name,
+    }, handle, indent=2)
+    handle.write("\n")
+PY
+chmod 0600 "$config_path" "$secret_path" /var/lib/lockhaven/agent.json
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl enable --now "wg-quick@${tunnel_name}"
