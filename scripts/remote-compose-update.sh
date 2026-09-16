@@ -37,6 +37,11 @@ if [ -f infra/systemd/install-flow-logging.sh ]; then
   bash infra/systemd/install-flow-logging.sh
 fi
 
+if [ -f infra/systemd/install-backup.sh ]; then
+  echo "Installing backup timer units..."
+  bash infra/systemd/install-backup.sh
+fi
+
 echo "Pulling images..."
 compose pull
 

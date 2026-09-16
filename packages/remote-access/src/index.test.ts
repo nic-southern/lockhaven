@@ -264,3 +264,124 @@ test("provisions an RDP connection through Guacamole", async () => {
     )
   )
 })
+
+test("closes an active Guacamole session through the admin API", async () => {
+  const calls: Array<{
+    url: string
+    method: string
+    authenticatedUser: string | null
+  }> = []
+
+  const pool = {
+    query: async (text: string) => {
+      if (String(text).includes("SELECT connection_id")) {
+        return { rows: [{ connection_id: 42 }] }
+      }
+      return { rows: [] }
+    },
+    connect: async () => {
+      throw new Error("connect should not be used")
+    },
+  } as unknown as Pool
+
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input)
+    const method = (init?.method ?? "GET").toUpperCase()
+    const headers = new Headers(init?.headers)
+    calls.push({
+      url,
+      method,
+      authenticatedUser: headers.get("X-Authenticated-User"),
+    })
+
+    if (url.includes("/api/tokens") && method === "POST") {
+      return new Response(
+        JSON.stringify({ authToken: "token-1", dataSource: "postgresql" }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    }
+    if (url.includes("/activeConnections") && method === "GET") {
+      return new Response(
+        JSON.stringify({
+          "hist-9": { identifier: "hist-9", connectionIdentifier: "42" },
+          "hist-8": { identifier: "hist-8", connectionIdentifier: "7" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    }
+    return new Response(null, { status: 204 })
+  }
+
+  const provider = new GuacamoleRemoteAccessProvider(
+    {
+      baseUrl: "https://guac.example.com/guacamole/",
+      databaseUrl:
+        "postgresql://guacamole:replace_me@guacamole-db:5432/guacamole_db",
+      apiUrl: "http://guacamole.internal/guacamole/",
+      adminUser: "guacadmin",
+    },
+    pool,
+    fetchImpl
+  )
+
+  await provider.closeSession("nms-device-1-service-1-launch-1")
+
+  assert.equal(
+    calls.some(
+      (call) =>
+        call.method === "DELETE" &&
+        call.url.includes("activeConnections/hist-9")
+    ),
+    true
+  )
+  assert.equal(
+    calls.some(
+      (call) =>
+        call.method === "DELETE" &&
+        call.url.includes("activeConnections/hist-8")
+    ),
+    false
+  )
+  assert.equal(
+    calls.some(
+      (call) => call.method === "DELETE" && call.url.includes("/api/tokens/")
+    ),
+    true
+  )
+  assert.equal(
+    calls.some(
+      (call) => call.url.includes("token-1") && call.url.includes("hist-9")
+    ),
+    true
+  )
+  assert.equal(
+    calls.find((call) => call.method === "POST")?.authenticatedUser,
+    "guacadmin"
+  )
+})
+
+test("closeSession is a no-op when the gateway has no matching connection", async () => {
+  const calls: Array<{ url: string }> = []
+  const pool = {
+    query: async () => ({ rows: [] }),
+    connect: async () => {
+      throw new Error("connect should not be used")
+    },
+  } as unknown as Pool
+
+  const provider = new GuacamoleRemoteAccessProvider(
+    {
+      baseUrl: "https://guac.example.com/guacamole/",
+      databaseUrl:
+        "postgresql://guacamole:replace_me@guacamole-db:5432/guacamole_db",
+    },
+    pool,
+    async (input) => {
+      calls.push({ url: String(input) })
+      return new Response(null, { status: 500 })
+    }
+  )
+
+  await provider.closeSession("missing-session")
+  assert.equal(calls.length, 0)
+})

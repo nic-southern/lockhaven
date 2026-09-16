@@ -6,7 +6,11 @@ import { PgDialect } from "drizzle-orm/pg-core"
 import type { ActorPrincipal } from "@nms/auth"
 import { auditEvents, devices } from "@nms/db"
 
-import { actorOrganizationIds, actorSiteIds } from "./access"
+import {
+  actorOrganizationIds,
+  actorSiteIds,
+  isPlatformAdministrator,
+} from "./access"
 import { deviceScopeCondition, eventScopeCondition } from "./scope"
 
 const dialect = new PgDialect()
@@ -84,6 +88,13 @@ const eventColumns = {
   siteId: auditEvents.siteId,
   deviceId: auditEvents.deviceId,
 }
+
+test("platform owner and admin are platform administrators; org operators are not", () => {
+  assert.equal(isPlatformAdministrator(platformAdmin), true)
+  assert.equal(isPlatformAdministrator(actor({ platformRole: "owner" })), true)
+  assert.equal(isPlatformAdministrator(orgOperator), false)
+  assert.equal(isPlatformAdministrator(null), false)
+})
 
 test("platform staff are unrestricted; anonymous callers get nothing", () => {
   assert.equal(actorOrganizationIds(platformAdmin), null)

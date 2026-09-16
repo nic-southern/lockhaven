@@ -61,6 +61,8 @@ export interface RemoteAccessProvider {
 export const guacamoleConfigSchema = z.object({
   baseUrl: z.string().url(),
   databaseUrl: z.string().min(1),
+  apiUrl: z.string().url().optional(),
+  adminUser: z.string().min(1).optional(),
 })
 
 export type EncryptedSecret = {
@@ -168,6 +170,10 @@ export function buildGuacamoleClientUrl(baseUrl: string, connectionId: number) {
     `#/client/${encodeGuacamoleConnectionReference(connectionId)}`,
     baseUrl
   ).toString()
+}
+
+function ensureTrailingSlash(value: string) {
+  return value.endsWith("/") ? value : `${value}/`
 }
 
 function normalizeHost(hostname: string) {
@@ -423,6 +429,19 @@ class GuacamoleConnectionStore {
 
     return activity
   }
+
+  async connectionIdByName(connectionName: string) {
+    const result = await this.pool.query<{ connection_id: number }>(
+      `
+        SELECT connection_id
+        FROM guacamole_connection
+        WHERE connection_name = $1
+        LIMIT 1
+      `,
+      [connectionName]
+    )
+    return result.rows[0]?.connection_id ?? null
+  }
 }
 
 export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
@@ -430,7 +449,8 @@ export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
 
   constructor(
     private readonly config: z.infer<typeof guacamoleConfigSchema>,
-    pool?: Pool
+    pool?: Pool,
+    private readonly fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis)
   ) {
     this.store = new GuacamoleConnectionStore(
       pool ?? new Pool({ connectionString: config.databaseUrl })
@@ -473,7 +493,79 @@ export class GuacamoleRemoteAccessProvider implements RemoteAccessProvider {
   }
 
   async closeSession(sessionId: string): Promise<void> {
-    void sessionId
+    const connectionId = await this.store.connectionIdByName(sessionId)
+    if (connectionId == null) {
+      return
+    }
+
+    const apiBase = this.config.apiUrl ?? this.config.baseUrl
+    const adminUser = this.config.adminUser ?? "guacadmin"
+    const tokensUrl = new URL("api/tokens", ensureTrailingSlash(apiBase))
+
+    const tokenResponse = await this.fetchImpl(tokensUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Authenticated-User": adminUser,
+      },
+      body: new URLSearchParams({ username: adminUser }),
+    })
+
+    if (!tokenResponse.ok) {
+      throw new Error("Could not open a session-gateway admin session")
+    }
+
+    const tokenPayload = (await tokenResponse.json()) as {
+      authToken?: string
+      dataSource?: string
+    }
+    const authToken = tokenPayload.authToken
+    const dataSource = tokenPayload.dataSource ?? "postgresql"
+
+    if (!authToken) {
+      throw new Error("Session gateway did not return an admin token")
+    }
+
+    const activeUrl = new URL(
+      `api/session/data/${encodeURIComponent(dataSource)}/activeConnections`,
+      ensureTrailingSlash(apiBase)
+    )
+    activeUrl.searchParams.set("token", authToken)
+
+    try {
+      const activeResponse = await this.fetchImpl(activeUrl)
+      if (!activeResponse.ok) {
+        throw new Error("Could not list active remote sessions")
+      }
+
+      const active = (await activeResponse.json()) as Record<
+        string,
+        { identifier?: string; connectionIdentifier?: string }
+      >
+
+      for (const [identifier, entry] of Object.entries(active ?? {})) {
+        if (String(entry.connectionIdentifier) !== String(connectionId)) {
+          continue
+        }
+        const killUrl = new URL(
+          `api/session/data/${encodeURIComponent(dataSource)}/activeConnections/${encodeURIComponent(identifier)}`,
+          ensureTrailingSlash(apiBase)
+        )
+        killUrl.searchParams.set("token", authToken)
+        const killed = await this.fetchImpl(killUrl, { method: "DELETE" })
+        if (!killed.ok && killed.status !== 404) {
+          throw new Error("Could not end the remote session")
+        }
+      }
+    } finally {
+      const logoutUrl = new URL(
+        `api/tokens/${encodeURIComponent(authToken)}`,
+        ensureTrailingSlash(apiBase)
+      )
+      await this.fetchImpl(logoutUrl, { method: "DELETE" }).catch(
+        () => undefined
+      )
+    }
   }
 
   async getSessionActivity(sessionIds: string[]) {

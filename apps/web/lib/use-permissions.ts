@@ -24,6 +24,10 @@ export function usePermissions() {
     can,
     permissions,
     uiScope: meQuery.data?.uiScope ?? "admin",
+    platformRole: meQuery.data?.platformRole ?? null,
+    isPlatformAdmin:
+      meQuery.data?.platformRole === "owner" ||
+      meQuery.data?.platformRole === "admin",
     isLoading: meQuery.isLoading,
   }
 }

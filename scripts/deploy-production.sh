@@ -124,6 +124,7 @@ ADMIN_NAME=${ADMIN_NAME:-Admin}
 ADMIN_ROLE=${ADMIN_ROLE:-owner}
 WEB_IMAGE=${web_image}
 WORKER_IMAGE=${worker_image}
+GUACAMOLE_API_URL=http://guacamole:8080/guacamole/
 MAIL_FROM=${MAIL_FROM:-}
 RESEND_API_KEY=${RESEND_API_KEY:-}
 SMTP_URL=${SMTP_URL:-}
@@ -186,6 +187,15 @@ ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail
 
 log "Configuring connection flow logging on ${ssh_host}"
 ssh "${ssh_opts[@]}" "$ssh_host" "bash /tmp/install-flow-logging.sh && rm -f /tmp/install-flow-logging.sh"
+
+log "Installing backup scripts on ${ssh_host}"
+ssh "${ssh_opts[@]}" "$ssh_host" "install -d -m 0755 /opt/lockhaven/scripts /opt/lockhaven/infra/systemd"
+scp "${ssh_opts[@]}" "$ROOT_DIR/scripts/backup.sh" "$ssh_host:/opt/lockhaven/scripts/backup.sh"
+scp "${ssh_opts[@]}" "$ROOT_DIR/scripts/restore.sh" "$ssh_host:/opt/lockhaven/scripts/restore.sh"
+scp "${ssh_opts[@]}" "$ROOT_DIR/infra/systemd/lockhaven-backup.service" "$ssh_host:/opt/lockhaven/infra/systemd/lockhaven-backup.service"
+scp "${ssh_opts[@]}" "$ROOT_DIR/infra/systemd/lockhaven-backup.timer" "$ssh_host:/opt/lockhaven/infra/systemd/lockhaven-backup.timer"
+scp "${ssh_opts[@]}" "$ROOT_DIR/infra/systemd/install-backup.sh" "$ssh_host:/opt/lockhaven/infra/systemd/install-backup.sh"
+ssh "${ssh_opts[@]}" "$ssh_host" "chmod 0755 /opt/lockhaven/scripts/backup.sh /opt/lockhaven/scripts/restore.sh /opt/lockhaven/infra/systemd/install-backup.sh && bash /opt/lockhaven/infra/systemd/install-backup.sh"
 
 log "Preparing WireGuard on ${ssh_host}"
 vpn_server_public_key="$(ssh "${ssh_opts[@]}" "$ssh_host" "set -euo pipefail

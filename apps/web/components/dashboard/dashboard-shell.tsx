@@ -17,6 +17,7 @@ import {
   MonitorIcon,
   NetworkIcon,
   RouteIcon,
+  ServerIcon,
   ShieldIcon,
   UserRoundIcon,
   UsersIcon,
@@ -61,6 +62,8 @@ type NavItem = {
   scopes?: UiScope[]
   /** Uses `canManageUsers` from `access.me` instead of a permission. */
   requiresUserManagement?: boolean
+  /** Platform owner or platform admin only. */
+  requiresPlatformAdmin?: boolean
 }
 
 type NavSection = {
@@ -160,6 +163,13 @@ const navSections: NavSection[] = [
         permissions: ["organization:admin"],
         scopes: ["admin"],
       },
+      {
+        href: "/system",
+        label: "System",
+        icon: ServerIcon,
+        requiresPlatformAdmin: true,
+        scopes: ["admin"],
+      },
     ],
   },
 ]
@@ -171,6 +181,7 @@ type AccessInfo = {
   permissions: Permission[]
   uiScope: UiScope
   canManageUsers: boolean
+  platformRole: string | null
 }
 
 function itemAllowed(item: NavItem, access: AccessInfo) {
@@ -179,6 +190,9 @@ function itemAllowed(item: NavItem, access: AccessInfo) {
   }
   if (item.requiresUserManagement) {
     return access.canManageUsers
+  }
+  if (item.requiresPlatformAdmin) {
+    return access.platformRole === "owner" || access.platformRole === "admin"
   }
   if (!item.permissions || item.permissions.length === 0) {
     return true
@@ -432,6 +446,7 @@ function ShellContent({
             permissions: accessData.permissions,
             uiScope: accessData.uiScope,
             canManageUsers: accessData.canManageUsers,
+            platformRole: accessData.platformRole,
           }
         : null,
     [accessData]

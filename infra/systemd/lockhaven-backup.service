@@ -1,0 +1,13 @@
+[Unit]
+Description=Lockhaven encrypted backup
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/opt/lockhaven/backup.env
+WorkingDirectory=/opt/lockhaven
+ExecStart=/opt/lockhaven/scripts/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

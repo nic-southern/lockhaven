@@ -26,8 +26,11 @@ import { networkRouter } from "./routers/network"
 import { notificationsRouter } from "./routers/notifications"
 import { routePoliciesRouter } from "./routers/route-policies"
 import { sessionsPage } from "./routers/sessions-page"
+import { sessionsTerminate } from "./routers/sessions-terminate"
+import { systemRouter } from "./routers/system"
 import { telemetryRouter } from "./routers/telemetry"
 import { usersRouter } from "./routers/users"
+import { getRemoteAccessProvider } from "./remote-session-provider"
 import {
   buildOrderBy,
   likePattern,
@@ -59,8 +62,6 @@ import {
   deriveOpenSshPublicKeyFromPrivateKey,
   encryptSecret,
   generateSiteSshKeyPair,
-  guacamoleConfigSchema,
-  GuacamoleRemoteAccessProvider,
   buildNativeAppUrl,
   type EncryptedSecret,
 } from "@nms/remote-access"
@@ -94,16 +95,6 @@ function hashEnrollmentToken(token: string) {
 function makeEnrollmentToken() {
   return `nms_enroll_${randomUUID().replaceAll("-", "")}`
 }
-
-const guacamoleProvider = new GuacamoleRemoteAccessProvider(
-  guacamoleConfigSchema.parse({
-    baseUrl:
-      process.env.GUACAMOLE_BASE_URL ?? "https://guac.example.com/guacamole/",
-    databaseUrl:
-      process.env.GUACAMOLE_DATABASE_URL ??
-      "postgresql://guacamole:replace_me@guacamole-db:5432/guacamole_db",
-  })
-)
 
 function getCredentialSecret() {
   const secret = process.env.REMOTE_CREDENTIALS_KEY
@@ -921,6 +912,7 @@ export const appRouter = createTRPCRouter({
   access: accessRouter,
   users: usersRouter,
   notifications: notificationsRouter,
+  system: systemRouter,
   health: publicProcedure.query(() => ({ ok: true })),
   organizations: createTRPCRouter({
     list: adminProcedure.query(async ({ ctx }) => {
@@ -2095,6 +2087,7 @@ export const appRouter = createTRPCRouter({
   audit: auditRouter,
   sessions: createTRPCRouter({
     page: sessionsPage,
+    terminate: sessionsTerminate,
     create: permissionProcedure("device:view")
       .input(sessionCreateInput)
       .mutation(async ({ ctx, input }) => {
@@ -2320,7 +2313,7 @@ export const appRouter = createTRPCRouter({
 
         const launchId = randomUUID()
 
-        const session = await guacamoleProvider.createSession({
+        const session = await getRemoteAccessProvider().createSession({
           deviceId: device.id,
           serviceId: service.id,
           serviceType: service.serviceType,

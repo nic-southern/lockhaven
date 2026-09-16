@@ -30,6 +30,7 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   user_suspended: "warning",
   user_password_reset_forced: "notice",
   credential_revealed: "notice",
+  remote_session_terminated: "notice",
   device_revoked: "warning",
   device_deleted: "warning",
   vpn_peer_down: "notice",

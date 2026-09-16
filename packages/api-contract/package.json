@@ -26,10 +26,12 @@
     "@trpc/server": "^11.7.2",
     "drizzle-orm": "^0.44.7",
     "ioredis": "^5.10.1",
+    "pg": "^8.16.3",
     "zod": "^4.1.13"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "@types/pg": "^8.15.5",
     "tsx": "^4.22.3",
     "typescript": "^5.9.3"
   }
