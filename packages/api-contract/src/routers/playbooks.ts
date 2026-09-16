@@ -502,6 +502,12 @@ export const playbooksRouter = createTRPCRouter({
           message: "This request was already decided.",
         })
       }
+      if (!claimed.deviceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This playbook has no device to act on.",
+        })
+      }
 
       const queued = await queuePlaybookCommand(ctx.db, {
         playbookId: claimed.playbookId,
