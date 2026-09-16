@@ -120,7 +120,10 @@ per connection to `/var/log/lockhaven/flows.jsonl` (rotated daily, kept 7
 days). The worker mounts that directory read-only and its `flow-ingest` job
 tails the file, attributes each connection to a device or admin profile, and
 stores it in `connection_events`; `rollup-connections` aggregates per day into
-`connection_daily` and `prune-history` applies retention.
+`connection_daily` and `prune-history` applies retention. `rollup-uptime`
+rebuilds daily device online time from tunnel samples into `device_uptime_daily`.
+`send-report-schedules` emails weekly or monthly reports with spreadsheet
+attachments to configured email channels.
 
 Optional worker settings:
 

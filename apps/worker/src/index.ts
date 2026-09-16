@@ -66,7 +66,9 @@ import { JobHeartbeatStore } from "./heartbeats"
 import { offlineAlertHours } from "./lifecycle"
 import { processNotificationDeliveries } from "./notify"
 import { PeerStateStore, type StoredPeerState } from "./peer-state"
+import { sendReportSchedules } from "./report-schedules"
 import { refreshRemoteSessions } from "./sessions"
+import { pruneUptimeHistory, rollupUptime } from "./uptime"
 
 const execFileAsync = promisify(execFile)
 
@@ -767,6 +769,7 @@ async function pruneHistory() {
     .delete(vpnPeerSamples)
     .where(sql`${vpnPeerSamples.sampledAt} < ${cutoff}`)
   await pruneConnectionHistory(now)
+  await pruneUptimeHistory(now)
 
   await db
     .update(accessRequests)
@@ -809,6 +812,8 @@ const schedules: Array<{ name: string; everyMs: number }> = [
   { name: "notify", everyMs: 15_000 },
   { name: "escalate-alerts", everyMs: 60_000 },
   { name: "rollup-connections", everyMs: 10 * 60 * 1000 },
+  { name: "rollup-uptime", everyMs: 60 * 60 * 1000 },
+  { name: "send-report-schedules", everyMs: 60 * 60 * 1000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ]
 
@@ -887,6 +892,12 @@ async function main() {
             break
           case "rollup-connections":
             await rollupConnections()
+            break
+          case "rollup-uptime":
+            await rollupUptime()
+            break
+          case "send-report-schedules":
+            await sendReportSchedules()
             break
           case "prune-history":
             await pruneHistory()

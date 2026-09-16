@@ -3,16 +3,27 @@ import nodemailer from "nodemailer"
 
 export type MailAddress = string | string[]
 
+export type MailAttachment = {
+  filename: string
+  content: string | Buffer
+  contentType?: string
+}
+
 export type MailMessage = {
   from: string
   to: MailAddress
   subject: string
   text: string
   html: string
+  attachments?: MailAttachment[]
 }
 
 export interface Mailer {
   send(message: MailMessage): Promise<void>
+}
+
+function attachmentBuffer(content: string | Buffer) {
+  return typeof content === "string" ? Buffer.from(content, "utf8") : content
 }
 
 export class ResendMailer implements Mailer {
@@ -29,6 +40,11 @@ export class ResendMailer implements Mailer {
       subject: message.subject,
       html: message.html,
       text: message.text,
+      attachments: message.attachments?.map((attachment) => ({
+        filename: attachment.filename,
+        content: attachmentBuffer(attachment.content),
+        contentType: attachment.contentType,
+      })),
     })
     if (error) {
       throw new Error(error.message)
@@ -50,6 +66,11 @@ export class SmtpMailer implements Mailer {
       subject: message.subject,
       text: message.text,
       html: message.html,
+      attachments: message.attachments?.map((attachment) => ({
+        filename: attachment.filename,
+        content: attachmentBuffer(attachment.content),
+        contentType: attachment.contentType,
+      })),
     })
   }
 }
@@ -126,6 +147,7 @@ export async function sendTransactionalMail(
     subject: message.subject,
     text: message.text,
     html: message.html,
+    attachments: message.attachments,
   })
   return true
 }

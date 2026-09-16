@@ -208,6 +208,31 @@ export function renderAccessRequestedEmail(input: {
   return { subject, text, html }
 }
 
+export function renderScheduledReportEmail(input: {
+  reportLabel: string
+  cadenceLabel: string
+  rangeLabel: string
+  organizationName: string
+  attachmentName: string
+  productName?: string
+}): RenderedMail {
+  const productName = input.productName ?? getProductName()
+  const subject = `${productName} ${input.cadenceLabel.toLowerCase()} ${input.reportLabel.toLowerCase()} for ${input.organizationName}`
+  const text = [
+    `Your ${input.cadenceLabel.toLowerCase()} ${input.reportLabel.toLowerCase()} for ${input.organizationName} is ready.`,
+    "",
+    `Period: ${input.rangeLabel}`,
+    `Attachment: ${input.attachmentName}`,
+  ].join("\n")
+  const html = wrapHtml(
+    productName,
+    `${input.reportLabel} is ready`,
+    `<p style="margin:0 0 16px;line-height:1.5;">Your ${escapeHtml(input.cadenceLabel.toLowerCase())} ${escapeHtml(input.reportLabel.toLowerCase())} for ${escapeHtml(input.organizationName)} is attached.</p>
+      <p style="margin:0;font-size:13px;color:#71717a;line-height:1.5;">Period: ${escapeHtml(input.rangeLabel)}</p>`
+  )
+  return { subject, text, html }
+}
+
 export function inviteMailFromToken(input: {
   name: string
   token: string

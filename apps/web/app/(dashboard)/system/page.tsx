@@ -26,7 +26,10 @@ const jobLabels: Record<string, string> = {
   "refresh-sessions": "Session refresh",
   "flow-ingest": "Connection log",
   notify: "Notifications",
+  "escalate-alerts": "Alert escalation",
   "rollup-connections": "Connection summaries",
+  "rollup-uptime": "Uptime summaries",
+  "send-report-schedules": "Scheduled reports",
   "prune-history": "History retention",
 }
 

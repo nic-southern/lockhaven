@@ -14,6 +14,7 @@
 - Hub MSP work uses `0021`–`0039`. Client-agent telemetry uses `0040+`.
 - Hub SSO is `0025_sso` (`organization_sso_settings`, `sso_provider`,
   `user.sso_mfa_trusted`).
+- Hub reporting is `0026_reporting` (`device_uptime_daily`, `report_schedules`).
 - Rebuild the schema package after any migration changes with `pnpm build:packages`.
 
 ## Bootstrapping

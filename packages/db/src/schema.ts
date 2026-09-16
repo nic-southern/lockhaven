@@ -36,6 +36,8 @@ import {
   type RoutePolicyColor,
   type RoutePolicyEntry,
   type SiteGrant,
+  type ReportCadence,
+  type ReportType,
   type SsoClaimsMap,
   type SsoProtocol,
 } from "@nms/shared"
@@ -1097,6 +1099,64 @@ export const maintenanceWindows = pgTable(
   })
 )
 
+export const deviceUptimeDaily = pgTable(
+  "device_uptime_daily",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    day: timestamp("day", { withTimezone: true }).notNull(),
+    onlineMs: integer("online_ms").notNull().default(0),
+    observedMs: integer("observed_ms").notNull().default(0),
+    sampleCount: integer("sample_count").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    deviceDayIdx: uniqueIndex("device_uptime_daily_device_day_idx").on(
+      table.deviceId,
+      table.day
+    ),
+    dayIdx: index("device_uptime_daily_day_idx").on(table.day),
+  })
+)
+
+export const reportSchedules = pgTable(
+  "report_schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: text("type").$type<ReportType>().notNull(),
+    cadence: text("cadence").$type<ReportCadence>().notNull(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => notificationChannels.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(true),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationIdx: index("report_schedules_organization_idx").on(
+      table.organizationId
+    ),
+    channelIdx: index("report_schedules_channel_idx").on(table.channelId),
+  })
+)
+
 export type Organization = typeof organizations.$inferSelect
 export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
@@ -1125,6 +1185,8 @@ export type AlertPolicy = typeof alertPolicies.$inferSelect
 export type MaintenanceWindow = typeof maintenanceWindows.$inferSelect
 export type NotificationChannel = typeof notificationChannels.$inferSelect
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
+export type DeviceUptimeDaily = typeof deviceUptimeDaily.$inferSelect
+export type ReportSchedule = typeof reportSchedules.$inferSelect
 
 export const apiKeys = pgTable(
   "api_keys",

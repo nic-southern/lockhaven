@@ -10,6 +10,7 @@ import {
   renderAlertResolvedEmail,
   renderInviteEmail,
   renderPasswordResetEmail,
+  renderScheduledReportEmail,
 } from "./templates"
 import type { AlertNotificationSnapshot } from "./payload"
 
@@ -99,4 +100,21 @@ test("renders an access request for reviewers", () => {
   assert.match(mail.text, /https:\/\/console.example.com\/approvals/)
   assert.equal(mail.text.includes("JSON"), false)
   assert.equal(mail.text.includes("Guacamole"), false) // pragma: allowlist secret
+})
+
+test("renders a scheduled report with the period and attachment name", () => {
+  const mail = renderScheduledReportEmail({
+    reportLabel: "Uptime",
+    cadenceLabel: "Weekly",
+    rangeLabel: "2026-09-07 to 2026-09-13",
+    organizationName: "Northwind",
+    attachmentName: "uptime-2026-09-07-2026-09-13.csv",
+    productName: "Lockhaven",
+  })
+  assert.match(mail.subject, /weekly uptime/i)
+  assert.match(mail.text, /Northwind/)
+  assert.match(mail.text, /2026-09-07 to 2026-09-13/)
+  assert.match(mail.html, /Uptime is ready/)
+  assert.equal(mail.text.includes("JSON"), false)
+  assert.equal(mail.text.includes("Postgres"), false)
 })

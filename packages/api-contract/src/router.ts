@@ -27,6 +27,7 @@ import { devicesRouter } from "./routers/devices"
 import { maintenanceRouter } from "./routers/maintenance"
 import { networkRouter } from "./routers/network"
 import { notificationsRouter } from "./routers/notifications"
+import { reportsRouter } from "./routers/reports"
 import { routePoliciesRouter } from "./routers/route-policies"
 import { sessionsPage } from "./routers/sessions-page"
 import { sessionsTerminate } from "./routers/sessions-terminate"
@@ -929,6 +930,7 @@ export const appRouter = createTRPCRouter({
   apiKeys: apiKeysRouter,
   notifications: notificationsRouter,
   sso: ssoRouter,
+  reports: reportsRouter,
   accessRequests: accessRequestsRouter,
   system: systemRouter,
   health: publicProcedure.query(() => ({ ok: true })),
