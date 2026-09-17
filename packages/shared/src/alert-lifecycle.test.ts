@@ -456,6 +456,23 @@ test("open alerts inside an active maintenance window are not escalated", () => 
   )
 })
 
+test("open offline alerts during closed site hours are not escalated", () => {
+  const now = new Date("2026-09-16T13:10:00Z")
+  const policyFor = () =>
+    resolveEffectiveAlertPolicy("device_offline", {
+      orgPolicy: policy({
+        kind: "device_offline",
+        escalateAfterMinutes: 60,
+      }),
+    })
+  const closed = candidate({ inClosedHours: true })
+  assert.equal(shouldEscalateAlert(closed, policyFor(), now), false)
+  assert.deepEqual(
+    selectAlertsToEscalate([closed], policyFor, now).map((row) => row.id),
+    []
+  )
+})
+
 test("suppressed and snoozed alerts do not enqueue deliveries", () => {
   const now = new Date("2026-09-16T13:10:00Z")
   assert.equal(

@@ -231,6 +231,40 @@ test("cooldown and an already-open command skip a second run", () => {
   )
 })
 
+test("playbooks wait until the site is closed and do not skip permanently", () => {
+  const base = {
+    action: "reboot" as const,
+    requireApproval: false,
+    alertStatus: "open" as const,
+    snoozedUntil: null as Date | null,
+    deviceId: "device-1",
+    now,
+    lastQueuedAt: null as Date | null,
+    cooldownMinutes: 0,
+    hasOpenCommand: false,
+    existingRunStatus: null as null,
+  }
+  assert.deepEqual(decidePlaybookAction({ ...base, siteOpen: true }), {
+    kind: "wait",
+    reason: "floor_open",
+  })
+  assert.deepEqual(
+    decidePlaybookAction({ ...base, action: "update", siteOpen: true }),
+    { kind: "wait", reason: "floor_open" }
+  )
+  assert.deepEqual(
+    decidePlaybookAction({ ...base, action: "restart", siteOpen: true }),
+    { kind: "queue" }
+  )
+  assert.deepEqual(decidePlaybookAction({ ...base, siteOpen: false }), {
+    kind: "queue",
+  })
+  assert.deepEqual(decidePlaybookAction({ ...base, siteOpen: null }), {
+    kind: "queue",
+  })
+  assert.deepEqual(decidePlaybookAction(base), { kind: "queue" })
+})
+
 test("an existing run for the same alert is not repeated", () => {
   const decision = decidePlaybookAction({
     action: "update",
@@ -245,6 +279,23 @@ test("an existing run for the same alert is not repeated", () => {
     existingRunStatus: "queued",
   })
   assert.deepEqual(decision, { kind: "skip", reason: "already_handled" })
+})
+
+test("approval-required playbooks still wait until the site is closed", () => {
+  const decision = decidePlaybookAction({
+    action: "update",
+    requireApproval: true,
+    alertStatus: "open",
+    snoozedUntil: null,
+    deviceId: "device-1",
+    now,
+    lastQueuedAt: null,
+    cooldownMinutes: 0,
+    hasOpenCommand: false,
+    existingRunStatus: null,
+    siteOpen: true,
+  })
+  assert.deepEqual(decision, { kind: "wait", reason: "floor_open" })
 })
 
 test("pending playbook runs expire and can no longer be decided", () => {

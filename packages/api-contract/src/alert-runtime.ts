@@ -1,16 +1,31 @@
-import { alertPolicies, maintenanceWindows, type AlertPolicy } from "@nms/db"
+import {
+  alertPolicies,
+  maintenanceWindows,
+  sites,
+  type AlertPolicy,
+} from "@nms/db"
 import { db } from "@nms/db/client"
 import {
   findActiveMaintenanceWindow,
   pickEffectiveAlertPolicy,
+  siteOpenState,
+  type AlertKind,
   type AlertPolicyFields,
   type EffectiveAlertPolicy,
+  type SiteBusinessHours,
 } from "@nms/shared"
+
+type SiteHoursRow = {
+  id: string
+  timezone: string | null
+  businessHours: SiteBusinessHours | null
+}
 
 type Cache = {
   at: number
   policies: AlertPolicy[]
   windows: Awaited<ReturnType<typeof loadWindows>>
+  sites: SiteHoursRow[]
 }
 
 const CACHE_TTL_MS = 10_000
@@ -18,6 +33,16 @@ let cache: Cache | null = null
 
 async function loadWindows() {
   return db.select().from(maintenanceWindows)
+}
+
+async function loadSiteHours() {
+  return db
+    .select({
+      id: sites.id,
+      timezone: sites.timezone,
+      businessHours: sites.businessHours,
+    })
+    .from(sites)
 }
 
 function asPolicyFields(row: AlertPolicy): AlertPolicyFields {
@@ -37,11 +62,12 @@ export async function loadAlertLifecycleState(force = false) {
   if (!force && cache && now - cache.at < CACHE_TTL_MS) {
     return cache
   }
-  const [policies, windows] = await Promise.all([
+  const [policies, windows, siteHours] = await Promise.all([
     db.select().from(alertPolicies),
     loadWindows(),
+    loadSiteHours(),
   ])
-  cache = { at: now, policies, windows }
+  cache = { at: now, policies, windows, sites: siteHours }
   return cache
 }
 
@@ -91,4 +117,46 @@ export async function activeMaintenanceWindowFor(
   if (!target.organizationId) return null
   const state = await loadAlertLifecycleState()
   return findActiveMaintenanceWindow(state.windows, target, now)
+}
+
+export function siteOpenFor(
+  state: Awaited<ReturnType<typeof loadAlertLifecycleState>>,
+  siteId: string | null | undefined,
+  now: Date
+) {
+  if (!siteId) return null
+  const site = state.sites.find((row) => row.id === siteId)
+  return siteOpenState(site ?? null, now)
+}
+
+export async function siteOpenForTarget(siteId: string | null, now: Date) {
+  if (!siteId) return null
+  const state = await loadAlertLifecycleState()
+  return siteOpenFor(state, siteId, now)
+}
+
+export function alertIsHeld(
+  state: Awaited<ReturnType<typeof loadAlertLifecycleState>>,
+  alert: {
+    organizationId: string | null
+    siteId: string | null
+    deviceId: string | null
+    kind: AlertKind
+  },
+  now: Date
+) {
+  return Boolean(findActiveMaintenanceWindow(state.windows, alert, now))
+}
+
+export async function alertIsHeldFor(
+  target: {
+    organizationId: string | null
+    siteId: string | null
+    deviceId: string | null
+    kind: AlertKind
+  },
+  now: Date
+) {
+  const state = await loadAlertLifecycleState()
+  return alertIsHeld(state, target, now)
 }

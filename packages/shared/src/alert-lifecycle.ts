@@ -63,6 +63,8 @@ export type EscalationCandidate = {
   snoozedUntil: Date | null
   escalatedAt: Date | null
   inMaintenanceWindow?: boolean
+  /** Quiet offline kinds stay held while the site is closed. */
+  inClosedHours?: boolean
 }
 
 type ZonedParts = {
@@ -111,7 +113,7 @@ export function isValidMaintenanceWindowSpan(
   return true
 }
 
-function zonedParts(date: Date, timeZone: string): ZonedParts {
+export function zonedParts(date: Date, timeZone: string): ZonedParts {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
     weekday: "short",
@@ -387,8 +389,8 @@ export function isAlertSnoozed(
 
 /**
  * Escalation only fires for open, unsnoozed alerts that have not already
- * been escalated, are not inside an active maintenance window, and whose
- * effective policy has a due delay.
+ * been escalated, are not inside an active maintenance window, are not
+ * held for closed site hours, and whose effective policy has a due delay.
  */
 export function shouldEscalateAlert(
   alert: EscalationCandidate,
@@ -398,6 +400,7 @@ export function shouldEscalateAlert(
   if (alert.status !== "open") return false
   if (alert.escalatedAt) return false
   if (alert.inMaintenanceWindow) return false
+  if (alert.inClosedHours) return false
   if (isAlertSnoozed(alert.snoozedUntil, now)) return false
   if (policy.escalateAfterMinutes == null) return false
   if (policy.escalateAfterMinutes < 1) return false

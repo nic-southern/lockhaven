@@ -5,6 +5,16 @@ import * as React from "react"
 import { PlusIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import type { ColumnDef } from "@tanstack/react-table"
+import {
+  hasConfiguredSiteHours,
+  isValidTimeZone,
+  siteOpenLabel,
+  siteOpenState,
+  type SiteBusinessHours,
+  type SiteHoliday,
+} from "@nms/shared"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -24,7 +34,6 @@ import { SelectField } from "@/components/dashboard/select-field"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { trpc } from "@/lib/trpc"
-import type { ColumnDef } from "@tanstack/react-table"
 
 type SiteRow = {
   id: string
@@ -32,8 +41,122 @@ type SiteRow = {
   organizationName: string
   name: string
   timezone: string | null
+  hoursLabel: string
   deviceCount: number
   hasSshCredential: boolean
+}
+
+type DayHours = {
+  enabled: boolean
+  open: string
+  close: string
+}
+
+function timeZoneOptions() {
+  if (typeof Intl !== "undefined" && "supportedValuesOf" in Intl) {
+    return Intl.supportedValuesOf("timeZone")
+  }
+  return [
+    "UTC",
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Los_Angeles",
+    "America/Phoenix",
+    "Europe/London",
+  ]
+}
+
+function defaultDayHours(): DayHours {
+  return { enabled: false, open: "10:00", close: "22:00" }
+}
+
+function dayHoursFromWindow(
+  window: { open: string; close: string } | null | undefined
+): DayHours {
+  if (!window?.open || !window.close) return defaultDayHours()
+  return { enabled: true, open: window.open, close: window.close }
+}
+
+function windowFromDay(day: DayHours) {
+  if (!day.enabled) return null
+  return { open: day.open, close: day.close }
+}
+
+function businessHoursFromForm(
+  weekdays: DayHours,
+  saturday: DayHours,
+  sunday: DayHours,
+  holidays: SiteHoliday[]
+): SiteBusinessHours | null {
+  const hours: SiteBusinessHours = {
+    weekdays: windowFromDay(weekdays),
+    saturday: windowFromDay(saturday),
+    sunday: windowFromDay(sunday),
+    holidays: holidays.filter((holiday) => holiday.date),
+  }
+  if (
+    !hours.weekdays &&
+    !hours.saturday &&
+    !hours.sunday &&
+    (hours.holidays?.length ?? 0) === 0
+  ) {
+    return null
+  }
+  return hours
+}
+
+function HoursDayFields({
+  id,
+  label,
+  description,
+  value,
+  onChange,
+}: {
+  id: string
+  label: string
+  description: string
+  value: DayHours
+  onChange: (next: DayHours) => void
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 md:col-span-2">
+        <div>
+          <p className="text-sm font-medium">{label}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+        <Switch
+          checked={value.enabled}
+          onCheckedChange={(enabled) => onChange({ ...value, enabled })}
+        />
+      </div>
+      {value.enabled ? (
+        <>
+          <FormField label="Opens" htmlFor={`${id}-open`}>
+            <Input
+              id={`${id}-open`}
+              type="time"
+              value={value.open}
+              onChange={(event) =>
+                onChange({ ...value, open: event.target.value })
+              }
+            />
+          </FormField>
+          <FormField label="Closes" htmlFor={`${id}-close`}>
+            <Input
+              id={`${id}-close`}
+              type="time"
+              value={value.close}
+              onChange={(event) =>
+                onChange({ ...value, close: event.target.value })
+              }
+            />
+          </FormField>
+        </>
+      ) : null}
+    </>
+  )
 }
 
 export default function SitesPage() {
@@ -61,9 +184,17 @@ export default function SitesPage() {
   const [editContactName, setEditContactName] = React.useState("")
   const [editContactEmail, setEditContactEmail] = React.useState("")
   const [editContactPhone, setEditContactPhone] = React.useState("")
-  const [editWeekdaysOpen, setEditWeekdaysOpen] = React.useState("09:00")
-  const [editWeekdaysClose, setEditWeekdaysClose] = React.useState("17:00")
-  const [editWeekdaysEnabled, setEditWeekdaysEnabled] = React.useState(false)
+  const [editWeekdays, setEditWeekdays] =
+    React.useState<DayHours>(defaultDayHours)
+  const [editSaturday, setEditSaturday] =
+    React.useState<DayHours>(defaultDayHours)
+  const [editSunday, setEditSunday] = React.useState<DayHours>(defaultDayHours)
+  const [editHolidays, setEditHolidays] = React.useState<SiteHoliday[]>([])
+  const [holidayDate, setHolidayDate] = React.useState("")
+  const [holidayName, setHolidayName] = React.useState("")
+  const [holidayClosed, setHolidayClosed] = React.useState(true)
+  const [holidayOpen, setHolidayOpen] = React.useState("10:00")
+  const [holidayClose, setHolidayClose] = React.useState("16:00")
   const [editRequireReason, setEditRequireReason] = React.useState(false)
   const [editRequireApproval, setEditRequireApproval] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
@@ -167,10 +298,16 @@ export default function SitesPage() {
       setEditContactName(contact?.name ?? "")
       setEditContactEmail(contact?.email ?? "")
       setEditContactPhone(contact?.phone ?? "")
-      const weekdays = selectedSite.businessHours?.weekdays
-      setEditWeekdaysEnabled(Boolean(weekdays))
-      setEditWeekdaysOpen(weekdays?.open ?? "09:00")
-      setEditWeekdaysClose(weekdays?.close ?? "17:00")
+      const hours = selectedSite.businessHours
+      setEditWeekdays(dayHoursFromWindow(hours?.weekdays))
+      setEditSaturday(dayHoursFromWindow(hours?.saturday))
+      setEditSunday(dayHoursFromWindow(hours?.sunday))
+      setEditHolidays(hours?.holidays ?? [])
+      setHolidayDate("")
+      setHolidayName("")
+      setHolidayClosed(true)
+      setHolidayOpen("10:00")
+      setHolidayClose("16:00")
       setEditRequireReason(Boolean(selectedSite.requireAccessReason))
       setEditRequireApproval(Boolean(selectedSite.requireApproval))
     }
@@ -186,6 +323,15 @@ export default function SitesPage() {
             ?.name ?? "—",
         name: site.name,
         timezone: site.timezone,
+        hoursLabel: siteOpenLabel(
+          siteOpenState(
+            {
+              timezone: site.timezone,
+              businessHours: site.businessHours,
+            },
+            new Date()
+          )
+        ),
         deviceCount: deviceCountBySite.get(site.id) ?? 0,
         hasSshCredential: site.hasSshCredential,
       })),
@@ -260,6 +406,24 @@ export default function SitesPage() {
         cell: ({ row }) => row.original.timezone ?? "—",
       },
       {
+        accessorKey: "hoursLabel",
+        meta: { label: "Hours" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Hours" />
+        ),
+        cell: ({ row }) => {
+          const label = row.original.hoursLabel
+          if (label === "Hours not set") {
+            return <span className="text-muted-foreground">—</span>
+          }
+          return (
+            <Badge variant={label === "Open" ? "secondary" : "outline"}>
+              {label}
+            </Badge>
+          )
+        },
+      },
+      {
         id: "actions",
         enableSorting: false,
         enableHiding: false,
@@ -300,7 +464,7 @@ export default function SitesPage() {
       <PageHeader
         badge="Sites"
         title="Locations"
-        description="Add a location, then open it to update details, hours, and access rules."
+        description="Add a location, then open it to set hours, holidays, and access rules."
         actions={
           <>
             <Button variant="outline" onClick={() => setImportOpen(true)}>
@@ -376,11 +540,21 @@ export default function SitesPage() {
             onChange={(event) => setCreateName(event.target.value)}
           />
         </FormField>
-        <FormField label="Timezone" htmlFor="site-create-timezone">
-          <Input
+        <FormField
+          label="Timezone"
+          htmlFor="site-create-timezone"
+          description="Used for open and close hours."
+        >
+          <SelectField
             id="site-create-timezone"
             value={createTimezone}
-            onChange={(event) => setCreateTimezone(event.target.value)}
+            onValueChange={setCreateTimezone}
+            placeholder="Choose a timezone"
+            emptyLabel="Not set"
+            options={timeZoneOptions().map((zone) => ({
+              value: zone,
+              label: zone.replaceAll("_", " "),
+            }))}
           />
         </FormField>
         <FormField label="Notes" htmlFor="site-create-notes">
@@ -470,11 +644,21 @@ export default function SitesPage() {
                 onChange={(event) => setEditName(event.target.value)}
               />
             </FormField>
-            <FormField label="Timezone" htmlFor="site-edit-timezone">
-              <Input
+            <FormField
+              label="Timezone"
+              htmlFor="site-edit-timezone"
+              description="Hours and holidays use this timezone."
+            >
+              <SelectField
                 id="site-edit-timezone"
                 value={editTimezone}
-                onChange={(event) => setEditTimezone(event.target.value)}
+                onValueChange={setEditTimezone}
+                placeholder="Choose a timezone"
+                emptyLabel="Not set"
+                options={timeZoneOptions().map((zone) => ({
+                  value: zone,
+                  label: zone.replaceAll("_", " "),
+                }))}
               />
             </FormField>
             <FormField
@@ -520,42 +704,146 @@ export default function SitesPage() {
                 onChange={(event) => setEditContactPhone(event.target.value)}
               />
             </FormField>
-            <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 md:col-span-2">
+            <HoursDayFields
+              id="site-edit-weekdays"
+              label="Weekday hours"
+              description="Monday through Friday. Close after midnight for late nights."
+              value={editWeekdays}
+              onChange={setEditWeekdays}
+            />
+            <HoursDayFields
+              id="site-edit-saturday"
+              label="Saturday hours"
+              description="Leave off if the site is closed."
+              value={editSaturday}
+              onChange={setEditSaturday}
+            />
+            <HoursDayFields
+              id="site-edit-sunday"
+              label="Sunday hours"
+              description="Leave off if the site is closed."
+              value={editSunday}
+              onChange={setEditSunday}
+            />
+            <div className="flex flex-col gap-3 rounded-lg border px-3 py-3 md:col-span-2">
               <div>
-                <p className="text-sm font-medium">Weekday hours</p>
+                <p className="text-sm font-medium">Holidays</p>
                 <p className="text-xs text-muted-foreground">
-                  Used later for maintenance windows and reports.
+                  Closed all day, or set special hours for that date.
                 </p>
               </div>
-              <Switch
-                checked={editWeekdaysEnabled}
-                onCheckedChange={setEditWeekdaysEnabled}
-              />
+              {editHolidays.length > 0 ? (
+                <ul className="flex flex-col gap-2">
+                  {editHolidays.map((holiday) => (
+                    <li
+                      key={holiday.date}
+                      className="flex items-center justify-between gap-3 text-sm"
+                    >
+                      <span>
+                        {holiday.date}
+                        {holiday.name ? ` · ${holiday.name}` : ""}
+                        {holiday.closed || !holiday.open || !holiday.close
+                          ? " · Closed all day"
+                          : ` · ${holiday.open}–${holiday.close}`}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setEditHolidays((current) =>
+                            current.filter(
+                              (entry) => entry.date !== holiday.date
+                            )
+                          )
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No holidays yet.
+                </p>
+              )}
+              <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
+                <Input
+                  type="date"
+                  aria-label="Holiday date"
+                  value={holidayDate}
+                  onChange={(event) => setHolidayDate(event.target.value)}
+                />
+                <Input
+                  aria-label="Holiday name"
+                  placeholder="Name"
+                  value={holidayName}
+                  onChange={(event) => setHolidayName(event.target.value)}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Closed all day</p>
+                <Switch
+                  checked={holidayClosed}
+                  onCheckedChange={setHolidayClosed}
+                />
+              </div>
+              {holidayClosed ? null : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <FormField label="Opens" htmlFor="site-holiday-open">
+                    <Input
+                      id="site-holiday-open"
+                      type="time"
+                      value={holidayOpen}
+                      onChange={(event) => setHolidayOpen(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label="Closes" htmlFor="site-holiday-close">
+                    <Input
+                      id="site-holiday-close"
+                      type="time"
+                      value={holidayClose}
+                      onChange={(event) => setHolidayClose(event.target.value)}
+                    />
+                  </FormField>
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                className="w-fit"
+                onClick={() => {
+                  if (!holidayDate) return
+                  setEditHolidays((current) => {
+                    const next = current.filter(
+                      (entry) => entry.date !== holidayDate
+                    )
+                    next.push({
+                      date: holidayDate,
+                      name: holidayName.trim() || null,
+                      closed: holidayClosed || undefined,
+                      open: holidayClosed ? undefined : holidayOpen,
+                      close: holidayClosed ? undefined : holidayClose,
+                    })
+                    next.sort((left, right) =>
+                      left.date.localeCompare(right.date)
+                    )
+                    return next
+                  })
+                  setHolidayDate("")
+                  setHolidayName("")
+                  setHolidayClosed(true)
+                }}
+                disabled={!holidayDate}
+              >
+                Add
+              </Button>
             </div>
-            {editWeekdaysEnabled ? (
-              <>
-                <FormField label="Opens" htmlFor="site-edit-open">
-                  <Input
-                    id="site-edit-open"
-                    type="time"
-                    value={editWeekdaysOpen}
-                    onChange={(event) =>
-                      setEditWeekdaysOpen(event.target.value)
-                    }
-                  />
-                </FormField>
-                <FormField label="Closes" htmlFor="site-edit-close">
-                  <Input
-                    id="site-edit-close"
-                    type="time"
-                    value={editWeekdaysClose}
-                    onChange={(event) =>
-                      setEditWeekdaysClose(event.target.value)
-                    }
-                  />
-                </FormField>
-              </>
-            ) : null}
+            <p className="text-sm text-muted-foreground md:col-span-2">
+              When this location is closed, offline alerts stay quiet. Device
+              restarts and agent updates wait until close.
+            </p>
             <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 md:col-span-2">
               <div>
                 <p className="text-sm font-medium">Require a reason</p>
@@ -584,6 +872,20 @@ export default function SitesPage() {
               <Button
                 className="w-full sm:w-auto"
                 onClick={() => {
+                  const businessHours = businessHoursFromForm(
+                    editWeekdays,
+                    editSaturday,
+                    editSunday,
+                    editHolidays
+                  )
+                  if (
+                    hasConfiguredSiteHours(businessHours) &&
+                    (!editTimezone.trim() ||
+                      !isValidTimeZone(editTimezone.trim()))
+                  ) {
+                    toast.error("Set a timezone before saving site hours.")
+                    return
+                  }
                   void updateSite.mutateAsync({
                     id: selectedSite.id,
                     name: editName,
@@ -599,14 +901,7 @@ export default function SitesPage() {
                           },
                         ]
                       : [],
-                    businessHours: editWeekdaysEnabled
-                      ? {
-                          weekdays: {
-                            open: editWeekdaysOpen,
-                            close: editWeekdaysClose,
-                          },
-                        }
-                      : null,
+                    businessHours,
                     requireAccessReason: editRequireReason,
                     requireApproval: editRequireApproval,
                   })

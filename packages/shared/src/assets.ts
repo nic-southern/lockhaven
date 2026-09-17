@@ -61,7 +61,7 @@ export const isoDateSchema = z
 export const timeOfDaySchema = z
   .string()
   .trim()
-  .regex(/^\d{2}:\d{2}$/, "Use 24-hour time.")
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24-hour time.")
 
 export const siteContactSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -84,10 +84,29 @@ const hoursWindowSchema = z.object({
   close: timeOfDaySchema,
 })
 
+export const siteHolidaySchema = z
+  .object({
+    date: isoDateSchema,
+    name: z.string().trim().max(80).optional().nullable(),
+    closed: z.boolean().optional(),
+    open: timeOfDaySchema.optional(),
+    close: timeOfDaySchema.optional(),
+  })
+  .refine(
+    (holiday) =>
+      Boolean(holiday.closed) ||
+      Boolean(holiday.open && holiday.close) ||
+      (!holiday.open && !holiday.close),
+    { message: "Set closed all day or both open and close times." }
+  )
+
+export type SiteHoliday = z.infer<typeof siteHolidaySchema>
+
 export const siteBusinessHoursSchema = z.object({
   weekdays: hoursWindowSchema.nullable().optional(),
   saturday: hoursWindowSchema.nullable().optional(),
   sunday: hoursWindowSchema.nullable().optional(),
+  holidays: z.array(siteHolidaySchema).max(100).optional(),
 })
 
 export type SiteBusinessHours = z.infer<typeof siteBusinessHoursSchema>

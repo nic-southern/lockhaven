@@ -7,6 +7,7 @@ import {
   devices,
   playbookRuns,
   playbooks,
+  sites,
 } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
@@ -16,6 +17,7 @@ import {
   pickMatchingPlaybook,
   playbookApprovalExpiresAt,
   severityForEvent,
+  siteOpenState,
   type AgentCommandKind,
   type AlertKind,
   type AlertStatus,
@@ -243,6 +245,37 @@ export async function evaluatePlaybooks(client: PlaybookDb, now = new Date()) {
     if (!lastQueued.has(key)) lastQueued.set(key, row.createdAt)
   }
 
+  const siteIds = [
+    ...new Set(
+      alertRows
+        .map((row) => row.siteId)
+        .filter((siteId): siteId is string => Boolean(siteId))
+    ),
+  ]
+  const siteHoursById = new Map<
+    string,
+    {
+      timezone: string | null
+      businessHours: (typeof sites.$inferSelect)["businessHours"]
+    }
+  >()
+  if (siteIds.length > 0) {
+    const siteRows = await client
+      .select({
+        id: sites.id,
+        timezone: sites.timezone,
+        businessHours: sites.businessHours,
+      })
+      .from(sites)
+      .where(inArray(sites.id, siteIds))
+    for (const row of siteRows) {
+      siteHoursById.set(row.id, {
+        timezone: row.timezone,
+        businessHours: row.businessHours,
+      })
+    }
+  }
+
   const stats = { considered: 0, queued: 0, pendingApproval: 0, skipped: 0 }
 
   for (const alert of alertRows) {
@@ -291,7 +324,14 @@ export async function evaluatePlaybooks(client: PlaybookDb, now = new Date()) {
       cooldownMinutes: playbook.cooldownMinutes,
       hasOpenCommand,
       existingRunStatus: existing?.status ?? null,
+      siteOpen: alert.siteId
+        ? siteOpenState(siteHoursById.get(alert.siteId) ?? null, now)
+        : null,
     })
+
+    if (decision.kind === "wait") {
+      continue
+    }
 
     if (decision.kind === "skip") {
       if (!TERMINAL_SKIP.has(decision.reason) || existing || !action) continue
