@@ -15,6 +15,7 @@ import {
 import { enqueueAlertNotifications } from "./alert-deliveries"
 import {
   activeMaintenanceWindowFor,
+  deviceInPlannedRebootGrace,
   resolveAlertPolicy,
   siteOpenForTarget,
 } from "./alert-runtime"
@@ -71,8 +72,9 @@ async function recordSystemEvent(
  * repeat. Acknowledged alerts keep their acknowledgement; only a resolved
  * alert followed by a repeat opens a fresh row. Alerts raised inside an
  * active maintenance window are created `suppressed` and do not enqueue
- * deliveries until they are promoted. Offline/down while a site is closed
- * is not opened; the next open-hours pass raises it if it still applies.
+ * deliveries until they are promoted. Offline/down while a site is closed,
+ * or shortly after a Hub-issued restart, is not opened; the next pass raises
+ * it if it still applies.
  */
 export async function raiseAlert(input: RaiseAlertInput) {
   const now = new Date()
@@ -99,10 +101,11 @@ export async function raiseAlert(input: RaiseAlertInput) {
     now
   )
   const siteOpen = await siteOpenForTarget(input.siteId ?? null, now)
-  const skipClosedHours = shouldSkipRaisingAlertForClosedHours(
-    input.kind,
-    siteOpen
-  )
+  // A planned restart looks like an outage for a few minutes; hold offline
+  // and flapping for that device until the grace window passes.
+  const skipClosedHours =
+    shouldSkipRaisingAlertForClosedHours(input.kind, siteOpen) ||
+    (await deviceInPlannedRebootGrace(input.kind, input.deviceId, now))
 
   const [existing] = await db
     .select({
