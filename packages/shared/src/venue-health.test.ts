@@ -13,17 +13,23 @@ import {
   agentStaleThresholdsFrom,
   agentStaleWindowStart,
   bytesToGigabytes,
+  diskFloorApplies,
   diskFullAlertTitle,
   diskFullThresholdsFrom,
+  diskIsSystemVolume,
   diskReadingFromStored,
   diskUsedPercent,
+  evaluateDiskFull,
   findFullDisks,
   formatBytes,
   gigabytesToBytes,
   type DiskReading,
 } from "./venue-health"
 
-const GiB = 1024 * 1024 * 1024
+const MiB = 1024 * 1024
+const GiB = 1024 * MiB
+
+const defaultThresholds = diskFullThresholdsFrom(null)
 
 function disk(
   overrides: Partial<DiskReading> & { mount: string }
@@ -44,11 +50,12 @@ test("default thresholds match the product defaults", () => {
   assert.deepEqual(diskFullThresholdsFrom(null), {
     usedPercent: 95,
     freeBytes: 2 * GiB,
+    floorMinTotalBytes: 16 * GiB,
   })
   assert.deepEqual(agentStaleThresholdsFrom({}), { staleMinutes: 15 })
   assert.deepEqual(
     diskFullThresholdsFrom({ diskUsedPercent: 90, diskFreeBytes: 0 }),
-    { usedPercent: 90, freeBytes: 0 }
+    { usedPercent: 90, freeBytes: 0, floorMinTotalBytes: 16 * GiB }
   )
 })
 
@@ -84,7 +91,7 @@ test("effective policy carries the new thresholds with site over org", () => {
 })
 
 test("a disk is full at the percent threshold or below the free floor", () => {
-  const thresholds = { usedPercent: 95, freeBytes: 2 * GiB }
+  const thresholds = defaultThresholds
   const full = findFullDisks(
     [
       disk({ mount: "/", totalBytes: 100 * GiB, availableBytes: 4 * GiB }),
@@ -108,10 +115,251 @@ test("a disk is full at the percent threshold or below the free floor", () => {
 
 test("a zero free floor disables the free-bytes check", () => {
   const full = findFullDisks(
-    [disk({ mount: "/", totalBytes: 10 * GiB, availableBytes: 1 * GiB })],
-    { usedPercent: 95, freeBytes: 0 }
+    [disk({ mount: "/", totalBytes: 100 * GiB, availableBytes: 1 * GiB })],
+    { ...defaultThresholds, usedPercent: 100, freeBytes: 0 }
   )
   assert.equal(full.length, 0)
+})
+
+test("boot, firmware, and recovery volumes are never full", () => {
+  const efi = disk({
+    mount: "/boot/efi",
+    filesystem: "vfat",
+    totalBytes: 511 * MiB,
+    availableBytes: 506 * MiB,
+  })
+  const boot = disk({
+    mount: "/boot",
+    filesystem: "ext4",
+    totalBytes: 1 * GiB,
+    availableBytes: 40 * MiB,
+  })
+  const firmware = disk({
+    mount: "/boot/firmware/",
+    filesystem: "vfat",
+    totalBytes: 256 * MiB,
+    availableBytes: 200 * MiB,
+  })
+  const recovery = disk({
+    mount: "/recovery",
+    filesystem: "ext4",
+    totalBytes: 4 * GiB,
+    availableBytes: 100 * MiB,
+  })
+  const root = disk({
+    mount: "/",
+    totalBytes: 240 * GiB,
+    availableBytes: 1 * GiB,
+  })
+
+  for (const volume of [efi, boot, firmware, recovery]) {
+    assert.equal(diskIsSystemVolume(volume), true, volume.mount)
+  }
+  assert.equal(diskIsSystemVolume(root), false)
+
+  const { full, skipped } = evaluateDiskFull(
+    [efi, boot, firmware, recovery, root],
+    defaultThresholds
+  )
+  assert.deepEqual(
+    full.map((entry) => [entry.mount, entry.reasons]),
+    [["/", ["percent", "free_bytes"]]]
+  )
+  assert.deepEqual(
+    skipped.map((entry) => [entry.mount, entry.skipped]),
+    [
+      ["/recovery", "system_volume"],
+      ["/boot", "system_volume"],
+      ["/boot/firmware/", "system_volume"],
+      ["/boot/efi", "system_volume"],
+    ]
+  )
+})
+
+test("FAT-family filesystems and system labels mark a volume as system", () => {
+  assert.equal(
+    diskIsSystemVolume({ mount: "/mnt/esp", filesystem: "vfat" }),
+    true
+  )
+  assert.equal(
+    diskIsSystemVolume({ mount: "/mnt/esp", filesystem: "FAT32" }),
+    true
+  )
+  assert.equal(
+    diskIsSystemVolume({ mount: "/mnt/x", filesystem: "msdos" }),
+    true
+  )
+  assert.equal(
+    diskIsSystemVolume({
+      mount: "E:\\",
+      filesystem: "ntfs",
+      label: "System Reserved",
+    }),
+    true
+  )
+  assert.equal(
+    diskIsSystemVolume({
+      mount: "E:\\",
+      filesystem: "ntfs",
+      label: "Recovery",
+    }),
+    true
+  )
+  assert.equal(
+    diskIsSystemVolume({ mount: "E:\\", filesystem: "ntfs", label: "Games" }),
+    false
+  )
+  assert.equal(
+    diskIsSystemVolume({ mount: "/games", filesystem: "exfat" }),
+    false
+  )
+})
+
+test("Windows system volumes without a drive letter are excluded", () => {
+  const systemReserved = disk({
+    mount: "\\\\?\\Volume{3a1b2c3d-0000-0000-0000-000000000001}\\",
+    filesystem: "ntfs",
+    totalBytes: 549 * MiB,
+    availableBytes: 20 * MiB,
+  })
+  const recovery = disk({
+    mount: "\\\\?\\Volume{3a1b2c3d-0000-0000-0000-000000000002}\\",
+    filesystem: "ntfs",
+    label: "Recovery",
+    totalBytes: 1 * GiB,
+    availableBytes: 90 * MiB,
+  })
+  const efi = disk({
+    mount: "\\\\?\\Volume{3a1b2c3d-0000-0000-0000-000000000003}\\",
+    filesystem: "fat32",
+    totalBytes: 100 * MiB,
+    availableBytes: 70 * MiB,
+  })
+  const games = disk({
+    mount: "D:\\",
+    filesystem: "ntfs",
+    label: "Games",
+    totalBytes: 2000 * GiB,
+    availableBytes: 500 * GiB,
+  })
+  const system = disk({
+    mount: "C:\\",
+    filesystem: "ntfs",
+    totalBytes: 240 * GiB,
+    availableBytes: 3 * GiB,
+  })
+
+  const { full, skipped } = evaluateDiskFull(
+    [systemReserved, recovery, efi, games, system],
+    defaultThresholds
+  )
+  assert.deepEqual(
+    full.map((entry) => [entry.mount, entry.reasons]),
+    [["C:\\", ["percent"]]]
+  )
+  assert.deepEqual(
+    skipped.map((entry) => entry.skipped),
+    ["system_volume", "system_volume", "system_volume"]
+  )
+})
+
+test("the free floor only applies to volumes large enough to hold it", () => {
+  assert.equal(
+    diskFloorApplies({ totalBytes: 8 * GiB }, defaultThresholds),
+    false
+  )
+  assert.equal(
+    diskFloorApplies({ totalBytes: 16 * GiB }, defaultThresholds),
+    true
+  )
+  // A 10 GB floor is meaningless on a 20 GB volume: the floor needs at least
+  // four times its size.
+  assert.equal(
+    diskFloorApplies(
+      { totalBytes: 20 * GiB },
+      { ...defaultThresholds, freeBytes: 10 * GiB }
+    ),
+    false
+  )
+  assert.equal(
+    diskFloorApplies(
+      { totalBytes: 40 * GiB },
+      { ...defaultThresholds, freeBytes: 10 * GiB }
+    ),
+    true
+  )
+  assert.equal(
+    diskFloorApplies(
+      { totalBytes: 1 * GiB },
+      { ...defaultThresholds, freeBytes: 0 }
+    ),
+    false
+  )
+})
+
+test("small volumes are judged by percent only", () => {
+  // 8 GB scratch volume with 1.5 GB free: under the 2 GB floor, but only
+  // 81% used. Not full.
+  const roomy = disk({
+    mount: "/scratch",
+    totalBytes: 8 * GiB,
+    availableBytes: 1.5 * GiB,
+  })
+  // Same volume with 200 MB free: 97.6% used. Full by percent.
+  const packed = disk({
+    mount: "/var/cache",
+    totalBytes: 8 * GiB,
+    availableBytes: 200 * MiB,
+  })
+  const { full, skipped } = evaluateDiskFull([roomy, packed], defaultThresholds)
+  assert.deepEqual(
+    full.map((entry) => [entry.mount, entry.reasons]),
+    [["/var/cache", ["percent"]]]
+  )
+  assert.deepEqual(
+    skipped.map((entry) => [entry.mount, entry.skipped]),
+    [["/scratch", "floor_not_applicable"]]
+  )
+})
+
+test("the free floor still trips on large volumes", () => {
+  const { full, skipped } = evaluateDiskFull(
+    [
+      disk({
+        mount: "/games",
+        totalBytes: 2000 * GiB,
+        availableBytes: 1 * GiB,
+      }),
+      disk({ mount: "/", totalBytes: 16 * GiB, availableBytes: 1.9 * GiB }),
+      disk({ mount: "/home", totalBytes: 100 * GiB, availableBytes: 10 * GiB }),
+    ],
+    defaultThresholds
+  )
+  assert.deepEqual(
+    full.map((entry) => [entry.mount, entry.reasons]),
+    [
+      ["/games", ["percent", "free_bytes"]],
+      ["/", ["free_bytes"]],
+    ]
+  )
+  assert.equal(skipped.length, 0)
+})
+
+test("nothing is skipped when no excluded volume met a threshold", () => {
+  const { full, skipped } = evaluateDiskFull(
+    [
+      disk({
+        mount: "/boot/efi",
+        filesystem: "vfat",
+        totalBytes: 4 * GiB,
+        availableBytes: 3 * GiB,
+      }),
+      disk({ mount: "/", totalBytes: 100 * GiB, availableBytes: 50 * GiB }),
+    ],
+    defaultThresholds
+  )
+  assert.equal(full.length, 0)
+  assert.equal(skipped.length, 0)
 })
 
 test("pseudo and empty filesystems never count as full", () => {
@@ -131,7 +379,7 @@ test("pseudo and empty filesystems never count as full", () => {
       }),
       disk({ mount: "/mnt/empty", totalBytes: 0, availableBytes: 0 }),
     ],
-    { usedPercent: 95, freeBytes: 2 * GiB }
+    defaultThresholds
   )
   assert.equal(full.length, 0)
 })
@@ -164,10 +412,21 @@ test("stored disk rows are read defensively", () => {
     {
       mount: "C:\\",
       filesystem: "ntfs",
+      label: null,
       totalBytes: 1000,
       usedBytes: 900,
       availableBytes: 100,
     }
+  )
+  assert.equal(
+    diskReadingFromStored({
+      mount: "E:\\",
+      label: " System Reserved ",
+      total_bytes: 1000,
+      used_bytes: 900,
+      available_bytes: 100,
+    })?.label,
+    "System Reserved"
   )
   assert.equal(diskReadingFromStored({ mount: "/" }), null)
   assert.equal(diskReadingFromStored({ total_bytes: 1 }), null)
@@ -271,7 +530,7 @@ test("archived devices stay quiet for agent stale", () => {
 test("titles and byte formatting read as product copy", () => {
   const full = findFullDisks(
     [disk({ mount: "C:\\", totalBytes: 100 * GiB, availableBytes: 1 * GiB })],
-    { usedPercent: 95, freeBytes: 2 * GiB }
+    defaultThresholds
   )
   assert.equal(
     diskFullAlertTitle("Cabinet 12", full),

@@ -207,6 +207,12 @@ export const DISK_FULL_USED_PERCENT_DEFAULT = 95
 /** A disk with less than this many bytes free counts as full (2 GiB). */
 export const DISK_FULL_FREE_BYTES_DEFAULT = 2 * 1024 * 1024 * 1024
 
+/**
+ * The free-space floor only applies to volumes at least this large (16 GiB).
+ * Smaller volumes can never hold the floor and are judged by percent only.
+ */
+export const DISK_FULL_FLOOR_MIN_TOTAL_BYTES_DEFAULT = 16 * 1024 * 1024 * 1024
+
 /** Minutes without an agent check-in before the agent counts as stale. */
 export const AGENT_STALE_MINUTES_DEFAULT = 15
 
