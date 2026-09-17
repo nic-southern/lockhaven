@@ -24,6 +24,8 @@ import {
   DataTableRowActions,
 } from "@/components/dashboard/data-table"
 import { DetailSheet } from "@/components/dashboard/detail-sheet"
+import { EmptyState } from "@/components/dashboard/empty-state"
+import { EnrollmentInstallCommands } from "@/components/dashboard/enrollment-install-commands"
 import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
@@ -137,6 +139,7 @@ export default function EnrollmentTokensPage() {
   const [createMaxUses, setCreateMaxUses] = React.useState("1")
   const [createdToken, setCreatedToken] = React.useState("")
   const [revokeOpen, setRevokeOpen] = React.useState(false)
+  const [rotateOpen, setRotateOpen] = React.useState(false)
 
   const [editOrganizationId, setEditOrganizationId] = React.useState("")
   const [editSiteId, setEditSiteId] = React.useState("")
@@ -151,6 +154,9 @@ export default function EnrollmentTokensPage() {
       setSelectedTokenId(result.enrollmentToken.id)
       await Promise.all([
         utils.enrollmentTokens.list.invalidate(),
+        utils.enrollmentTokens.reveal.invalidate({
+          id: result.enrollmentToken.id,
+        }),
         utils.organizations.imagingSsh.invalidate(),
       ])
       toast.success("Enrollment token created")
@@ -178,6 +184,21 @@ export default function EnrollmentTokensPage() {
       toast.error("We couldn't revoke the token.")
     },
   })
+  const rotateSecret = trpc.enrollmentTokens.rotateSecret.useMutation({
+    async onSuccess() {
+      await Promise.all([
+        utils.enrollmentTokens.list.invalidate(),
+        selectedTokenId
+          ? utils.enrollmentTokens.reveal.invalidate({ id: selectedTokenId })
+          : Promise.resolve(),
+      ])
+      setRotateOpen(false)
+      toast.success("Install commands are ready")
+    },
+    onError() {
+      toast.error("We couldn't issue a new secret.")
+    },
+  })
 
   React.useEffect(() => {
     if (tokens.length === 0) {
@@ -193,6 +214,10 @@ export default function EnrollmentTokensPage() {
   const selectedToken = React.useMemo(
     () => tokens.find((token) => token.id === selectedTokenId) ?? null,
     [selectedTokenId, tokens]
+  )
+  const secretQuery = trpc.enrollmentTokens.reveal.useQuery(
+    { id: selectedTokenId },
+    { enabled: Boolean(selectedTokenId) }
   )
 
   const imagingOrganizationId =
@@ -391,7 +416,7 @@ export default function EnrollmentTokensPage() {
       <PageHeader
         badge="Enrollment tokens"
         title="Token workspace"
-        description="Create, edit, and revoke enrollment tokens from one place."
+        description="Create a token, then copy the install commands. Selecting a token shows the same commands again."
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
@@ -529,7 +554,10 @@ export default function EnrollmentTokensPage() {
             Create token
           </Button>
           {createdToken ? (
-            <CodeBlock label="Enrollment token" value={createdToken} />
+            <div className="flex flex-col gap-3">
+              <CodeBlock label="Enrollment token" value={createdToken} />
+              <EnrollmentInstallCommands token={createdToken} />
+            </div>
           ) : null}
         </SectionCard>
 
@@ -537,7 +565,8 @@ export default function EnrollmentTokensPage() {
           <CardHeader>
             <CardTitle>Tokens</CardTitle>
             <CardDescription>
-              Sort and filter tokens, then pick one to edit or revoke it.
+              Sort and filter tokens, then pick one to copy install commands,
+              edit, or revoke it.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -591,9 +620,40 @@ export default function EnrollmentTokensPage() {
           open={mobileDetailOpen}
           onOpenChange={setMobileDetailOpen}
           title="Edit token"
-          description="Update the token settings or revoke it when it should no longer work."
+          description="Copy install commands, update settings, or revoke this token when it should no longer work."
           contentClassName="gap-6"
         >
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium">Install commands</p>
+              <p className="text-sm text-muted-foreground">
+                Linux agent enrolls or attaches, then starts the service. Tunnel
+                only sets up private access without the agent.
+              </p>
+            </div>
+            {secretQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">
+                Loading install commands…
+              </p>
+            ) : secretQuery.data?.token ? (
+              <EnrollmentInstallCommands token={secretQuery.data.token} />
+            ) : (
+              <EmptyState
+                title="Install commands unavailable"
+                description="This token’s secret isn’t stored. Issue a new secret to copy commands. Commands that still use the old value will stop working."
+                bordered
+                action={
+                  <Button
+                    variant="outline"
+                    onClick={() => setRotateOpen(true)}
+                    disabled={rotateSecret.isPending}
+                  >
+                    Issue new secret
+                  </Button>
+                }
+              />
+            )}
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <FormField label="Organization" htmlFor="token-edit-organization">
               <SelectField
@@ -747,6 +807,18 @@ export default function EnrollmentTokensPage() {
         </DetailSheet>
       ) : null}
 
+      <ConfirmDialog
+        open={rotateOpen}
+        onOpenChange={setRotateOpen}
+        title="Issue a new secret"
+        description="Install commands that still use the old secret will stop working. Devices that already enrolled are unaffected."
+        confirmLabel="Issue new secret"
+        pending={rotateSecret.isPending}
+        onConfirm={() => {
+          if (!selectedToken) return
+          void rotateSecret.mutateAsync({ id: selectedToken.id })
+        }}
+      />
       <ConfirmDialog
         open={revokeOpen}
         onOpenChange={setRevokeOpen}

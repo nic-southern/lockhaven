@@ -4,6 +4,7 @@ import test from "node:test"
 import {
   buildAgentDownloadUrl,
   buildAndroidInstallCommand,
+  buildLinuxEnrollCommand,
   buildLinuxInstallCommand,
   buildLinuxUninstallCommand,
   buildWindowsInstallCommand,
@@ -32,6 +33,16 @@ test("builds the Linux VPN enrollment command", () => {
       baseUrl: "https://vpn.example.com/",
     }),
     "curl -fsSL https://vpn.example.com/install/install-lockhaven-agent.sh | sudo LOCKHAVEN_TOKEN='nms_enroll_abc'\\''123' LOCKHAVEN_BASE_URL='https://vpn.example.com' bash"
+  )
+})
+
+test("builds the Linux tunnel-only enrollment command", () => {
+  assert.equal(
+    buildLinuxEnrollCommand({
+      token: "nms_enroll_abc'123",
+      baseUrl: "https://vpn.example.com/",
+    }),
+    "curl -fsSL https://vpn.example.com/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN='nms_enroll_abc'\\''123' LOCKHAVEN_BASE_URL='https://vpn.example.com' bash"
   )
 })
 

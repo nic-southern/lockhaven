@@ -76,6 +76,9 @@ function publicSite(row: Record<string, unknown>) {
 function publicEnrollmentToken(row: Record<string, unknown>) {
   const rest = { ...row }
   delete rest.tokenHash
+  delete rest.tokenCiphertext
+  delete rest.tokenIv
+  delete rest.tokenAuthTag
   return rest
 }
 

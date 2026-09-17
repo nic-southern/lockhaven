@@ -52,6 +52,17 @@ export function buildLinuxInstallCommand({
   return `curl -fsSL ${normalizedBaseUrl}/install/install-lockhaven-agent.sh | sudo ${env.join(" ")} bash`
 }
 
+export function buildLinuxEnrollCommand({
+  token,
+  baseUrl,
+}: {
+  token: string
+  baseUrl: string
+}) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  return `curl -fsSL ${normalizedBaseUrl}/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN=${quoteShell(token)} LOCKHAVEN_BASE_URL=${quoteShell(normalizedBaseUrl)} bash`
+}
+
 export function buildAgentDownloadUrl({
   baseUrl,
   arch,

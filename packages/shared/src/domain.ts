@@ -404,6 +404,7 @@ export const auditEventTypeSchema = z.enum([
   "enrollment_token_created",
   "enrollment_token_updated",
   "enrollment_token_revoked",
+  "enrollment_token_secret_rotated",
   "device_enrolled",
   "device_agent_attached",
   "vpn_peer_added",
