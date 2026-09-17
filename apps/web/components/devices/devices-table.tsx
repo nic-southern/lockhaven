@@ -9,6 +9,7 @@ import type {
   RowSelectionState,
 } from "@tanstack/react-table"
 import {
+  ArchiveIcon,
   DownloadIcon,
   MapPinIcon,
   MoreHorizontalIcon,
@@ -16,10 +17,15 @@ import {
   TagIcon,
 } from "lucide-react"
 import { toast } from "sonner"
-import type { DeviceBulkAction } from "@nms/shared"
+import {
+  archiveScopeShowsArchived,
+  resolveDeviceArchiveScope,
+  type DeviceBulkAction,
+} from "@nms/shared"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Toggle } from "@/components/ui/toggle"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -266,9 +272,14 @@ export function DevicesTable({
     placeholderData: keepPreviousData,
     refetchInterval: 30_000,
   })
-  const facetsQuery = trpc.devices.facets.useQuery(undefined, {
-    staleTime: 30_000,
-  })
+  // Archived devices stay hidden until asked for. The choice rides along as
+  // the `archived` column filter so it lands in the URL and in saved views.
+  const archiveScope = resolveDeviceArchiveScope(filters.archived)
+  const showingArchived = archiveScopeShowsArchived(archiveScope)
+  const facetsQuery = trpc.devices.facets.useQuery(
+    filters.archived ? { archived: filters.archived } : undefined,
+    { staleTime: 30_000 }
+  )
   const sitesQuery = trpc.sites.list.useQuery(undefined, { enabled: !compact })
   const routePoliciesQuery = trpc.routePolicies.list.useQuery(undefined, {
     enabled: !compact,
@@ -366,22 +377,6 @@ export function DevicesTable({
         })),
       })
     }
-    list.push({
-      columnId: "archived",
-      title: "Archived",
-      options: [
-        {
-          value: "no",
-          label: "In service",
-          count: data.archived.find((entry) => entry.value === "no")?.count,
-        },
-        {
-          value: "yes",
-          label: "Archived",
-          count: data.archived.find((entry) => entry.value === "yes")?.count,
-        },
-      ],
-    })
     if (data.tags.length > 0) {
       list.push({
         columnId: "tags",
@@ -453,6 +448,23 @@ export function DevicesTable({
     []
   )
 
+  const archivedCount = facetsQuery.data?.archived.find(
+    (entry) => entry.value === "yes"
+  )?.count
+
+  const setShowArchived = React.useCallback(
+    (show: boolean) => {
+      onViewChange({
+        columnFilters: [
+          ...view.columnFilters.filter((entry) => entry.id !== "archived"),
+          ...(show ? [{ id: "archived", value: ["all"] }] : []),
+        ],
+      })
+      resetToFirstPage()
+    },
+    [view.columnFilters, onViewChange, resetToFirstPage]
+  )
+
   const columns = React.useMemo<ColumnDef<DeviceRow>[]>(() => {
     const defs: ColumnDef<DeviceRow>[] = [
       {
@@ -470,7 +482,12 @@ export function DevicesTable({
                 {row.original.displayName}
               </span>
               {row.original.archivedAt ? (
-                <Badge variant="outline" className="font-normal">
+                <Badge
+                  variant="outline"
+                  className="gap-1 font-normal text-muted-foreground"
+                  title={`Archived ${formatDate(row.original.archivedAt)}`}
+                >
+                  <ArchiveIcon className="size-3" aria-hidden="true" />
                   Archived
                 </Badge>
               ) : null}
@@ -867,15 +884,37 @@ export function DevicesTable({
         showViewOptions={!compact}
         toolbarLeading={
           compact ? null : (
-            <ViewsMenu
-              storageKey="devices"
-              builtIns={DEVICES_BUILT_IN_VIEWS}
-              current={view}
-              onApply={(state) => {
-                onViewChange(state)
-                resetToFirstPage()
-              }}
-            />
+            <>
+              <ViewsMenu
+                storageKey="devices"
+                builtIns={DEVICES_BUILT_IN_VIEWS}
+                current={view}
+                onApply={(state) => {
+                  onViewChange(state)
+                  resetToFirstPage()
+                }}
+              />
+              <Toggle
+                variant="outline"
+                size="sm"
+                className="h-9 px-3 text-muted-foreground aria-pressed:text-foreground"
+                pressed={showingArchived}
+                onPressedChange={setShowArchived}
+                aria-label={
+                  showingArchived
+                    ? "Hide archived devices"
+                    : "Show archived devices"
+                }
+              >
+                <ArchiveIcon data-icon="inline-start" />
+                Show archived
+                {archivedCount ? (
+                  <span className="text-muted-foreground tabular-nums">
+                    {archivedCount.toLocaleString()}
+                  </span>
+                ) : null}
+              </Toggle>
+            </>
           )
         }
         toolbarActions={
@@ -984,6 +1023,9 @@ export function DevicesTable({
           )
         }}
         onRowClick={(row) => router.push(`/devices/${row.id}`)}
+        rowClassName={(row) =>
+          row.archivedAt ? "text-muted-foreground" : undefined
+        }
         emptyTitle="No devices yet"
         emptyDescription="Enroll a device from the Overview page to see it here."
         filteredEmptyTitle="No devices match"
