@@ -12,6 +12,7 @@ import {
   CalendarClockIcon,
   ChevronDownIcon,
   PackageIcon,
+  PuzzleIcon,
   FileBarChartIcon,
   KeyRoundIcon,
   KeySquareIcon,
@@ -134,6 +135,12 @@ const navSections: NavSection[] = [
         href: "/playbooks",
         label: "Playbooks",
         icon: WorkflowIcon,
+        permissions: ["device:view"],
+      },
+      {
+        href: "/modules",
+        label: "Modules",
+        icon: PuzzleIcon,
         permissions: ["device:view"],
       },
       {

@@ -246,6 +246,13 @@
       "when": 1782600000000,
       "tag": "0044_device_titles",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1782700000000,
+      "tag": "0045_agent_modules",
+      "breakpoints": true
     }
   ]
 }

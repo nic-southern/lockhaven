@@ -43,6 +43,7 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 	metrics := collect.CollectMetrics(state.TunnelName)
 	packages := collect.CollectPackages()
 	titles := collect.CollectTitles()
+	moduleReports := collect.CollectModules(state.AssignedModules)
 
 	client := hub.New(state.BaseURL)
 	response, err := client.CheckIn(hub.CheckInRequest{
@@ -57,6 +58,7 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 		Metrics:        metrics,
 		Packages:       packages,
 		Titles:         titles,
+		Modules:        moduleReports,
 		CommandResults: toHubResults(state.PendingCommandResults),
 	})
 	if err != nil {
@@ -78,6 +80,7 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 
 	next := *state
 	next.PendingCommandResults = fromCommandResults(results)
+	next.AssignedModules = assignedModulesFromHub(response.Modules)
 	if _, err := config.Save(next); err != nil {
 		return CheckInResult{}, err
 	}
@@ -87,4 +90,31 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 	}
 
 	return CheckInResult{Accepted: len(accepted), Refused: len(refused)}, nil
+}
+
+func assignedModulesFromHub(rows []hub.ModuleDefinition) []config.AssignedModule {
+	out := make([]config.AssignedModule, 0, len(rows))
+	for _, row := range rows {
+		if row.ID == "" || row.Kind != "observations" {
+			continue
+		}
+		module := config.AssignedModule{
+			ID:   row.ID,
+			Kind: row.Kind,
+			Name: row.Name,
+		}
+		for _, collector := range row.Collectors {
+			module.Collectors = append(module.Collectors, config.AssignedCollector{
+				ID:      collector.ID,
+				Type:    collector.Type,
+				Process: collector.Process,
+				Path:    collector.Path,
+			})
+		}
+		if len(module.Collectors) == 0 {
+			continue
+		}
+		out = append(out, module)
+	}
+	return out
 }

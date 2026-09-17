@@ -14,14 +14,17 @@
    `LOCKHAVEN_VNC_PASSWORD`) when present.
 8. The agent includes that secret on `POST /api/agent/check-in` so the API can
    accept status updates for the enrolled device.
-9. Optional check-in fields `metrics`, `packages`, and `titles` report disk,
-   memory, CPU load, uptime, network counters, WireGuard handshake age,
-   installed packages, and game/cabinet titles (build, config hash, and whether
-   the process is running). Existing hostname and secret fields stay required.
-10. Check-in responses may include `desired_agent_version`, `download_url`, and
-    `commands`. Commands are a closed whitelist (`reboot`, `restart`, `update`)
-    — never a shell or SSH string. The client refuses anything else and reports
-    the result on the next check-in.
+9. Optional check-in fields `metrics`, `packages`, `titles`, and `modules`
+   report disk, memory, CPU load, uptime, network counters, WireGuard handshake
+   age, installed packages, game/cabinet titles (build, config hash, and whether
+   the process is running), and Hub-assigned observations. Existing hostname and
+   secret fields stay required.
+10. Check-in responses may include `desired_agent_version`, `download_url`,
+    `commands`, and `modules`. Commands are a closed whitelist (`reboot`,
+    `restart`, `update`) — never a shell or SSH string. The client refuses
+    anything else and reports the result on the next check-in. Module
+    definitions are Hub-issued collector lists; the agent only reads local
+    process and file state. Poisoned module payloads fail closed (400).
 11. The worker reconciles the server peer and status tables.
 
 The Linux and Windows endpoint agent is a static binary (`apps/lockhaven-agent`).

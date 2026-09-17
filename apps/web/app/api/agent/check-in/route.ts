@@ -16,17 +16,24 @@ import {
 } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
+  CHECK_IN_MAX_BODY_BYTES,
   checkInIssuePaths,
   checkInSchema,
+  hasPoisonedKeys,
   hostnamesMatch,
   hubCheckInResponse,
   normalizeHostname,
   requestedDeviceIdFromUnknown,
   severityForEvent,
+  validateReportedModules,
   type AuditEventType,
 } from "@nms/shared"
 
 import { ingestDeviceTelemetry } from "@/lib/device-telemetry"
+import {
+  ingestModuleObservations,
+  loadAssignedModules,
+} from "@/lib/agent-modules"
 import { desiredCheckInRelease, settleDeviceCommands } from "@/lib/agent-fleet"
 
 import { agentSecretMatches } from "@/lib/agent-secret"
@@ -52,6 +59,7 @@ async function recordCheckInFailure(
     | "device_check_in_failed"
     | "device_check_in_secret_mismatch"
     | "device_check_in_hostname_mismatch"
+    | "device_module_payload_rejected"
   >,
   args: {
     reason: string
@@ -90,9 +98,27 @@ function renameAllowed(allowedAt: Date | null, now: Date) {
 
 async function readJson(request: Request) {
   try {
-    return (await request.json()) as unknown
+    const raw = await request.text()
+    if (raw.length > CHECK_IN_MAX_BODY_BYTES) {
+      return { tooLarge: true as const, body: null }
+    }
+    if (!raw) return { tooLarge: false as const, body: null }
+    return { tooLarge: false as const, body: JSON.parse(raw) as unknown }
   } catch {
-    return null
+    return { tooLarge: false as const, body: null }
+  }
+}
+
+function modulesField(body: unknown) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { present: false, value: undefined as unknown }
+  }
+  if (!Object.prototype.hasOwnProperty.call(body, "modules")) {
+    return { present: false, value: undefined as unknown }
+  }
+  return {
+    present: true,
+    value: (body as { modules?: unknown }).modules,
   }
 }
 
@@ -103,7 +129,34 @@ export async function POST(request: Request) {
   )
   if (addressLimited) return addressLimited
 
-  const body = await readJson(request)
+  const { tooLarge, body } = await readJson(request)
+  if (tooLarge) {
+    await recordCheckInFailure(request, "device_check_in_failed", {
+      reason: "payload_too_large",
+    })
+    return Response.json({ error: "Invalid check-in payload" }, { status: 400 })
+  }
+  const modules = modulesField(body)
+  if (modules.present && hasPoisonedKeys(modules.value)) {
+    const requestedDeviceId = requestedDeviceIdFromUnknown(body)
+    const [device] = requestedDeviceId
+      ? await db
+          .select({
+            id: devices.id,
+            organizationId: devices.organizationId,
+            siteId: devices.siteId,
+          })
+          .from(devices)
+          .where(eq(devices.id, requestedDeviceId))
+      : []
+    await recordCheckInFailure(request, "device_module_payload_rejected", {
+      reason: "poisoned_payload",
+      device: device ?? null,
+      deviceId: requestedDeviceId,
+      details: { detail: "Module payload contains forbidden keys." },
+    })
+    return Response.json({ error: "Invalid check-in payload" }, { status: 400 })
+  }
   const parsed = checkInSchema.safeParse(body)
 
   if (!parsed.success) {
@@ -118,12 +171,20 @@ export async function POST(request: Request) {
           .from(devices)
           .where(eq(devices.id, requestedDeviceId))
       : []
-    await recordCheckInFailure(request, "device_check_in_failed", {
-      reason: "invalid_payload",
-      device: device ?? null,
-      deviceId: requestedDeviceId,
-      details: { issues: checkInIssuePaths(parsed.error) },
-    })
+    const issues = checkInIssuePaths(parsed.error)
+    const moduleIssue = issues.some(
+      (path) => path === "modules" || path.startsWith("modules.")
+    )
+    await recordCheckInFailure(
+      request,
+      moduleIssue ? "device_module_payload_rejected" : "device_check_in_failed",
+      {
+        reason: moduleIssue ? "invalid_module_payload" : "invalid_payload",
+        device: device ?? null,
+        deviceId: requestedDeviceId,
+        details: { issues },
+      }
+    )
     return Response.json({ error: "Invalid check-in payload" }, { status: 400 })
   }
 
@@ -208,26 +269,39 @@ export async function POST(request: Request) {
       : "vpn_online"
     : "offline"
 
-  const [[organization], siteRows, releaseRows] = await Promise.all([
-    db
-      .select({ agentChannel: organizations.agentChannel })
-      .from(organizations)
-      .where(eq(organizations.id, device.organizationId)),
-    device.siteId
-      ? db
-          .select({ agentChannel: sites.agentChannel })
-          .from(sites)
-          .where(eq(sites.id, device.siteId))
-      : Promise.resolve([] as Array<{ agentChannel: string | null }>),
-    db
-      .select({
-        version: agentReleases.version,
-        channel: agentReleases.channel,
-        platform: agentReleases.platform,
-        downloadUrl: agentReleases.downloadUrl,
-      })
-      .from(agentReleases),
-  ])
+  const [[organization], siteRows, releaseRows, assignedModules] =
+    await Promise.all([
+      db
+        .select({ agentChannel: organizations.agentChannel })
+        .from(organizations)
+        .where(eq(organizations.id, device.organizationId)),
+      device.siteId
+        ? db
+            .select({ agentChannel: sites.agentChannel })
+            .from(sites)
+            .where(eq(sites.id, device.siteId))
+        : Promise.resolve([] as Array<{ agentChannel: string | null }>),
+      db
+        .select({
+          version: agentReleases.version,
+          channel: agentReleases.channel,
+          platform: agentReleases.platform,
+          downloadUrl: agentReleases.downloadUrl,
+        })
+        .from(agentReleases),
+      loadAssignedModules(db, device),
+    ])
+
+  const moduleDecision = validateReportedModules(assignedModules, input.modules)
+  if (!moduleDecision.ok) {
+    await recordCheckInFailure(request, "device_module_payload_rejected", {
+      reason: moduleDecision.reason,
+      device,
+      deviceId: device.id,
+      details: { detail: moduleDecision.detail },
+    })
+    return Response.json({ error: "Invalid check-in payload" }, { status: 400 })
+  }
 
   const desired = desiredCheckInRelease({
     releases: releaseRows,
@@ -306,6 +380,14 @@ export async function POST(request: Request) {
       titles: input.titles,
     })
 
+    await ingestModuleObservations(tx, {
+      deviceId: input.device_id,
+      now,
+      reports: moduleDecision.reports,
+      assignedModuleIds: assignedModules.map((assigned) => assigned.id),
+      replaceCollectors: input.modules !== undefined,
+    })
+
     await tryLinkDeviceToAsset(tx, {
       id: device.id,
       organizationId: device.organizationId,
@@ -339,6 +421,7 @@ export async function POST(request: Request) {
       desiredAgentVersion: desired?.version,
       downloadUrl: desired?.downloadUrl,
       commands,
+      modules: assignedModules,
     })
   )
 }

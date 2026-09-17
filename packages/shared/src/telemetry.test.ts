@@ -39,6 +39,7 @@ test("check-in payload still parses without metrics or packages", () => {
     assert.equal(parsed.data.packages, undefined)
     assert.equal(parsed.data.titles, undefined)
     assert.equal(parsed.data.command_results, undefined)
+    assert.equal(parsed.data.modules, undefined)
   }
 })
 
@@ -558,4 +559,57 @@ test("Hub check-in response never includes a free-form command string", () => {
   const serialized = JSON.stringify(response)
   assert.equal(serialized.includes("script"), false)
   assert.equal(serialized.includes("rm -rf"), false)
+})
+
+test("check-in modules reject extra keys and Hub drops unknown module kinds", () => {
+  const parsed = checkInSchema.safeParse({
+    ...validCheckIn,
+    modules: [
+      {
+        module_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        kind: "observations",
+        observations: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            type: "process_running",
+            running: true,
+            shell: true,
+          },
+        ],
+      },
+    ],
+  })
+  assert.equal(parsed.success, false)
+
+  const response = hubCheckInResponse({
+    modules: [
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        kind: "observations",
+        name: "Cabinet facts",
+        collectors: [
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            type: "process_running",
+            process: "Game.exe",
+          },
+        ],
+      },
+      {
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        kind: "shell" as "observations",
+        name: "Nope",
+        collectors: [
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            type: "process_running",
+            process: "Game.exe",
+          },
+        ],
+      },
+    ],
+  })
+  assert.equal(response.modules?.length, 1)
+  assert.equal(response.modules?.[0]?.kind, "observations")
+  assert.equal(JSON.stringify(response).includes("shell"), false)
 })

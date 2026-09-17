@@ -78,6 +78,7 @@ type CheckInRequest struct {
 	Metrics        any             `json:"metrics,omitempty"`
 	Packages       any             `json:"packages,omitempty"`
 	Titles         any             `json:"titles,omitempty"`
+	Modules        any             `json:"modules,omitempty"`
 	CommandResults []CommandResult `json:"command_results,omitempty"`
 }
 
@@ -94,11 +95,41 @@ type Titles struct {
 	Items []Title `json:"items"`
 }
 
+type ModuleCollector struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Process string `json:"process,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
+type ModuleDefinition struct {
+	ID         string            `json:"id"`
+	Kind       string            `json:"kind"`
+	Name       string            `json:"name"`
+	Collectors []ModuleCollector `json:"collectors"`
+}
+
+type ModuleObservation struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Running *bool  `json:"running,omitempty"`
+	Exists  *bool  `json:"exists,omitempty"`
+	Value   string `json:"value,omitempty"`
+	Bytes   *int64 `json:"bytes,omitempty"`
+}
+
+type ModuleReport struct {
+	ModuleID     string              `json:"module_id"`
+	Kind         string              `json:"kind"`
+	Observations []ModuleObservation `json:"observations"`
+}
+
 type CheckInResponse struct {
-	OK                  bool   `json:"ok"`
-	DesiredAgentVersion string `json:"desired_agent_version"`
-	DownloadURL         string `json:"download_url"`
-	Commands            []any  `json:"commands"`
+	OK                  bool               `json:"ok"`
+	DesiredAgentVersion string             `json:"desired_agent_version"`
+	DownloadURL         string             `json:"download_url"`
+	Commands            []any              `json:"commands"`
+	Modules             []ModuleDefinition `json:"modules"`
 }
 
 type Client struct {

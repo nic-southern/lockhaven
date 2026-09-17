@@ -23,6 +23,10 @@
 - Device archive is `0043_device_archive`.
 - Game/cabinet title inventory is `0044_device_titles` (`device_titles`: title,
   build, config hash, process running). Do not edit `0042` or `0043`.
+- Agent modules are `0045_agent_modules` (`agent_modules`,
+  `agent_module_assignments`, `device_module_observations`). Organization
+  admins define collectors; agents upload observations only. Hub stores
+  validated JSON and never executes payloads.
 - Rebuild the schema package after any migration changes with `pnpm build:packages`.
 
 ## Bootstrapping
