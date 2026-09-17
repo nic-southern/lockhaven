@@ -253,6 +253,13 @@
       "when": 1782700000000,
       "tag": "0045_agent_modules",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1782800000000,
+      "tag": "0046_after_hours_playbooks",
+      "breakpoints": true
     }
   ]
 }

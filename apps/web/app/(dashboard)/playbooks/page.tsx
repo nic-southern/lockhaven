@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { PlusIcon, Trash2Icon } from "lucide-react"
 
 import {
+  AFTER_HOURS_START_AFTER_MINUTES_MAX,
   alertKindLabels,
   alertKinds,
   playbookActionLabels,
@@ -93,9 +94,53 @@ export default function PlaybooksPage() {
     { limit: 50 },
     { enabled: canView, refetchInterval: 15_000 }
   )
+  const afterHoursQuery = trpc.playbooks.afterHoursSchedules.useQuery(
+    undefined,
+    { enabled: canView, refetchInterval: 30_000 }
+  )
 
   const [form, setForm] = React.useState<PlaybookForm | null>(null)
   const [deleteId, setDeleteId] = React.useState<string | null>(null)
+  const [delayDrafts, setDelayDrafts] = React.useState<Record<string, string>>(
+    {}
+  )
+
+  const setAfterHours = trpc.playbooks.setAfterHoursSchedule.useMutation({
+    async onSuccess(result) {
+      await afterHoursQuery.refetch()
+      setDelayDrafts((current) => {
+        const next = { ...current }
+        delete next[result.siteId]
+        return next
+      })
+      toast.success(
+        result.enabled
+          ? "After-close maintenance is on"
+          : "After-close maintenance is off"
+      )
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't update that location.")
+    },
+  })
+
+  function saveAfterHours(
+    siteId: string,
+    enabled: boolean,
+    startAfterMinutes: number
+  ) {
+    if (
+      !Number.isInteger(startAfterMinutes) ||
+      startAfterMinutes < 0 ||
+      startAfterMinutes > AFTER_HOURS_START_AFTER_MINUTES_MAX
+    ) {
+      toast.error(
+        `Start after must be between 0 and ${AFTER_HOURS_START_AFTER_MINUTES_MAX} minutes.`
+      )
+      return
+    }
+    setAfterHours.mutate({ siteId, enabled, startAfterMinutes })
+  }
 
   const createPlaybook = trpc.playbooks.create.useMutation({
     async onSuccess() {
@@ -318,6 +363,133 @@ export default function PlaybooksPage() {
                       ) : null}
                     </TableRow>
                   ))}
+                </TableBody>
+              </Table>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="After close"
+            description="When a location with hours closes, update the agent and then restart each device that is still reachable. Locations that require approval ask first. Runs once per closing."
+          >
+            {(afterHoursQuery.data?.length ?? 0) === 0 ? (
+              <EmptyState
+                title="No locations yet"
+                description="Add a location with hours to schedule after-close maintenance."
+                bordered={false}
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Location</TableHead>
+                    <TableHead className="hidden sm:table-cell">
+                      Approval
+                    </TableHead>
+                    <TableHead className="hidden md:table-cell">
+                      Start after close
+                    </TableHead>
+                    <TableHead className="hidden lg:table-cell">
+                      Last run
+                    </TableHead>
+                    <TableHead>After close</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {afterHoursQuery.data?.map((site) => {
+                    const draft =
+                      delayDrafts[site.siteId] ?? String(site.startAfterMinutes)
+                    return (
+                      <TableRow key={site.siteId}>
+                        <TableCell>
+                          <div className="flex min-w-0 flex-col">
+                            <span className="font-medium">{site.siteName}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {site.openLabel}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          {site.requireApproval ? "Required" : "Automatic"}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          {canManage ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={AFTER_HOURS_START_AFTER_MINUTES_MAX}
+                                className="w-24"
+                                aria-label={`Minutes after close for ${site.siteName}`}
+                                value={draft}
+                                disabled={!site.hoursSet}
+                                onChange={(event) =>
+                                  setDelayDrafts((current) => ({
+                                    ...current,
+                                    [site.siteId]: event.target.value,
+                                  }))
+                                }
+                                onBlur={() => {
+                                  const minutes = Number(draft)
+                                  if (minutes === site.startAfterMinutes) return
+                                  saveAfterHours(
+                                    site.siteId,
+                                    site.enabled,
+                                    minutes
+                                  )
+                                }}
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                min
+                              </span>
+                            </div>
+                          ) : (
+                            `${site.startAfterMinutes} min`
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">
+                          {site.lastRun ? (
+                            <div className="flex min-w-0 flex-col">
+                              <span className="text-sm">
+                                {site.lastRun.statusLabel}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {formatRelativeTime(site.lastRun.closedAt)}
+                                {site.lastRun.summary
+                                  ? ` · ${site.lastRun.summary.restarted} of ${site.lastRun.summary.devices} restarted`
+                                  : ""}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {canManage ? (
+                            <Switch
+                              checked={site.enabled}
+                              disabled={
+                                setAfterHours.isPending ||
+                                (!site.enabled && !site.hoursSet)
+                              }
+                              aria-label={`After-close maintenance for ${site.siteName}`}
+                              onCheckedChange={(checked) =>
+                                saveAfterHours(
+                                  site.siteId,
+                                  checked,
+                                  Number(draft)
+                                )
+                              }
+                            />
+                          ) : site.enabled ? (
+                            "On"
+                          ) : (
+                            "Off"
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             )}

@@ -1,28 +1,61 @@
 import { TRPCError } from "@trpc/server"
-import { and, count, desc, eq, inArray } from "drizzle-orm"
+import { and, count, desc, eq, inArray, isNull, or } from "drizzle-orm"
 import { z } from "zod"
 
-import { alerts, devices, playbookRuns, playbooks, sites } from "@nms/db"
 import {
+  afterHoursRuns,
+  alerts,
+  devices,
+  playbookRuns,
+  playbooks,
+  sites,
+} from "@nms/db"
+import {
+  afterHoursRunStatusLabels,
+  afterHoursScheduleInputSchema,
   alertKindLabels,
   canDecidePlaybookRun,
+  hasConfiguredSiteHours,
+  isValidTimeZone,
   parsePlaybookAction,
   playbookActionLabels,
   playbookInputSchema,
   playbookRunStatusLabels,
   playbookSkipReasonLabels,
+  siteOpenLabel,
+  siteOpenState,
 } from "@nms/shared"
 
 import {
   actorOrganizationIds,
+  actorSiteIds,
   assertAuthorized,
   assertCanApprovePlaybook,
   canApprovePlaybook,
   requireActor,
 } from "../access"
+import { decideAfterHoursRun } from "../after-hours-engine"
 import { writeAuditEvent } from "../audit"
 import type { ApiContext } from "../context"
 import { queuePlaybookCommand } from "../playbook-engine"
+
+const AFTER_HOURS_LABEL = "After close"
+
+/** Sites the actor can see: whole organizations plus individual site grants. */
+function siteScopeCondition(ctx: ApiContext) {
+  const organizationIds = actorOrganizationIds(ctx.actor)
+  if (organizationIds === null)
+    return { visible: true as const, where: undefined }
+  const siteIds = actorSiteIds(ctx.actor) ?? []
+  const parts = combineConditions([
+    organizationIds.length > 0
+      ? inArray(sites.organizationId, organizationIds)
+      : undefined,
+    siteIds.length > 0 ? inArray(sites.id, siteIds) : undefined,
+  ])
+  if (parts.length === 0) return { visible: false as const, where: undefined }
+  return { visible: true as const, where: or(...parts) }
+}
 import { combineConditions } from "../scope"
 import { adminProcedure, createTRPCRouter, permissionProcedure } from "../trpc"
 
@@ -317,6 +350,7 @@ export const playbooksRouter = createTRPCRouter({
           alertId: playbookRuns.alertId,
           alertTitle: alerts.title,
           alertKind: alerts.kind,
+          afterHoursRunId: playbookRuns.afterHoursRunId,
           organizationId: playbookRuns.organizationId,
           siteId: playbookRuns.siteId,
           siteName: sites.name,
@@ -331,8 +365,8 @@ export const playbooksRouter = createTRPCRouter({
           decidedAt: playbookRuns.decidedAt,
         })
         .from(playbookRuns)
-        .innerJoin(playbooks, eq(playbooks.id, playbookRuns.playbookId))
-        .innerJoin(alerts, eq(alerts.id, playbookRuns.alertId))
+        .leftJoin(playbooks, eq(playbooks.id, playbookRuns.playbookId))
+        .leftJoin(alerts, eq(alerts.id, playbookRuns.alertId))
         .leftJoin(devices, eq(devices.id, playbookRuns.deviceId))
         .leftJoin(sites, eq(sites.id, playbookRuns.siteId))
         .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -341,12 +375,275 @@ export const playbooksRouter = createTRPCRouter({
 
       return rows.map((row) => ({
         ...row,
+        source: row.afterHoursRunId
+          ? ("after_hours" as const)
+          : ("alert" as const),
+        playbookName:
+          row.playbookName ??
+          (row.afterHoursRunId ? AFTER_HOURS_LABEL : "Playbook"),
+        alertTitle: row.alertTitle ?? row.siteName ?? null,
         actionLabel: playbookActionLabels[row.action],
         statusLabel: playbookRunStatusLabels[row.status],
         skipReasonLabel: row.skipReason
           ? playbookSkipReasonLabels[row.skipReason]
           : null,
       }))
+    }),
+
+  afterHoursSchedules: permissionProcedure("device:view").query(
+    async ({ ctx }) => {
+      const scope = siteScopeCondition(ctx)
+      if (!scope.visible) return []
+      const now = new Date()
+      const siteRows = await ctx.db
+        .select({
+          id: sites.id,
+          organizationId: sites.organizationId,
+          name: sites.name,
+          timezone: sites.timezone,
+          businessHours: sites.businessHours,
+          requireApproval: sites.requireApproval,
+          enabled: sites.afterHoursPlaybooksEnabled,
+          startAfterMinutes: sites.afterHoursStartAfterMinutes,
+        })
+        .from(sites)
+        .where(scope.where)
+        .orderBy(sites.name)
+      if (siteRows.length === 0) return []
+
+      const runRows = await ctx.db
+        .select()
+        .from(afterHoursRuns)
+        .where(
+          inArray(
+            afterHoursRuns.siteId,
+            siteRows.map((row) => row.id)
+          )
+        )
+        .orderBy(desc(afterHoursRuns.createdAt))
+      const latestBySite = new Map<string, typeof afterHoursRuns.$inferSelect>()
+      for (const run of runRows) {
+        if (!latestBySite.has(run.siteId)) latestBySite.set(run.siteId, run)
+      }
+
+      return siteRows.map((row) => {
+        const openState = siteOpenState(row, now)
+        const latest = latestBySite.get(row.id) ?? null
+        return {
+          siteId: row.id,
+          organizationId: row.organizationId,
+          siteName: row.name,
+          hoursSet: openState !== null,
+          openLabel: siteOpenLabel(openState),
+          requireApproval: row.requireApproval,
+          enabled: row.enabled,
+          startAfterMinutes: row.startAfterMinutes,
+          lastRun: latest
+            ? {
+                id: latest.id,
+                status: latest.status,
+                statusLabel: afterHoursRunStatusLabels[latest.status],
+                closedAt: latest.closedAt,
+                completedAt: latest.completedAt,
+                summary: latest.summary,
+              }
+            : null,
+        }
+      })
+    }
+  ),
+
+  setAfterHoursSchedule: permissionProcedure("organization:admin")
+    .input(afterHoursScheduleInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const [site] = await ctx.db
+        .select({
+          id: sites.id,
+          organizationId: sites.organizationId,
+          name: sites.name,
+          timezone: sites.timezone,
+          businessHours: sites.businessHours,
+        })
+        .from(sites)
+        .where(eq(sites.id, input.siteId))
+      if (!site) throw new TRPCError({ code: "NOT_FOUND" })
+      assertAuthorized(ctx.actor, "organization:admin", {
+        kind: "organization",
+        organizationId: site.organizationId,
+      })
+      if (
+        input.enabled &&
+        (!hasConfiguredSiteHours(site.businessHours) ||
+          !isValidTimeZone(site.timezone?.trim() ?? ""))
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Set this location's hours and timezone before turning on after-close maintenance.",
+        })
+      }
+
+      const [updated] = await ctx.db
+        .update(sites)
+        .set({
+          afterHoursPlaybooksEnabled: input.enabled,
+          afterHoursStartAfterMinutes: input.startAfterMinutes,
+        })
+        .where(eq(sites.id, site.id))
+        .returning({
+          enabled: sites.afterHoursPlaybooksEnabled,
+          startAfterMinutes: sites.afterHoursStartAfterMinutes,
+        })
+
+      await writeAuditEvent(ctx, {
+        organizationId: site.organizationId,
+        siteId: site.id,
+        eventType: "after_hours_schedule_updated",
+        eventData: {
+          siteName: site.name,
+          enabled: input.enabled,
+          startAfterMinutes: input.startAfterMinutes,
+        },
+      })
+
+      return {
+        siteId: site.id,
+        enabled: updated?.enabled ?? input.enabled,
+        startAfterMinutes:
+          updated?.startAfterMinutes ?? input.startAfterMinutes,
+      }
+    }),
+
+  afterHoursRuns: permissionProcedure("device:view")
+    .input(
+      z
+        .object({ limit: z.number().int().min(1).max(100).optional() })
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const scope = siteScopeCondition(ctx)
+      if (!scope.visible) return []
+      const rows = await ctx.db
+        .select({
+          id: afterHoursRuns.id,
+          siteId: afterHoursRuns.siteId,
+          siteName: sites.name,
+          status: afterHoursRuns.status,
+          requireApproval: afterHoursRuns.requireApproval,
+          closedAt: afterHoursRuns.closedAt,
+          opensAt: afterHoursRuns.opensAt,
+          startedAt: afterHoursRuns.startedAt,
+          completedAt: afterHoursRuns.completedAt,
+          expiresAt: afterHoursRuns.expiresAt,
+          summary: afterHoursRuns.summary,
+          createdAt: afterHoursRuns.createdAt,
+        })
+        .from(afterHoursRuns)
+        .innerJoin(sites, eq(sites.id, afterHoursRuns.siteId))
+        .where(scope.where)
+        .orderBy(desc(afterHoursRuns.createdAt))
+        .limit(input?.limit ?? 20)
+      return rows.map((row) => ({
+        ...row,
+        statusLabel: afterHoursRunStatusLabels[row.status],
+      }))
+    }),
+
+  pendingAfterHoursApprovals: adminProcedure.query(async ({ ctx }) => {
+    const actor = requireActor(ctx.actor)
+    const scope = siteScopeCondition(ctx)
+    if (!scope.visible) return []
+    const now = new Date()
+    const rows = await ctx.db
+      .select({
+        id: afterHoursRuns.id,
+        organizationId: afterHoursRuns.organizationId,
+        siteId: afterHoursRuns.siteId,
+        siteName: sites.name,
+        closedAt: afterHoursRuns.closedAt,
+        opensAt: afterHoursRuns.opensAt,
+        expiresAt: afterHoursRuns.expiresAt,
+        createdAt: afterHoursRuns.createdAt,
+      })
+      .from(afterHoursRuns)
+      .innerJoin(sites, eq(sites.id, afterHoursRuns.siteId))
+      .where(
+        scope.where
+          ? and(eq(afterHoursRuns.status, "pending_approval"), scope.where)
+          : eq(afterHoursRuns.status, "pending_approval")
+      )
+      .orderBy(desc(afterHoursRuns.createdAt))
+    const visible = rows
+      .filter((row) =>
+        canApprovePlaybook(actor, row.organizationId, row.siteId)
+      )
+      .filter(
+        (row) => !row.expiresAt || row.expiresAt.getTime() > now.getTime()
+      )
+    if (visible.length === 0) return []
+
+    const counts = await ctx.db
+      .select({ siteId: devices.siteId, total: count() })
+      .from(devices)
+      .where(
+        and(
+          inArray(
+            devices.siteId,
+            visible.map((row) => row.siteId)
+          ),
+          isNull(devices.archivedAt)
+        )
+      )
+      .groupBy(devices.siteId)
+    const countBySite = new Map(
+      counts.map((row) => [row.siteId, Number(row.total)] as const)
+    )
+    return visible.map((row) => ({
+      ...row,
+      deviceCount: countBySite.get(row.siteId) ?? 0,
+    }))
+  }),
+
+  decideAfterHours: adminProcedure
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        decision: z.enum(["approved", "denied"]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const actor = requireActor(ctx.actor)
+      const now = new Date()
+      const [row] = await ctx.db
+        .select({ run: afterHoursRuns, siteName: sites.name })
+        .from(afterHoursRuns)
+        .innerJoin(sites, eq(sites.id, afterHoursRuns.siteId))
+        .where(eq(afterHoursRuns.id, input.id))
+      if (!row) throw new TRPCError({ code: "NOT_FOUND" })
+      assertCanApprovePlaybook(actor, row.run.organizationId, row.run.siteId)
+      if (
+        row.run.status !== "pending_approval" ||
+        (row.run.expiresAt && row.run.expiresAt.getTime() <= now.getTime())
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This request can no longer be reviewed.",
+        })
+      }
+      const updated = await decideAfterHoursRun(ctx.db, {
+        run: row.run,
+        decision: input.decision,
+        actorUserId: actor.id,
+        siteName: row.siteName,
+        now,
+      })
+      if (!updated) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This request was already decided.",
+        })
+      }
+      return { id: updated.id, status: updated.status }
     }),
 
   pendingApprovals: adminProcedure.query(async ({ ctx }) => {
@@ -502,7 +799,7 @@ export const playbooksRouter = createTRPCRouter({
           message: "This request was already decided.",
         })
       }
-      if (!claimed.deviceId) {
+      if (!claimed.deviceId || !claimed.playbookId || !claimed.alertId) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "This playbook has no device to act on.",

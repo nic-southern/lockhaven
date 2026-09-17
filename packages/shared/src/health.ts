@@ -24,6 +24,7 @@ export const WORKER_JOB_SCHEDULES = [
   { name: "evaluate-agent-versions", everyMs: 60_000 },
   { name: "evaluate-warranties", everyMs: 60 * 60 * 1000 },
   { name: "run-playbooks", everyMs: 30_000 },
+  { name: "run-after-hours", everyMs: 60_000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ] as const
 

@@ -94,6 +94,27 @@ export default function ApprovalsPage() {
     },
   })
 
+  const afterHoursQuery = trpc.playbooks.pendingAfterHoursApprovals.useQuery(
+    undefined,
+    { enabled: allowed, refetchInterval: 15_000 }
+  )
+  const decideAfterHours = trpc.playbooks.decideAfterHours.useMutation({
+    async onSuccess(_data, variables) {
+      toast.success(
+        variables.decision === "approved"
+          ? "After-close maintenance approved"
+          : "After-close maintenance declined"
+      )
+      await Promise.all([
+        utils.playbooks.pendingAfterHoursApprovals.invalidate(),
+        utils.playbooks.afterHoursSchedules.invalidate(),
+      ])
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't update that request.")
+    },
+  })
+
   const decide = trpc.accessRequests.decide.useMutation({
     async onSuccess(_data, variables) {
       toast.success(
@@ -302,6 +323,67 @@ export default function ApprovalsPage() {
                     disabled={decidePlaybook.isPending}
                     onClick={() =>
                       decidePlaybook.mutate({
+                        id: run.id,
+                        decision: "approved",
+                      })
+                    }
+                  >
+                    Approve
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+      <SectionCard
+        title="After close"
+        description="Approve tonight's agent update and device restart for a location that requires approval."
+      >
+        {(afterHoursQuery.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            title="No after-close maintenance waiting"
+            description="When a location that requires approval closes, its maintenance request appears here."
+            bordered={false}
+          />
+        ) : (
+          <div className="flex flex-col divide-y">
+            {afterHoursQuery.data?.map((run) => (
+              <div
+                key={run.id}
+                className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{run.siteName}</p>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {`Update agent, then restart ${run.deviceCount} ${
+                      run.deviceCount === 1 ? "device" : "devices"
+                    }`}
+                    {` · Closed ${formatRelativeTime(run.closedAt)}`}
+                    {run.expiresAt
+                      ? ` · Expires ${formatRelativeTime(run.expiresAt)}`
+                      : ""}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={decideAfterHours.isPending}
+                    onClick={() =>
+                      decideAfterHours.mutate({
+                        id: run.id,
+                        decision: "denied",
+                      })
+                    }
+                  >
+                    Decline
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={decideAfterHours.isPending}
+                    onClick={() =>
+                      decideAfterHours.mutate({
                         id: run.id,
                         decision: "approved",
                       })

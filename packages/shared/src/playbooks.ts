@@ -30,6 +30,8 @@ export const playbookSkipReasons = [
   "open_command",
   "not_open",
   "already_handled",
+  "device_offline",
+  "device_archived",
 ] as const
 export type PlaybookSkipReason = (typeof playbookSkipReasons)[number]
 export const playbookSkipReasonSchema = z.enum(playbookSkipReasons)
@@ -71,6 +73,8 @@ export const playbookSkipReasonLabels: Record<PlaybookSkipReason, string> = {
   open_command: "The same action is already waiting",
   not_open: "Alert is not open",
   already_handled: "Already handled",
+  device_offline: "Device was not reachable at close",
+  device_archived: "Device is archived",
 }
 
 export function isPlaybookAction(value: string): value is PlaybookAction {

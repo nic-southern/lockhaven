@@ -53,6 +53,8 @@ import {
   type AgentModuleCollector,
   type AgentModuleKind,
   type AgentModuleObservation,
+  type AfterHoursRunStatus,
+  type AfterHoursRunSummary,
   type PlaybookAction,
   type PlaybookRunStatus,
   type PlaybookSkipReason,
@@ -312,6 +314,13 @@ export const sites = pgTable("sites", {
     .notNull()
     .default(sql`'[]'::jsonb`),
   businessHours: jsonb("business_hours").$type<SiteBusinessHours>(),
+  /** Run agent update then device restart once the floor closes (needs hours). */
+  afterHoursPlaybooksEnabled: boolean("after_hours_playbooks_enabled")
+    .notNull()
+    .default(false),
+  afterHoursStartAfterMinutes: integer("after_hours_start_after_minutes")
+    .notNull()
+    .default(30),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1401,16 +1410,74 @@ export const playbooks = pgTable(
   })
 )
 
+/**
+ * One after-close maintenance pass per site per closed stretch. Device steps
+ * are `playbook_runs` rows that point here instead of at a playbook + alert.
+ */
+export const afterHoursRuns = pgTable(
+  "after_hours_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    /** The moment the floor closed; one run per site per key. */
+    windowKey: text("window_key").notNull(),
+    closedAt: timestamp("closed_at", { withTimezone: true }).notNull(),
+    opensAt: timestamp("opens_at", { withTimezone: true }),
+    status: text("status")
+      .$type<AfterHoursRunStatus>()
+      .notNull()
+      .default("running"),
+    requireApproval: boolean("require_approval").notNull().default(false),
+    decidedByUserId: text("decided_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    summary: jsonb("summary").$type<AfterHoursRunSummary | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    siteWindowIdx: uniqueIndex("after_hours_runs_site_window_idx").on(
+      table.siteId,
+      table.windowKey
+    ),
+    statusIdx: index("after_hours_runs_status_idx").on(
+      table.status,
+      table.createdAt
+    ),
+    organizationIdx: index("after_hours_runs_organization_idx").on(
+      table.organizationId,
+      table.createdAt
+    ),
+  })
+)
+
 export const playbookRuns = pgTable(
   "playbook_runs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    playbookId: uuid("playbook_id")
-      .notNull()
-      .references(() => playbooks.id, { onDelete: "cascade" }),
-    alertId: uuid("alert_id")
-      .notNull()
-      .references(() => alerts.id, { onDelete: "cascade" }),
+    playbookId: uuid("playbook_id").references(() => playbooks.id, {
+      onDelete: "cascade",
+    }),
+    alertId: uuid("alert_id").references(() => alerts.id, {
+      onDelete: "cascade",
+    }),
+    afterHoursRunId: uuid("after_hours_run_id").references(
+      () => afterHoursRuns.id,
+      { onDelete: "cascade" }
+    ),
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
@@ -1447,6 +1514,9 @@ export const playbookRuns = pgTable(
       table.playbookId,
       table.alertId
     ),
+    afterHoursStepIdx: uniqueIndex("playbook_runs_after_hours_step_idx")
+      .on(table.afterHoursRunId, table.deviceId, table.action)
+      .where(sql`${table.afterHoursRunId} is not null`),
     statusIdx: index("playbook_runs_status_idx").on(
       table.status,
       table.createdAt
@@ -1498,6 +1568,7 @@ export type AgentRelease = typeof agentReleases.$inferSelect
 export type DeviceCommand = typeof deviceCommands.$inferSelect
 export type Playbook = typeof playbooks.$inferSelect
 export type PlaybookRun = typeof playbookRuns.$inferSelect
+export type AfterHoursRun = typeof afterHoursRuns.$inferSelect
 
 export const apiKeys = pgTable(
   "api_keys",

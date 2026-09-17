@@ -33,6 +33,7 @@ const jobLabels: Record<string, string> = {
   "evaluate-agent-versions": "Agent versions",
   "evaluate-warranties": "Warranties",
   "run-playbooks": "Playbooks",
+  "run-after-hours": "After-close maintenance",
   "prune-history": "History retention",
 }
 

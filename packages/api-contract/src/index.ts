@@ -1,5 +1,6 @@
 export { tryLinkDeviceToAsset, tryLinkDevicesToAssets } from "./asset-link"
 export { evaluatePlaybooks } from "./playbook-engine"
+export { evaluateAfterHours } from "./after-hours-engine"
 export {
   alertKeys,
   raiseAlert,

@@ -138,8 +138,14 @@ async function cancelDisabledPendingRuns(client: PlaybookDb, now: Date) {
     })
     .from(playbookRuns)
     .where(eq(playbookRuns.status, "pending_approval"))
-  if (pending.length === 0) return
-  const playbookIds = [...new Set(pending.map((row) => row.playbookId))]
+  const playbookIds = [
+    ...new Set(
+      pending
+        .map((row) => row.playbookId)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ]
+  if (playbookIds.length === 0) return
   const disabled = await client
     .select({ id: playbooks.id })
     .from(playbooks)
@@ -148,7 +154,7 @@ async function cancelDisabledPendingRuns(client: PlaybookDb, now: Date) {
     )
   const disabledIds = new Set(disabled.map((row) => row.id))
   const cancelIds = pending
-    .filter((row) => disabledIds.has(row.playbookId))
+    .filter((row) => row.playbookId && disabledIds.has(row.playbookId))
     .map((row) => row.id)
   if (cancelIds.length === 0) return
   await client

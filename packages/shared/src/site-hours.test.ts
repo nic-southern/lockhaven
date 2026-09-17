@@ -90,6 +90,39 @@ test("overnight Saturday hours stay open past midnight into Sunday", () => {
   )
 })
 
+test("an overnight window does not open its own day before dawn", () => {
+  // Saturday 01:00 CDT: Friday closed at 22:00, Saturday opens at 10:00.
+  assert.equal(
+    siteOpenState(
+      { timezone: chicago, businessHours: hours },
+      new Date("2026-09-19T06:00:00Z")
+    ),
+    false
+  )
+})
+
+test("holiday special overnight hours spill into the next morning", () => {
+  const special: SiteBusinessHours = {
+    ...hours,
+    holidays: [{ date: "2026-12-31", open: "10:00", close: "03:00" }],
+  }
+  // 2026-01-01 01:00 CST, still New Year's Eve hours.
+  assert.equal(
+    siteOpenState(
+      { timezone: chicago, businessHours: special },
+      new Date("2027-01-01T07:00:00Z")
+    ),
+    true
+  )
+  assert.equal(
+    siteOpenState(
+      { timezone: chicago, businessHours: special },
+      new Date("2027-01-01T09:30:00Z")
+    ),
+    false
+  )
+})
+
 test("a closed holiday wins from midnight over leftover overnight", () => {
   const christmasHours: SiteBusinessHours = {
     weekdays: { open: "10:00", close: "02:00" },
