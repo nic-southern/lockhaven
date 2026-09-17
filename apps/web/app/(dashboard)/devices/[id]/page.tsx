@@ -20,6 +20,7 @@ import { EmptyState } from "@/components/dashboard/empty-state"
 import { ConnectivityBadge } from "@/components/devices/connectivity-badge"
 import { TagChips } from "@/components/devices/tag-chips"
 import { ActivityTab } from "@/components/devices/detail/activity-tab"
+import { AgentTab } from "@/components/devices/detail/agent-tab"
 import { ConnectTab } from "@/components/devices/detail/connect-tab"
 import { NetworkTab } from "@/components/devices/detail/network-tab"
 import { OverviewTab } from "@/components/devices/detail/overview-tab"
@@ -35,6 +36,7 @@ import { usePermissions } from "@/lib/use-permissions"
 
 const tabLabels: Record<DeviceTab, string> = {
   overview: "Overview",
+  agent: "Agent",
   connect: "Connect",
   services: "Services",
   network: "Network",
@@ -99,6 +101,7 @@ function DeviceDetail() {
   const visibleTabs = React.useMemo<DeviceTab[]>(() => {
     const tabs: DeviceTab[] = [
       "overview",
+      "agent",
       "connect",
       "services",
       "network",
@@ -227,6 +230,11 @@ function DeviceDetail() {
             {activeTab !== "connect" ? (
               <Button onClick={() => setTab("connect")}>Connect</Button>
             ) : null}
+            {activeTab !== "agent" && !device.agentVersion ? (
+              <Button variant="outline" onClick={() => setTab("agent")}>
+                Install agent
+              </Button>
+            ) : null}
             {visibleTabs.includes("settings") && activeTab !== "settings" ? (
               <Button variant="outline" onClick={() => setTab("settings")}>
                 Settings
@@ -252,6 +260,8 @@ function DeviceDetail() {
       <div key={activeTab}>
         {activeTab === "overview" ? (
           <OverviewTab device={device} onNavigate={setTab} />
+        ) : activeTab === "agent" ? (
+          <AgentTab device={device} />
         ) : activeTab === "connect" ? (
           <ConnectTab device={device} onNavigate={setTab} />
         ) : activeTab === "services" ? (

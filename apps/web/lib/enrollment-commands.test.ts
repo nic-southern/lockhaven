@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  buildAgentDownloadUrl,
   buildAndroidInstallCommand,
   buildLinuxInstallCommand,
   buildLinuxUninstallCommand,
@@ -31,6 +32,34 @@ test("builds the Linux VPN enrollment command", () => {
       baseUrl: "https://vpn.example.com/",
     }),
     "curl -fsSL https://vpn.example.com/install/install-lockhaven-agent.sh | sudo LOCKHAVEN_TOKEN='nms_enroll_abc'\\''123' LOCKHAVEN_BASE_URL='https://vpn.example.com' bash"
+  )
+})
+
+test("builds the Linux agent install command for a listed device", () => {
+  assert.equal(
+    buildLinuxInstallCommand({
+      token: "nms_enroll_abc'123",
+      baseUrl: "https://vpn.example.com/",
+      deviceId: "11111111-1111-4111-8111-111111111111",
+    }),
+    "curl -fsSL https://vpn.example.com/install/install-lockhaven-agent.sh | sudo LOCKHAVEN_TOKEN='nms_enroll_abc'\\''123' LOCKHAVEN_BASE_URL='https://vpn.example.com' LOCKHAVEN_DEVICE_ID='11111111-1111-4111-8111-111111111111' bash"
+  )
+})
+
+test("builds Linux agent download URLs", () => {
+  assert.equal(
+    buildAgentDownloadUrl({
+      baseUrl: "https://vpn.example.com/",
+      arch: "amd64",
+    }),
+    "https://vpn.example.com/install/lockhaven-agent-linux-amd64"
+  )
+  assert.equal(
+    buildAgentDownloadUrl({
+      baseUrl: "https://vpn.example.com/",
+      arch: "arm64",
+    }),
+    "https://vpn.example.com/install/lockhaven-agent-linux-arm64"
   )
 })
 

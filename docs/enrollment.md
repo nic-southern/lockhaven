@@ -36,6 +36,11 @@ tunnel in place. It only calls `POST /api/enroll` when Hub has no match.
 Local `/var/lib/lockhaven/agent.json` is enough to start the service without
 calling Hub again.
 
+From a device page in Console, the Agent tab creates a Linux install command
+that includes `LOCKHAVEN_DEVICE_ID` so attach binds that listing even when
+hostname or serial would be ambiguous. The tab also links the Linux agent
+downloads from `/install/lockhaven-agent-linux-amd64` and `…-arm64`.
+
 `POST /api/agent/attach` issues a new check-in secret for the matched device.
 `POST /api/enroll` refuses with `device_exists` when the host already matches
 inventory.
