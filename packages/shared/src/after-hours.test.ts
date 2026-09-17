@@ -4,6 +4,8 @@ import test from "node:test"
 import {
   AFTER_HOURS_DEFAULT_STEPS,
   afterHoursStepsSchema,
+  applyCancelledCommands,
+  decideAfterHoursCancel,
   decideAfterHoursRun,
   inPlannedRebootGrace,
   plannedRebootGraceUntil,
@@ -202,6 +204,88 @@ test("skips archived, offline, revoked, and unenrolled devices", () => {
       ["never", "offline"],
       ["revoked", "revoked"],
       ["pending", "not_enrolled"],
+    ]
+  )
+})
+
+test("active runs are cancelled when the floor reopens or the toggle turns off", () => {
+  assert.equal(
+    decideAfterHoursCancel({
+      runStatus: "queued",
+      afterHoursEnabled: true,
+      siteOpen: true,
+    }),
+    "floor_opened"
+  )
+  assert.equal(
+    decideAfterHoursCancel({
+      runStatus: "pending_approval",
+      afterHoursEnabled: false,
+      siteOpen: false,
+    }),
+    "schedule_disabled"
+  )
+  // Still closed and still on: leave it alone.
+  assert.equal(
+    decideAfterHoursCancel({
+      runStatus: "queued",
+      afterHoursEnabled: true,
+      siteOpen: false,
+    }),
+    null
+  )
+  // Hours removed entirely: nothing to compare against, keep waiting.
+  assert.equal(
+    decideAfterHoursCancel({
+      runStatus: "queued",
+      afterHoursEnabled: true,
+      siteOpen: null,
+    }),
+    null
+  )
+  // Finished runs never change.
+  for (const runStatus of [
+    "skipped",
+    "denied",
+    "expired",
+    "cancelled",
+  ] as const) {
+    assert.equal(
+      decideAfterHoursCancel({
+        runStatus,
+        afterHoursEnabled: false,
+        siteOpen: true,
+      }),
+      null
+    )
+  }
+})
+
+test("cancelling rewrites only devices whose every command was pulled back", () => {
+  const results = applyCancelledCommands(
+    [
+      {
+        deviceId: "a",
+        deviceName: "A",
+        outcome: "queued",
+        commandIds: ["1", "2"],
+      },
+      {
+        deviceId: "b",
+        deviceName: "B",
+        outcome: "queued",
+        commandIds: ["3", "4"],
+      },
+      { deviceId: "c", deviceName: "C", outcome: "offline", commandIds: [] },
+    ],
+    new Set(["1", "2", "3"])
+  )
+  assert.deepEqual(
+    results.map((entry) => [entry.deviceId, entry.outcome]),
+    [
+      ["a", "cancelled"],
+      ["b", "queued"],
+      ["c", "offline"],
     ]
   )
 })

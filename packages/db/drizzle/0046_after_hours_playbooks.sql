@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS "site_after_hours_runs" (
   "device_results" jsonb DEFAULT '[]'::jsonb NOT NULL,
   "queued_device_count" integer DEFAULT 0 NOT NULL,
   "skipped_device_count" integer DEFAULT 0 NOT NULL,
+  "cancel_reason" text,
   "decided_by_user_id" text,
   "decided_at" timestamp with time zone,
   "expires_at" timestamp with time zone,
@@ -37,7 +38,12 @@ CREATE INDEX IF NOT EXISTS "site_after_hours_runs_site_created_idx" ON "site_aft
 CREATE INDEX IF NOT EXISTS "site_after_hours_runs_organization_status_idx" ON "site_after_hours_runs" USING btree ("organization_id","status");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "site_after_hours_runs_status_idx" ON "site_after_hours_runs" USING btree ("status","created_at");--> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "site_after_hours_runs" ADD CONSTRAINT "site_after_hours_runs_status_check" CHECK ("status" IN ('pending_approval','queued','skipped','denied','expired'));
+ ALTER TABLE "site_after_hours_runs" ADD CONSTRAINT "site_after_hours_runs_status_check" CHECK ("status" IN ('pending_approval','queued','skipped','denied','expired','cancelled'));
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "site_after_hours_runs" ADD CONSTRAINT "site_after_hours_runs_cancel_reason_check" CHECK ("cancel_reason" IS NULL OR "cancel_reason" IN ('floor_opened','schedule_disabled'));
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;

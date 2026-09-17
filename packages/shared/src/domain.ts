@@ -503,6 +503,7 @@ export const auditEventTypeSchema = z.enum([
   "after_hours_run_skipped",
   "after_hours_run_approved",
   "after_hours_run_denied",
+  "after_hours_run_cancelled",
   "asset_created",
   "asset_updated",
   "asset_deleted",

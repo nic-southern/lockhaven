@@ -41,6 +41,7 @@ import { networkRouter } from "./routers/network"
 import { notificationsRouter } from "./routers/notifications"
 import { reportsRouter } from "./routers/reports"
 import { fleetRouter } from "./routers/fleet"
+import { cancelAfterHoursRun } from "./after-hours-engine"
 import { afterHoursRouter } from "./routers/after-hours"
 import { playbooksRouter } from "./routers/playbooks"
 import { agentModulesRouter } from "./routers/agent-modules"
@@ -78,6 +79,7 @@ import {
   organizationSshCredentials,
   remoteSessions,
   routePolicies,
+  siteAfterHoursRuns,
   siteMemberships,
   siteSshCredentials,
   sites,
@@ -1308,6 +1310,29 @@ export const appRouter = createTRPCRouter({
             afterHoursRequireApproval: record.afterHoursRequireApproval,
           },
         })
+
+        if (existing.afterHoursEnabled && !record.afterHoursEnabled) {
+          const active = await ctx.db
+            .select()
+            .from(siteAfterHoursRuns)
+            .where(
+              and(
+                eq(siteAfterHoursRuns.siteId, record.id),
+                inArray(siteAfterHoursRuns.status, [
+                  "pending_approval",
+                  "queued",
+                ])
+              )
+            )
+          for (const run of active) {
+            await cancelAfterHoursRun(ctx.db, {
+              run,
+              siteName: record.name,
+              reason: "schedule_disabled",
+              actorUserId: ctx.actor?.id ?? null,
+            })
+          }
+        }
 
         const [sshCredential] = await ctx.db
           .select()

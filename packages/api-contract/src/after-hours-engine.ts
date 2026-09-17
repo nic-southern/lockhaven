@@ -1,24 +1,32 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm"
 
 import {
   auditEvents,
+  deviceCommands,
   devices,
   siteAfterHoursRuns,
   sites,
   vpnIdentities,
 } from "@nms/db"
 import {
+  AFTER_HOURS_ACTIVE_STATUSES,
   afterHoursDeviceName,
+  applyCancelledCommands,
+  decideAfterHoursCancel,
   decideAfterHoursRun,
   playbookApprovalExpiresAt,
   sanitizeAfterHoursSteps,
   selectAfterHoursDevices,
   severityForEvent,
+  type AfterHoursCancelReason,
   type AfterHoursDeviceCandidate,
   type AfterHoursDeviceResult,
   type AuditEventType,
   type PlaybookAction,
 } from "@nms/shared"
+
+/** Active runs older than this have long since been picked up or expired. */
+const ACTIVE_RUN_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000
 
 import { enqueueAllowlistedCommand, type PlaybookDb } from "./playbook-engine"
 
@@ -50,6 +58,7 @@ type AfterHoursAuditEvent = Extract<
   | "after_hours_run_skipped"
   | "after_hours_run_approved"
   | "after_hours_run_denied"
+  | "after_hours_run_cancelled"
   | "device_command_enqueued"
 >
 
@@ -306,6 +315,131 @@ export async function startAfterHoursRun(
   return { run: queued.run ?? run, status: queued.status }
 }
 
+/**
+ * Pulls back every command from the run that no agent has collected yet and
+ * closes the run. Returns null when nothing was left to cancel: a queued run
+ * whose steps were all delivered stays as it was.
+ */
+export async function cancelAfterHoursRun(
+  client: PlaybookDb,
+  input: {
+    run: Pick<
+      typeof siteAfterHoursRuns.$inferSelect,
+      "id" | "siteId" | "organizationId" | "status" | "deviceResults"
+    >
+    siteName: string
+    reason: AfterHoursCancelReason
+    actorUserId?: string | null
+    now?: Date
+  }
+) {
+  const now = input.now ?? new Date()
+  const commandIds = input.run.deviceResults.flatMap(
+    (entry) => entry.commandIds
+  )
+  let cancelledIds = new Set<string>()
+  if (commandIds.length > 0) {
+    const cancelled = await client
+      .update(deviceCommands)
+      .set({ status: "cancelled", completedAt: now })
+      .where(
+        and(
+          inArray(deviceCommands.id, commandIds),
+          eq(deviceCommands.status, "pending")
+        )
+      )
+      .returning({ id: deviceCommands.id })
+    cancelledIds = new Set(cancelled.map((row) => row.id))
+  }
+
+  if (input.run.status !== "pending_approval" && cancelledIds.size === 0) {
+    return null
+  }
+
+  const results = applyCancelledCommands(input.run.deviceResults, cancelledIds)
+  const [updated] = await client
+    .update(siteAfterHoursRuns)
+    .set({
+      status: "cancelled",
+      cancelReason: input.reason,
+      deviceResults: results,
+      queuedDeviceCount: results.filter((entry) => entry.outcome === "queued")
+        .length,
+      skippedDeviceCount: results.filter((entry) => entry.outcome !== "queued")
+        .length,
+      ...(input.actorUserId
+        ? { decidedByUserId: input.actorUserId, decidedAt: now }
+        : {}),
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(siteAfterHoursRuns.id, input.run.id),
+        inArray(siteAfterHoursRuns.status, [...AFTER_HOURS_ACTIVE_STATUSES])
+      )
+    )
+    .returning()
+  if (!updated) return null
+
+  await writeAfterHoursAudit(client, {
+    eventType: "after_hours_run_cancelled",
+    organizationId: input.run.organizationId,
+    siteId: input.run.siteId,
+    actorUserId: input.actorUserId ?? null,
+    eventData: {
+      afterHoursRunId: input.run.id,
+      siteName: input.siteName,
+      reason: input.reason,
+      cancelledCommands: cancelledIds.size,
+      previousStatus: input.run.status,
+    },
+  })
+  return { run: updated, cancelledCommands: cancelledIds.size }
+}
+
+/**
+ * Cancels runs that should not proceed: the floor reopened before devices
+ * picked up their steps, or the site turned after-hours runs off mid-run.
+ */
+async function cancelStaleActiveRuns(
+  client: PlaybookDb,
+  sitesById: Map<string, AfterHoursSiteRow>,
+  openBySite: Map<string, boolean | null>,
+  now: Date
+) {
+  const active = await client
+    .select()
+    .from(siteAfterHoursRuns)
+    .where(
+      and(
+        inArray(siteAfterHoursRuns.status, [...AFTER_HOURS_ACTIVE_STATUSES]),
+        gte(
+          siteAfterHoursRuns.createdAt,
+          new Date(now.getTime() - ACTIVE_RUN_LOOKBACK_MS)
+        )
+      )
+    )
+  let cancelled = 0
+  for (const run of active) {
+    const site = sitesById.get(run.siteId)
+    if (!site) continue
+    const reason = decideAfterHoursCancel({
+      runStatus: run.status,
+      afterHoursEnabled: site.afterHoursEnabled,
+      siteOpen: openBySite.get(run.siteId) ?? null,
+    })
+    if (!reason) continue
+    const result = await cancelAfterHoursRun(client, {
+      run,
+      siteName: site.name,
+      reason,
+      now,
+    })
+    if (result) cancelled += 1
+  }
+  return cancelled
+}
+
 async function lastRunAtBySite(client: PlaybookDb, siteIds: string[]) {
   const map = new Map<string, Date>()
   if (siteIds.length === 0) return map
@@ -355,7 +489,13 @@ export async function evaluateAfterHoursSites(
   )
 
   const next = new Map<string, boolean>()
-  const stats = { sites: siteRows.length, fired: 0, pendingApproval: 0 }
+  const openBySite = new Map<string, boolean | null>()
+  const stats = {
+    sites: siteRows.length,
+    fired: 0,
+    pendingApproval: 0,
+    cancelled: 0,
+  }
 
   for (const site of siteRows) {
     const decision = decideAfterHoursRun({
@@ -371,6 +511,7 @@ export async function evaluateAfterHoursSites(
       lastRunAt: lastRuns.get(site.id) ?? null,
       now,
     })
+    openBySite.set(site.id, decision.open)
     if (decision.open !== null) next.set(site.id, decision.open)
     if (decision.kind !== "fire") continue
 
@@ -383,6 +524,13 @@ export async function evaluateAfterHoursSites(
     stats.fired += 1
     if (started.status === "pending_approval") stats.pendingApproval += 1
   }
+
+  stats.cancelled = await cancelStaleActiveRuns(
+    client,
+    new Map(siteRows.map((row) => [row.id, row])),
+    openBySite,
+    now
+  )
 
   const removeKeys = [...previous.keys()].filter((key) => !next.has(key))
   await store.saveAll(next, removeKeys)

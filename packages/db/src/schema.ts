@@ -53,6 +53,7 @@ import {
   type AgentModuleCollector,
   type AgentModuleKind,
   type AgentModuleObservation,
+  type AfterHoursCancelReason,
   type AfterHoursDeviceResult,
   type AfterHoursRunStatus,
   type PlaybookAction,
@@ -1543,6 +1544,7 @@ export const siteAfterHoursRuns = pgTable(
       .default(sql`'[]'::jsonb`),
     queuedDeviceCount: integer("queued_device_count").notNull().default(0),
     skippedDeviceCount: integer("skipped_device_count").notNull().default(0),
+    cancelReason: text("cancel_reason").$type<AfterHoursCancelReason>(),
     decidedByUserId: text("decided_by_user_id").references(() => user.id, {
       onDelete: "set null",
     }),

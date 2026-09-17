@@ -248,6 +248,7 @@ function AfterHoursRunList({ siteId }: { siteId: string }) {
               {run.skippedDeviceCount > 0
                 ? ` · ${run.skippedDeviceCount} skipped`
                 : ""}
+              {run.cancelReasonLabel ? ` · ${run.cancelReasonLabel}` : ""}
             </p>
           </div>
           <Badge

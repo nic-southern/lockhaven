@@ -88,6 +88,7 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   after_hours_run_skipped: "info",
   after_hours_run_approved: "notice",
   after_hours_run_denied: "notice",
+  after_hours_run_cancelled: "notice",
   asset_created: "notice",
   asset_updated: "info",
   asset_deleted: "notice",

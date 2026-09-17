@@ -1,6 +1,7 @@
 export { tryLinkDeviceToAsset, tryLinkDevicesToAssets } from "./asset-link"
 export { evaluatePlaybooks } from "./playbook-engine"
 export {
+  cancelAfterHoursRun,
   evaluateAfterHoursSites,
   expireAfterHoursRuns,
   queueAfterHoursRunCommands,

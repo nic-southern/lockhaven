@@ -4,11 +4,13 @@ import { z } from "zod"
 
 import { siteAfterHoursRuns, sites } from "@nms/db"
 import {
+  afterHoursCancelReasonLabels,
   afterHoursDeviceOutcomeLabels,
   afterHoursRunStatusLabels,
   afterHoursStepsSummary,
   canDecidePlaybookRun,
   sanitizeAfterHoursSteps,
+  siteOpenState,
   type AfterHoursRunStatus,
 } from "@nms/shared"
 
@@ -19,7 +21,10 @@ import {
   canApprovePlaybook,
   requireActor,
 } from "../access"
-import { queueAfterHoursRunCommands } from "../after-hours-engine"
+import {
+  cancelAfterHoursRun,
+  queueAfterHoursRunCommands,
+} from "../after-hours-engine"
 import { writeAuditEvent } from "../audit"
 import { combineConditions } from "../scope"
 import { adminProcedure, createTRPCRouter, permissionProcedure } from "../trpc"
@@ -49,6 +54,10 @@ function publicRun(
     statusLabel: afterHoursRunStatusLabels[status],
     queuedDeviceCount: row.queuedDeviceCount,
     skippedDeviceCount: row.skippedDeviceCount,
+    cancelReason: row.cancelReason,
+    cancelReasonLabel: row.cancelReason
+      ? afterHoursCancelReasonLabels[row.cancelReason]
+      : null,
     devices: row.deviceResults.map((entry) => ({
       ...entry,
       outcomeLabel: afterHoursDeviceOutcomeLabels[entry.outcome],
@@ -141,7 +150,13 @@ export const afterHoursRouter = createTRPCRouter({
       const actor = requireActor(ctx.actor)
       const now = new Date()
       const [row] = await ctx.db
-        .select({ run: siteAfterHoursRuns, siteName: sites.name })
+        .select({
+          run: siteAfterHoursRuns,
+          siteName: sites.name,
+          siteTimezone: sites.timezone,
+          siteBusinessHours: sites.businessHours,
+          siteAfterHoursEnabled: sites.afterHoursEnabled,
+        })
         .from(siteAfterHoursRuns)
         .leftJoin(sites, eq(sites.id, siteAfterHoursRuns.siteId))
         .where(eq(siteAfterHoursRuns.id, input.id))
@@ -202,6 +217,32 @@ export const afterHoursRouter = createTRPCRouter({
           },
         })
         return { id: updated.id, status: updated.status }
+      }
+
+      // Approving after the floor reopened would restart cabinets in front
+      // of players; the run belongs to a close that has already passed.
+      const siteOpen = siteOpenState(
+        {
+          timezone: row.siteTimezone,
+          businessHours: row.siteBusinessHours,
+        },
+        now
+      )
+      if (siteOpen === true || row.siteAfterHoursEnabled === false) {
+        await cancelAfterHoursRun(ctx.db, {
+          run: row.run,
+          siteName,
+          reason: siteOpen === true ? "floor_opened" : "schedule_disabled",
+          actorUserId: actor.id,
+          now,
+        })
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            siteOpen === true
+              ? "This location has reopened, so this run was cancelled."
+              : "After-hours runs are turned off for this location.",
+        })
       }
 
       const [claimed] = await ctx.db

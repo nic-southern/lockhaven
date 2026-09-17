@@ -374,16 +374,23 @@ export default function PlaybooksPage() {
                           : ""}
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={
-                            run.status === "queued" ||
-                            run.status === "pending_approval"
-                              ? "default"
-                              : "outline"
-                          }
-                        >
-                          {run.statusLabel}
-                        </Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge
+                            variant={
+                              run.status === "queued" ||
+                              run.status === "pending_approval"
+                                ? "default"
+                                : "outline"
+                            }
+                          >
+                            {run.statusLabel}
+                          </Badge>
+                          {run.cancelReasonLabel ? (
+                            <span className="text-xs text-muted-foreground">
+                              {run.cancelReasonLabel}
+                            </span>
+                          ) : null}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

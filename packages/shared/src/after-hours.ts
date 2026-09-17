@@ -44,6 +44,7 @@ export const afterHoursRunStatuses = [
   "skipped",
   "denied",
   "expired",
+  "cancelled",
 ] as const
 export type AfterHoursRunStatus = (typeof afterHoursRunStatuses)[number]
 export const afterHoursRunStatusSchema = z.enum(afterHoursRunStatuses)
@@ -54,7 +55,28 @@ export const afterHoursRunStatusLabels: Record<AfterHoursRunStatus, string> = {
   skipped: "Skipped",
   denied: "Declined",
   expired: "Expired",
+  cancelled: "Cancelled",
 }
+
+export const afterHoursCancelReasons = [
+  "floor_opened",
+  "schedule_disabled",
+] as const
+export type AfterHoursCancelReason = (typeof afterHoursCancelReasons)[number]
+
+export const afterHoursCancelReasonLabels: Record<
+  AfterHoursCancelReason,
+  string
+> = {
+  floor_opened: "Location reopened before devices picked it up",
+  schedule_disabled: "After-hours runs were turned off",
+}
+
+/** Runs that can still change: waiting for review, or waiting for devices to check in. */
+export const AFTER_HOURS_ACTIVE_STATUSES: readonly AfterHoursRunStatus[] = [
+  "pending_approval",
+  "queued",
+]
 
 export const afterHoursDeviceOutcomes = [
   "queued",
@@ -63,6 +85,7 @@ export const afterHoursDeviceOutcomes = [
   "revoked",
   "not_enrolled",
   "open_command",
+  "cancelled",
 ] as const
 export type AfterHoursDeviceOutcome = (typeof afterHoursDeviceOutcomes)[number]
 
@@ -76,6 +99,7 @@ export const afterHoursDeviceOutcomeLabels: Record<
   revoked: "Access revoked",
   not_enrolled: "Not enrolled",
   open_command: "Same action already waiting",
+  cancelled: "Cancelled before pickup",
 }
 
 export type AfterHoursDeviceResult = {
@@ -164,6 +188,43 @@ export function decideAfterHoursRun(input: {
     return { kind: "idle", reason: "just_ran", open }
   }
   return { kind: "fire", steps, open: false }
+}
+
+/**
+ * An active run is abandoned when the floor reopens (a cabinet powered on at
+ * noon must not restart on the floor) or the site turns after-hours runs off.
+ * Commands already handed to the agent are left alone; only undelivered
+ * ones are pulled back.
+ */
+export function decideAfterHoursCancel(input: {
+  runStatus: AfterHoursRunStatus
+  afterHoursEnabled: boolean
+  siteOpen: boolean | null
+}): AfterHoursCancelReason | null {
+  if (!AFTER_HOURS_ACTIVE_STATUSES.includes(input.runStatus)) return null
+  if (!input.afterHoursEnabled) return "schedule_disabled"
+  if (input.siteOpen === true) return "floor_opened"
+  return null
+}
+
+/**
+ * Rewrites the run's receipt after undelivered commands were cancelled. A
+ * device whose every command was pulled back is `cancelled`; one that had
+ * already picked up a step keeps its `queued` outcome.
+ */
+export function applyCancelledCommands(
+  results: readonly AfterHoursDeviceResult[],
+  cancelledCommandIds: ReadonlySet<string>
+): AfterHoursDeviceResult[] {
+  return results.map((entry) => {
+    if (entry.outcome !== "queued" || entry.commandIds.length === 0) {
+      return entry
+    }
+    const allCancelled = entry.commandIds.every((id) =>
+      cancelledCommandIds.has(id)
+    )
+    return allCancelled ? { ...entry, outcome: "cancelled" } : entry
+  })
 }
 
 export type AfterHoursDeviceCandidate = {
