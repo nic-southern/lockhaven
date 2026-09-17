@@ -1,6 +1,7 @@
 package collect
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -53,6 +54,26 @@ func TestParseDpkgAndApt(t *testing.T) {
 	updates := ParseAptUpgradable("curl/stable 8.1.0 amd64 [upgradable from: 8.0.0]\nWARNING: apt does not have a stable CLI interface.\n")
 	if len(updates) != 1 || updates[0].AvailableVersion != "8.1.0" || updates[0].CurrentVersion != "8.0.0" {
 		t.Fatalf("apt: %+v", updates)
+	}
+}
+
+func TestParseAptUpgradableNoneMarshalsAsEmptyArray(t *testing.T) {
+	updates := ParseAptUpgradable("Listing...\nWARNING: apt does not have a stable CLI interface.\n")
+	if updates == nil {
+		t.Fatal("nil slice encodes as JSON null and Hub rejects check-in")
+	}
+	if len(updates) != 0 {
+		t.Fatalf("len %d", len(updates))
+	}
+	raw, err := json.Marshal(Packages{
+		Installed:        []Pkg{},
+		AvailableUpdates: updates,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"reboot_required":false,"installed":[],"available_updates":[]}` {
+		t.Fatalf("json %s", raw)
 	}
 }
 

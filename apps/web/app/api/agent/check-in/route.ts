@@ -16,10 +16,12 @@ import {
 } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
+  checkInIssuePaths,
   checkInSchema,
   hostnamesMatch,
   hubCheckInResponse,
   normalizeHostname,
+  requestedDeviceIdFromUnknown,
   severityForEvent,
   type AuditEventType,
 } from "@nms/shared"
@@ -101,11 +103,26 @@ export async function POST(request: Request) {
   )
   if (addressLimited) return addressLimited
 
-  const parsed = checkInSchema.safeParse(await readJson(request))
+  const body = await readJson(request)
+  const parsed = checkInSchema.safeParse(body)
 
   if (!parsed.success) {
+    const requestedDeviceId = requestedDeviceIdFromUnknown(body)
+    const [device] = requestedDeviceId
+      ? await db
+          .select({
+            id: devices.id,
+            organizationId: devices.organizationId,
+            siteId: devices.siteId,
+          })
+          .from(devices)
+          .where(eq(devices.id, requestedDeviceId))
+      : []
     await recordCheckInFailure(request, "device_check_in_failed", {
       reason: "invalid_payload",
+      device: device ?? null,
+      deviceId: requestedDeviceId,
+      details: { issues: checkInIssuePaths(parsed.error) },
     })
     return Response.json({ error: "Invalid check-in payload" }, { status: 400 })
   }
