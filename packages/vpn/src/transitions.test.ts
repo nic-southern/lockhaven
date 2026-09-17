@@ -3,6 +3,7 @@ import test from "node:test"
 
 import {
   endpointHost,
+  endpointHostChanged,
   evaluatePeer,
   isFlapping,
   normalizeEndpoint,
@@ -98,7 +99,7 @@ test("missing peer counts as down and keeps the last endpoint", () => {
   assert.equal(result.next.rxBytes, 900)
 })
 
-test("detects endpoint changes only while online", () => {
+test("detects endpoint host changes only while online", () => {
   const changed = evaluatePeer({
     previous: state(),
     peer: peer({ endpoint: "198.51.100.7:40000" }),
@@ -122,6 +123,44 @@ test("detects endpoint changes only while online", () => {
     sampleIntervalMs: hour,
   })
   assert.deepEqual(stale.transitions, [])
+})
+
+test("ignores port-only endpoint changes", () => {
+  const result = evaluatePeer({
+    previous: state(),
+    peer: peer({ endpoint: "203.0.113.10:40000" }),
+    now,
+    sampleIntervalMs: hour,
+  })
+  assert.deepEqual(result.transitions, [])
+  assert.equal(result.next.endpoint, "203.0.113.10:40000")
+  assert.equal(result.next.lastSampleAt, state().lastSampleAt)
+  assert.equal(result.intervalSampleDue, false)
+})
+
+test("detects IPv6 host changes and ignores IPv6 port-only churn", () => {
+  const previous = state({ endpoint: "[2001:db8::1]:51820" })
+
+  const sameHost = evaluatePeer({
+    previous,
+    peer: peer({ endpoint: "[2001:db8::1]:40000" }),
+    now,
+    sampleIntervalMs: hour,
+  })
+  assert.deepEqual(sameHost.transitions, [])
+  assert.equal(sameHost.next.endpoint, "[2001:db8::1]:40000")
+
+  const newHost = evaluatePeer({
+    previous,
+    peer: peer({ endpoint: "[2001:db8::2]:51820" }),
+    now,
+    sampleIntervalMs: hour,
+  })
+  assert.deepEqual(
+    newHost.transitions.map((t) => t.kind),
+    ["endpoint_changed"]
+  )
+  assert.equal(newHost.transitions[0].endpoint, "[2001:db8::2]:51820")
 })
 
 test("interval samples come due once per interval while online", () => {
@@ -152,6 +191,19 @@ test("endpoint helpers handle wg placeholders and IPv6", () => {
   assert.equal(endpointHost("203.0.113.10:51820"), "203.0.113.10")
   assert.equal(endpointHost("[2001:db8::1]:51820"), "2001:db8::1")
   assert.equal(endpointHost(null), null)
+  assert.equal(
+    endpointHostChanged("203.0.113.10:51820", "203.0.113.10:40000"),
+    false
+  )
+  assert.equal(
+    endpointHostChanged("203.0.113.10:51820", "198.51.100.7:51820"),
+    true
+  )
+  assert.equal(
+    endpointHostChanged("[2001:db8::1]:51820", "[2001:db8::1]:40000"),
+    false
+  )
+  assert.equal(endpointHostChanged(null, "203.0.113.10:51820"), false)
 })
 
 test("flapping requires enough transitions inside the window", () => {

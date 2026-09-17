@@ -53,6 +53,19 @@ export function endpointHost(endpoint: string | null) {
   return separator === -1 ? endpoint : endpoint.slice(0, separator)
 }
 
+/**
+ * True when the public host changed. Port-only diffs are NAT or client
+ * source-port noise and must not count as a new endpoint IP.
+ */
+export function endpointHostChanged(
+  current: string | null,
+  previous: string | null
+) {
+  const currentHost = endpointHost(current)
+  const previousHost = endpointHost(previous)
+  return Boolean(currentHost && previousHost && currentHost !== previousHost)
+}
+
 export type PeerEvaluation = {
   next: PeerState
   transitions: PeerTransition[]
@@ -95,12 +108,7 @@ export function evaluatePeer(args: {
       transitions.push({ kind: "down", ...base })
     }
 
-    if (
-      endpoint &&
-      previous.endpoint &&
-      endpoint !== previous.endpoint &&
-      online
-    ) {
+    if (online && endpointHostChanged(endpoint, previous.endpoint)) {
       transitions.push({ kind: "endpoint_changed", ...base })
     }
   }
