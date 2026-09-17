@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { checkInModulesSchema } from "./agent-modules"
 import {
   checkInCommandResultsSchema,
   checkInMetricsSchema,
@@ -269,6 +270,7 @@ export const checkInSchema = z.object({
   metrics: checkInMetricsSchema.optional(),
   packages: checkInPackagesSchema.optional(),
   titles: checkInTitlesSchema.optional(),
+  modules: checkInModulesSchema.optional(),
   command_results: checkInCommandResultsSchema.optional(),
 })
 
@@ -505,6 +507,12 @@ export const auditEventTypeSchema = z.enum([
   "custom_field_definition_updated",
   "custom_field_definition_deleted",
   "inventory_imported",
+  "agent_module_created",
+  "agent_module_updated",
+  "agent_module_deleted",
+  "agent_module_assigned",
+  "agent_module_unassigned",
+  "device_module_payload_rejected",
 ])
 
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>

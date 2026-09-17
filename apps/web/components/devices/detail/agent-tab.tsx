@@ -45,9 +45,39 @@ function architectureHint(architecture: string | null | undefined) {
   return architecture
 }
 
+function observationSummary(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "—"
+  const row = payload as {
+    type?: string
+    running?: boolean
+    exists?: boolean
+    value?: string
+    bytes?: number
+  }
+  if (row.type === "process_running") {
+    return row.running ? "Running" : "Not running"
+  }
+  if (row.type === "file_exists") {
+    return row.exists ? "Present" : "Missing"
+  }
+  if (row.type === "file_text") {
+    return row.exists ? (row.value ?? "—") : "Missing"
+  }
+  if (row.type === "file_size") {
+    if (!row.exists) return "Missing"
+    if (typeof row.bytes !== "number") return "—"
+    return `${row.bytes.toLocaleString()} B`
+  }
+  return "—"
+}
+
 export function AgentTab({ device }: { device: DeviceDetail }) {
   const { can } = usePermissions()
   const canEnroll = can("device:enroll")
+  const observationsQuery = trpc.agentModules.observations.useQuery(
+    { deviceId: device.id },
+    { enabled: can("device:view") }
+  )
   const createToken = trpc.enrollmentTokens.create.useMutation()
   const [token, setToken] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
@@ -157,6 +187,26 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
           ]}
         />
       </SectionCard>
+
+      {(observationsQuery.data?.length ?? 0) > 0 ? (
+        <SectionCard
+          title="Observations"
+          description="Facts this device reported from assigned modules."
+        >
+          <DefinitionList
+            columns={2}
+            items={observationsQuery.data!.map((row) => ({
+              label: `${row.moduleName} · ${row.collectorTypeLabel}`,
+              value: (
+                <span title={formatDate(row.lastSeenAt)}>
+                  {observationSummary(row.payload)} ·{" "}
+                  {formatRelativeTime(row.lastSeenAt)}
+                </span>
+              ),
+            }))}
+          />
+        </SectionCard>
+      ) : null}
 
       <SectionCard
         title="Install on this device"

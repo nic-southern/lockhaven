@@ -13,14 +13,29 @@ type CommandResult struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+type AssignedCollector struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Process string `json:"process,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
+type AssignedModule struct {
+	ID         string              `json:"id"`
+	Kind       string              `json:"kind"`
+	Name       string              `json:"name"`
+	Collectors []AssignedCollector `json:"collectors"`
+}
+
 type State struct {
-	DeviceID              string          `json:"deviceId"`
-	CheckInSecret         string          `json:"checkInSecret"`
-	BaseURL               string          `json:"baseUrl"`
-	Hostname              string          `json:"hostname"`
-	VpnIPv4               string          `json:"vpnIpv4"`
-	TunnelName            string          `json:"tunnelName"`
-	PendingCommandResults []CommandResult `json:"pendingCommandResults,omitempty"`
+	DeviceID              string           `json:"deviceId"`
+	CheckInSecret         string           `json:"checkInSecret"`
+	BaseURL               string           `json:"baseUrl"`
+	Hostname              string           `json:"hostname"`
+	VpnIPv4               string           `json:"vpnIpv4"`
+	TunnelName            string           `json:"tunnelName"`
+	PendingCommandResults []CommandResult  `json:"pendingCommandResults,omitempty"`
+	AssignedModules       []AssignedModule `json:"assignedModules,omitempty"`
 }
 
 func stateDirFor(goos, programData, envDir string) string {
