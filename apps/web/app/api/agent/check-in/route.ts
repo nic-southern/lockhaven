@@ -321,6 +321,7 @@ export async function POST(request: Request) {
         osVersion: input.os_version,
         agentVersion: input.agent_version,
         lastSeenAt: now,
+        agentLastCheckInAt: now,
         updatedAt: now,
         status,
       })

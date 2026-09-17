@@ -7,6 +7,11 @@ import {
   alertKindSchema,
   alertKinds,
   auditSeveritySchema,
+  MAX_AGENT_STALE_MINUTES,
+  MAX_DISK_FULL_FREE_BYTES,
+  MAX_DISK_FULL_PERCENT,
+  MIN_AGENT_STALE_MINUTES,
+  MIN_DISK_FULL_PERCENT,
   pickEffectiveAlertPolicy,
   type AlertPolicyFields,
 } from "@nms/shared"
@@ -26,6 +31,24 @@ function assertCanManage(ctx: ApiContext, organizationId: string) {
 const thresholdsSchema = z
   .object({
     offlineHours: z.number().int().min(1).max(168).optional(),
+    diskUsedPercent: z
+      .number()
+      .int()
+      .min(MIN_DISK_FULL_PERCENT)
+      .max(MAX_DISK_FULL_PERCENT)
+      .optional(),
+    diskFreeBytes: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_DISK_FULL_FREE_BYTES)
+      .optional(),
+    agentStaleMinutes: z
+      .number()
+      .int()
+      .min(MIN_AGENT_STALE_MINUTES)
+      .max(MAX_AGENT_STALE_MINUTES)
+      .optional(),
   })
   .strict()
 

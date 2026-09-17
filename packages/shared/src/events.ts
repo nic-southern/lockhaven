@@ -115,6 +115,8 @@ export const alertKinds = [
   "agent_outdated",
   "warranty_expiring",
   "archived_device_online",
+  "disk_full",
+  "agent_stale",
 ] as const
 
 export type AlertKind = (typeof alertKinds)[number]
@@ -142,6 +144,8 @@ export const alertKindLabels: Record<AlertKind, string> = {
   agent_outdated: "Agent outdated",
   warranty_expiring: "Warranty expiring",
   archived_device_online: "Archived device came online",
+  disk_full: "Disk full",
+  agent_stale: "Agent not checking in",
 }
 
 export const alertKindDefaultSeverity: Record<AlertKind, AuditSeverity> = {
@@ -154,6 +158,8 @@ export const alertKindDefaultSeverity: Record<AlertKind, AuditSeverity> = {
   agent_outdated: "warning",
   warranty_expiring: "notice",
   archived_device_online: "warning",
+  disk_full: "critical",
+  agent_stale: "warning",
 }
 
 export const notificationChannelTypes = ["email", "webhook"] as const
@@ -188,6 +194,15 @@ export const notificationDeliveryStatusSchema = z.enum(
 
 /** Hours a device must be silent before an offline alert opens. */
 export const DEVICE_OFFLINE_ALERT_HOURS = 24
+
+/** A disk at or above this used percentage counts as full. */
+export const DISK_FULL_USED_PERCENT_DEFAULT = 95
+
+/** A disk with less than this many bytes free counts as full (2 GiB). */
+export const DISK_FULL_FREE_BYTES_DEFAULT = 2 * 1024 * 1024 * 1024
+
+/** Minutes without an agent check-in before the agent counts as stale. */
+export const AGENT_STALE_MINUTES_DEFAULT = 15
 
 /** Hours a concentrator-probe alert may stay quiet before it auto-resolves. */
 export const CONCENTRATOR_PROBE_AUTO_RESOLVE_HOURS = 24

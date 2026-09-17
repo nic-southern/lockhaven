@@ -8,7 +8,14 @@ import {
   alertKindLabels,
   alertKinds,
   auditSeverities,
+  bytesToGigabytes,
+  gigabytesToBytes,
+  MAX_AGENT_STALE_MINUTES,
+  MAX_DISK_FULL_PERCENT,
+  MIN_AGENT_STALE_MINUTES,
+  MIN_DISK_FULL_PERCENT,
   type AlertKind,
+  type AlertPolicyThresholds,
   type AuditSeverity,
 } from "@nms/shared"
 
@@ -31,6 +38,20 @@ const severityLabels: Record<AuditSeverity, string> = {
   critical: "Critical",
 }
 
+const kindDescriptions: Partial<Record<AlertKind, string>> = {
+  disk_full:
+    "Opens at any hour. A full drive stops a machine whether or not the location is open.",
+  agent_stale:
+    "Stays quiet while the location is closed. The clock starts when the location opens.",
+}
+
+type EffectiveThresholds = {
+  offlineHours: number
+  diskUsedPercent: number
+  diskFreeBytes: number
+  agentStaleMinutes: number
+}
+
 function PolicyKindRow({
   kind,
   organizationId,
@@ -38,7 +59,7 @@ function PolicyKindRow({
   enabled,
   severity,
   escalateAfterMinutes,
-  offlineHours,
+  thresholds,
   source,
 }: {
   kind: AlertKind
@@ -47,7 +68,7 @@ function PolicyKindRow({
   enabled: boolean
   severity: AuditSeverity
   escalateAfterMinutes: number | null
-  offlineHours: number
+  thresholds: EffectiveThresholds
   source: "site" | "org" | "default"
 }) {
   const utils = trpc.useUtils()
@@ -57,14 +78,85 @@ function PolicyKindRow({
   const [escalate, setEscalate] = React.useState(
     escalateAfterMinutes ? String(escalateAfterMinutes) : ""
   )
-  const [hours, setHours] = React.useState(String(offlineHours))
+  const [hours, setHours] = React.useState(String(thresholds.offlineHours))
+  const [diskPercent, setDiskPercent] = React.useState(
+    String(thresholds.diskUsedPercent)
+  )
+  const [diskFreeGb, setDiskFreeGb] = React.useState(
+    String(bytesToGigabytes(thresholds.diskFreeBytes))
+  )
+  const [staleMinutes, setStaleMinutes] = React.useState(
+    String(thresholds.agentStaleMinutes)
+  )
+
+  const { offlineHours, diskUsedPercent, diskFreeBytes, agentStaleMinutes } =
+    thresholds
 
   React.useEffect(() => {
     setOn(enabled)
     setLevel(severity)
     setEscalate(escalateAfterMinutes ? String(escalateAfterMinutes) : "")
     setHours(String(offlineHours))
-  }, [enabled, severity, escalateAfterMinutes, offlineHours])
+    setDiskPercent(String(diskUsedPercent))
+    setDiskFreeGb(String(bytesToGigabytes(diskFreeBytes)))
+    setStaleMinutes(String(agentStaleMinutes))
+  }, [
+    enabled,
+    severity,
+    escalateAfterMinutes,
+    offlineHours,
+    diskUsedPercent,
+    diskFreeBytes,
+    agentStaleMinutes,
+  ])
+
+  function thresholdsForSave(): AlertPolicyThresholds | null {
+    if (kind === "device_offline") {
+      const offline = Number(hours)
+      if (!Number.isInteger(offline) || offline < 1) {
+        toast.error("Offline hours must be a whole number.")
+        return null
+      }
+      return { offlineHours: offline }
+    }
+    if (kind === "disk_full") {
+      const percent = Number(diskPercent)
+      if (
+        !Number.isInteger(percent) ||
+        percent < MIN_DISK_FULL_PERCENT ||
+        percent > MAX_DISK_FULL_PERCENT
+      ) {
+        toast.error(
+          `Full at must be a whole number between ${MIN_DISK_FULL_PERCENT} and ${MAX_DISK_FULL_PERCENT}.`
+        )
+        return null
+      }
+      const freeGb = diskFreeGb.trim() === "" ? 0 : Number(diskFreeGb)
+      if (!Number.isFinite(freeGb) || freeGb < 0) {
+        toast.error("Free space must be zero or more gigabytes.")
+        return null
+      }
+      return {
+        diskUsedPercent: percent,
+        diskFreeBytes: gigabytesToBytes(freeGb),
+      }
+    }
+    if (kind === "agent_stale") {
+      const minutes = Number(staleMinutes)
+      if (
+        !Number.isInteger(minutes) ||
+        minutes < MIN_AGENT_STALE_MINUTES ||
+        minutes > MAX_AGENT_STALE_MINUTES
+      ) {
+        toast.error(
+          `Not seen for must be a whole number of minutes, at least ${MIN_AGENT_STALE_MINUTES}.`
+        )
+        return null
+      }
+      return { agentStaleMinutes: minutes }
+    }
+    return {}
+  }
 
   async function save() {
     const minutes = escalate.trim() ? Number(escalate) : null
@@ -72,14 +164,8 @@ function PolicyKindRow({
       toast.error("Escalate after must be a whole number of minutes.")
       return
     }
-    const offline = Number(hours)
-    if (
-      kind === "device_offline" &&
-      (!Number.isInteger(offline) || offline < 1)
-    ) {
-      toast.error("Offline hours must be a whole number.")
-      return
-    }
+    const nextThresholds = thresholdsForSave()
+    if (!nextThresholds) return
     try {
       await upsert.mutateAsync({
         organizationId,
@@ -88,7 +174,7 @@ function PolicyKindRow({
         enabled: on,
         severity: level,
         escalateAfterMinutes: minutes,
-        thresholds: kind === "device_offline" ? { offlineHours: offline } : {},
+        thresholds: nextThresholds,
       })
       toast.success("Alert policy saved.")
       await utils.alertPolicies.list.invalidate()
@@ -110,6 +196,11 @@ function PolicyKindRow({
         <div>
           <p className="font-medium">{alertKindLabels[kind]}</p>
           <p className="text-xs text-muted-foreground">{sourceLabel}</p>
+          {kindDescriptions[kind] ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {kindDescriptions[kind]}
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Enabled</span>
@@ -154,6 +245,56 @@ function PolicyKindRow({
               inputMode="numeric"
               value={hours}
               onChange={(event) => setHours(event.target.value)}
+            />
+          </FormField>
+        ) : null}
+        {kind === "disk_full" ? (
+          <>
+            <FormField
+              label="Full at (% used)"
+              htmlFor={`disk-percent-${kind}`}
+            >
+              <Input
+                id={`disk-percent-${kind}`}
+                type="number"
+                min={MIN_DISK_FULL_PERCENT}
+                max={MAX_DISK_FULL_PERCENT}
+                inputMode="numeric"
+                value={diskPercent}
+                onChange={(event) => setDiskPercent(event.target.value)}
+              />
+            </FormField>
+            <FormField
+              label="Or free space below (GB)"
+              htmlFor={`disk-free-${kind}`}
+              description="Set to 0 to use the percentage only."
+            >
+              <Input
+                id={`disk-free-${kind}`}
+                type="number"
+                min={0}
+                step="0.5"
+                inputMode="decimal"
+                value={diskFreeGb}
+                onChange={(event) => setDiskFreeGb(event.target.value)}
+              />
+            </FormField>
+          </>
+        ) : null}
+        {kind === "agent_stale" ? (
+          <FormField
+            label="Not seen for (minutes)"
+            htmlFor={`stale-${kind}`}
+            description="Counted while the location is open."
+          >
+            <Input
+              id={`stale-${kind}`}
+              type="number"
+              min={MIN_AGENT_STALE_MINUTES}
+              max={MAX_AGENT_STALE_MINUTES}
+              inputMode="numeric"
+              value={staleMinutes}
+              onChange={(event) => setStaleMinutes(event.target.value)}
             />
           </FormField>
         ) : null}
@@ -320,7 +461,13 @@ export default function AlertPoliciesPage() {
                   enabled={effective?.enabled ?? true}
                   severity={effective?.severity ?? "warning"}
                   escalateAfterMinutes={effective?.escalateAfterMinutes ?? null}
-                  offlineHours={effective?.offlineHours ?? 24}
+                  thresholds={{
+                    offlineHours: effective?.offlineHours ?? 24,
+                    diskUsedPercent: effective?.diskUsedPercent ?? 95,
+                    diskFreeBytes:
+                      effective?.diskFreeBytes ?? gigabytesToBytes(2),
+                    agentStaleMinutes: effective?.agentStaleMinutes ?? 15,
+                  }}
                   source={effective?.source ?? "default"}
                 />
               )

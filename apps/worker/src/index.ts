@@ -75,6 +75,7 @@ import { processNotificationDeliveries } from "./notify"
 import { PeerStateStore, type StoredPeerState } from "./peer-state"
 import { sendReportSchedules } from "./report-schedules"
 import { evaluateAgentVersions } from "./fleet"
+import { evaluateVenueHealth } from "./venue-health"
 import { evaluateWarranties } from "./warranties"
 import { refreshRemoteSessions } from "./sessions"
 import { pruneUptimeHistory, rollupUptime } from "./uptime"
@@ -901,6 +902,7 @@ const schedules: Array<{ name: string; everyMs: number }> = [
   { name: "send-report-schedules", everyMs: 60 * 60 * 1000 },
   { name: "evaluate-agent-versions", everyMs: 60_000 },
   { name: "evaluate-warranties", everyMs: 60 * 60 * 1000 },
+  { name: "evaluate-venue-health", everyMs: 60_000 },
   { name: "run-playbooks", everyMs: 30_000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ]
@@ -992,6 +994,9 @@ async function main() {
             break
           case "evaluate-warranties":
             await evaluateWarranties()
+            break
+          case "evaluate-venue-health":
+            await evaluateVenueHealth()
             break
           case "run-playbooks":
             await evaluatePlaybooks(db)

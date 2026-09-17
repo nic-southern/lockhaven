@@ -297,6 +297,8 @@ export const alertKeys = {
   warrantyExpiring: (assetId: string) => `warranty_expiring:${assetId}`,
   archivedDeviceOnline: (deviceId: string) =>
     `archived_device_online:${deviceId}`,
+  diskFull: (deviceId: string) => `disk_full:${deviceId}`,
+  agentStale: (deviceId: string) => `agent_stale:${deviceId}`,
 }
 
 export async function syncArchivedDeviceAlerts(input: {
@@ -323,6 +325,12 @@ export async function syncArchivedDeviceAlerts(input: {
     resolvedReason: "device_archived",
   })
   await resolveAlert(alertKeys.agentOutdated(input.deviceId), {
+    resolvedReason: "device_archived",
+  })
+  await resolveAlert(alertKeys.agentStale(input.deviceId), {
+    resolvedReason: "device_archived",
+  })
+  await resolveAlert(alertKeys.diskFull(input.deviceId), {
     resolvedReason: "device_archived",
   })
 

@@ -473,6 +473,13 @@ export const devices = pgTable(
     }),
     status: statusEnum("status").notNull().default("pending"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    /**
+     * Last accepted agent check-in. `lastSeenAt` also moves on tunnel
+     * contact, so it cannot tell a dead agent from a live cabinet.
+     */
+    agentLastCheckInAt: timestamp("agent_last_check_in_at", {
+      withTimezone: true,
+    }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     archivedByUserId: text("archived_by_user_id").references(() => user.id, {
       onDelete: "set null",

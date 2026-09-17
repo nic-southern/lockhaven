@@ -5,11 +5,12 @@ import type { AlertKind } from "./events"
 /**
  * Offline/down kinds that must stay quiet while a venue is closed.
  * Same list archive uses for warehoused devices. Other kinds, including
- * archived-device-online, still page.
+ * archived-device-online and disk-full, still page.
  */
 export const quietOfflineAlertKinds = [
   "device_offline",
   "peer_flapping",
+  "agent_stale",
 ] as const satisfies readonly AlertKind[]
 
 export type QuietOfflineAlertKind = (typeof quietOfflineAlertKinds)[number]

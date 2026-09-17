@@ -1,7 +1,10 @@
 import {
+  AGENT_STALE_MINUTES_DEFAULT,
   alertKindDefaultSeverity,
   CONCENTRATOR_PROBE_AUTO_RESOLVE_HOURS,
   DEVICE_OFFLINE_ALERT_HOURS,
+  DISK_FULL_FREE_BYTES_DEFAULT,
+  DISK_FULL_USED_PERCENT_DEFAULT,
   type AlertKind,
   type AlertStatus,
   type AuditSeverity,
@@ -16,6 +19,12 @@ export type MaintenanceWindowRecurrence =
 
 export type AlertPolicyThresholds = {
   offlineHours?: number
+  /** `disk_full`: used percentage at or above which a disk counts as full. */
+  diskUsedPercent?: number
+  /** `disk_full`: free bytes below which a disk counts as full; 0 disables. */
+  diskFreeBytes?: number
+  /** `agent_stale`: minutes without a check-in before the agent is stale. */
+  agentStaleMinutes?: number
 }
 
 export type AlertPolicyFields = {
@@ -34,6 +43,9 @@ export type EffectiveAlertPolicy = {
   severity: AuditSeverity
   escalateAfterMinutes: number | null
   offlineHours: number
+  diskUsedPercent: number
+  diskFreeBytes: number
+  agentStaleMinutes: number
   source: "site" | "org" | "default"
 }
 
@@ -349,6 +361,21 @@ export function resolveEffectiveAlertPolicy(
         site?.thresholds.offlineHours,
         org?.thresholds.offlineHours
       ) ?? DEVICE_OFFLINE_ALERT_HOURS,
+    diskUsedPercent:
+      firstDefined(
+        site?.thresholds.diskUsedPercent,
+        org?.thresholds.diskUsedPercent
+      ) ?? DISK_FULL_USED_PERCENT_DEFAULT,
+    diskFreeBytes:
+      firstDefined(
+        site?.thresholds.diskFreeBytes,
+        org?.thresholds.diskFreeBytes
+      ) ?? DISK_FULL_FREE_BYTES_DEFAULT,
+    agentStaleMinutes:
+      firstDefined(
+        site?.thresholds.agentStaleMinutes,
+        org?.thresholds.agentStaleMinutes
+      ) ?? AGENT_STALE_MINUTES_DEFAULT,
     source,
   }
 }
