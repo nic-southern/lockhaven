@@ -42,6 +42,7 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 	services := collect.CollectServices(host.OSFamily)
 	metrics := collect.CollectMetrics(state.TunnelName)
 	packages := collect.CollectPackages()
+	titles := collect.CollectTitles()
 
 	client := hub.New(state.BaseURL)
 	response, err := client.CheckIn(hub.CheckInRequest{
@@ -55,6 +56,7 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 		Services:       services,
 		Metrics:        metrics,
 		Packages:       packages,
+		Titles:         titles,
 		CommandResults: toHubResults(state.PendingCommandResults),
 	})
 	if err != nil {

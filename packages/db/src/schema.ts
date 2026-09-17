@@ -1627,6 +1627,32 @@ export const devicePackages = pgTable(
   })
 )
 
+export const deviceTitles = pgTable(
+  "device_titles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    title: text("title").notNull(),
+    build: text("build").notNull().default(""),
+    configHash: text("config_hash"),
+    processRunning: boolean("process_running"),
+    processName: text("process_name"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    deviceKeyIdx: uniqueIndex("device_titles_device_key_idx").on(
+      table.deviceId,
+      table.key
+    ),
+    deviceIdx: index("device_titles_device_idx").on(table.deviceId),
+  })
+)
+
 export const organizationSsoSettings = pgTable(
   "organization_sso_settings",
   {
@@ -1705,6 +1731,7 @@ export const ssoProvider = pgTable(
 export type DeviceMetricsLatest = typeof deviceMetricsLatest.$inferSelect
 export type DeviceMetricsSample = typeof deviceMetricsSamples.$inferSelect
 export type DevicePackage = typeof devicePackages.$inferSelect
+export type DeviceTitle = typeof deviceTitles.$inferSelect
 export type OrganizationSsoSettings =
   typeof organizationSsoSettings.$inferSelect
 export type SsoProvider = typeof ssoProvider.$inferSelect

@@ -4,6 +4,7 @@ import {
   checkInCommandResultsSchema,
   checkInMetricsSchema,
   checkInPackagesSchema,
+  checkInTitlesSchema,
 } from "./telemetry"
 
 export const deviceStatuses = [
@@ -267,6 +268,7 @@ export const checkInSchema = z.object({
   ),
   metrics: checkInMetricsSchema.optional(),
   packages: checkInPackagesSchema.optional(),
+  titles: checkInTitlesSchema.optional(),
   command_results: checkInCommandResultsSchema.optional(),
 })
 

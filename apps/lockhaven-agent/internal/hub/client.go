@@ -77,7 +77,21 @@ type CheckInRequest struct {
 	Services       any             `json:"services"`
 	Metrics        any             `json:"metrics,omitempty"`
 	Packages       any             `json:"packages,omitempty"`
+	Titles         any             `json:"titles,omitempty"`
 	CommandResults []CommandResult `json:"command_results,omitempty"`
+}
+
+type Title struct {
+	Key            string `json:"key,omitempty"`
+	Title          string `json:"title"`
+	Build          string `json:"build,omitempty"`
+	ConfigHash     string `json:"config_hash,omitempty"`
+	ProcessRunning *bool  `json:"process_running,omitempty"`
+	ProcessName    string `json:"process_name,omitempty"`
+}
+
+type Titles struct {
+	Items []Title `json:"items"`
 }
 
 type CheckInResponse struct {

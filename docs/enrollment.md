@@ -14,9 +14,10 @@
    `LOCKHAVEN_VNC_PASSWORD`) when present.
 8. The agent includes that secret on `POST /api/agent/check-in` so the API can
    accept status updates for the enrolled device.
-9. Optional check-in fields `metrics` and `packages` report disk, memory, CPU
-   load, uptime, network counters, WireGuard handshake age, and installed
-   software. Existing hostname and secret fields stay required.
+9. Optional check-in fields `metrics`, `packages`, and `titles` report disk,
+   memory, CPU load, uptime, network counters, WireGuard handshake age,
+   installed packages, and game/cabinet titles (build, config hash, and whether
+   the process is running). Existing hostname and secret fields stay required.
 10. Check-in responses may include `desired_agent_version`, `download_url`, and
     `commands`. Commands are a closed whitelist (`reboot`, `restart`, `update`)
     — never a shell or SSH string. The client refuses anything else and reports
@@ -57,6 +58,25 @@ later. Tokens created before that storage need a new secret issued once.
 `POST /api/agent/attach` issues a new check-in secret for the matched device.
 `POST /api/enroll` refuses with `device_exists` when the host already matches
 inventory.
+
+Optional `titles` on check-in is separate from package inventory. Linux agents
+read a watch list from `LOCKHAVEN_TITLES_FILE`, or `/etc/lockhaven/titles.json`,
+or `/var/lib/lockhaven/titles.json`. When that file is absent, the agent omits
+`titles` and Hub keeps the last inventory. A sanitized watch list:
+
+```json
+{
+  "titles": [
+    {
+      "key": "cabinet-a",
+      "title": "Cabinet A",
+      "process": "game-bin",
+      "build_file": "/opt/game/BUILD",
+      "config_path": "/opt/game/config.json"
+    }
+  ]
+}
+```
 
 The TypeScript client in `apps/agent` remains a protocol reference. macOS still
 uses that path until that installer ships the Go binary.

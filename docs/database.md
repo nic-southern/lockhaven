@@ -20,6 +20,9 @@
 - Client-agent telemetry is `0040_device_telemetry`.
 - Client-agent attach lookups are `0041_agent_attach` (device serial and
   hostname indexes). Do not edit `0021`–`0039` for client-agent work.
+- Device archive is `0043_device_archive`.
+- Game/cabinet title inventory is `0044_device_titles` (`device_titles`: title,
+  build, config hash, process running). Do not edit `0042` or `0043`.
 - Rebuild the schema package after any migration changes with `pnpm build:packages`.
 
 ## Bootstrapping
