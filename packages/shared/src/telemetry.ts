@@ -1,5 +1,11 @@
 import { z } from "zod"
 
+import {
+  encodeHubModules,
+  hubModulesResponseSchema,
+  type HubModuleDefinition,
+} from "./agent-modules"
+
 /** How long Hub keeps per-check-in metric samples. */
 export const DEVICE_METRICS_SAMPLE_RETENTION_DAYS = 14
 
@@ -143,6 +149,7 @@ export const checkInResponseSchema = z.object({
   desired_agent_version: z.string().trim().min(1).max(64).optional(),
   download_url: z.string().url().optional(),
   commands: z.array(z.unknown()).max(32).optional(),
+  modules: hubModulesResponseSchema.optional(),
 })
 
 export type CheckInResponse = z.infer<typeof checkInResponseSchema>
@@ -445,7 +452,9 @@ export function hubCheckInResponse(args?: {
   desiredAgentVersion?: string
   downloadUrl?: string
   commands?: unknown[]
+  modules?: HubModuleDefinition[]
 }) {
+  const modules = encodeHubModules(args?.modules)
   return {
     ok: true as const,
     ...(args?.desiredAgentVersion
@@ -453,5 +462,6 @@ export function hubCheckInResponse(args?: {
       : {}),
     ...(args?.downloadUrl ? { download_url: args.downloadUrl } : {}),
     commands: encodeHubCommands(args?.commands),
+    ...(modules.length > 0 ? { modules } : {}),
   }
 }

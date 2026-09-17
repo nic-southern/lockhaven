@@ -50,6 +50,9 @@ import {
   type CustomFieldType,
   type CustomFieldValues,
   type DeviceCommandStatus,
+  type AgentModuleCollector,
+  type AgentModuleKind,
+  type AgentModuleObservation,
   type PlaybookAction,
   type PlaybookRunStatus,
   type PlaybookSkipReason,
@@ -1653,6 +1656,105 @@ export const deviceTitles = pgTable(
   })
 )
 
+export const agentModules = pgTable(
+  "agent_modules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    kind: text("kind").$type<AgentModuleKind>().notNull(),
+    collectors: jsonb("collectors")
+      .$type<AgentModuleCollector[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationIdx: index("agent_modules_organization_idx").on(
+      table.organizationId
+    ),
+  })
+)
+
+export const agentModuleAssignments = pgTable(
+  "agent_module_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    moduleId: uuid("module_id")
+      .notNull()
+      .references(() => agentModules.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    orgWideIdx: uniqueIndex("agent_module_assignments_org_idx")
+      .on(table.moduleId)
+      .where(sql`${table.siteId} is null and ${table.deviceId} is null`),
+    siteIdx: uniqueIndex("agent_module_assignments_site_idx")
+      .on(table.moduleId, table.siteId)
+      .where(sql`${table.siteId} is not null and ${table.deviceId} is null`),
+    deviceIdx: uniqueIndex("agent_module_assignments_device_idx")
+      .on(table.moduleId, table.deviceId)
+      .where(sql`${table.deviceId} is not null`),
+    organizationIdx: index("agent_module_assignments_organization_idx").on(
+      table.organizationId
+    ),
+  })
+)
+
+export const deviceModuleObservations = pgTable(
+  "device_module_observations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    moduleId: uuid("module_id")
+      .notNull()
+      .references(() => agentModules.id, { onDelete: "cascade" }),
+    collectorId: text("collector_id").notNull(),
+    collectorType: text("collector_type").notNull(),
+    payload: jsonb("payload")
+      .$type<AgentModuleObservation>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    uniqueIdx: uniqueIndex("device_module_observations_unique_idx").on(
+      table.deviceId,
+      table.moduleId,
+      table.collectorId
+    ),
+    deviceIdx: index("device_module_observations_device_idx").on(
+      table.deviceId
+    ),
+  })
+)
+
 export const organizationSsoSettings = pgTable(
   "organization_sso_settings",
   {
@@ -1732,6 +1834,10 @@ export type DeviceMetricsLatest = typeof deviceMetricsLatest.$inferSelect
 export type DeviceMetricsSample = typeof deviceMetricsSamples.$inferSelect
 export type DevicePackage = typeof devicePackages.$inferSelect
 export type DeviceTitle = typeof deviceTitles.$inferSelect
+export type AgentModule = typeof agentModules.$inferSelect
+export type AgentModuleAssignment = typeof agentModuleAssignments.$inferSelect
+export type DeviceModuleObservation =
+  typeof deviceModuleObservations.$inferSelect
 export type OrganizationSsoSettings =
   typeof organizationSsoSettings.$inferSelect
 export type SsoProvider = typeof ssoProvider.$inferSelect
