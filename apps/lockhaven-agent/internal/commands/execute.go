@@ -3,6 +3,8 @@ package commands
 import (
 	"os/exec"
 	"runtime"
+
+	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/service" // pragma: allowlist secret
 )
 
 type Command struct {
@@ -39,7 +41,17 @@ func RestartSpec(goos string) Spec {
 		return Spec{File: "/bin/launchctl", Args: []string{"kickstart", "-k", "system/com.lockhaven.agent"}}
 	}
 	if goos == "windows" {
-		return Spec{File: "sc.exe", Args: []string{"stop", "LockhavenAgent"}}
+		return Spec{
+			File: "powershell.exe",
+			Args: []string{
+				"-NoProfile",
+				"-NonInteractive",
+				"-WindowStyle",
+				"Hidden",
+				"-Command",
+				"Restart-Service -Name " + service.Name + " -Force",
+			},
+		}
 	}
 	return Spec{File: "/bin/systemctl", Args: []string{"restart", "lockhaven-agent.service"}}
 }
@@ -49,16 +61,19 @@ type Runtime struct {
 	SpawnDetached func(file string, args []string) error
 }
 
+func spawnDetached(file string, args []string) error {
+	cmd := exec.Command(file, args...)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	applySpawnAttr(cmd)
+	return cmd.Start()
+}
+
 func DefaultRuntime() Runtime {
 	return Runtime{
-		GOOS: runtime.GOOS,
-		SpawnDetached: func(file string, args []string) error {
-			cmd := exec.Command(file, args...)
-			cmd.Stdout = nil
-			cmd.Stderr = nil
-			cmd.Stdin = nil
-			return cmd.Start()
-		},
+		GOOS:          runtime.GOOS,
+		SpawnDetached: spawnDetached,
 	}
 }
 

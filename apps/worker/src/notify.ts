@@ -11,8 +11,10 @@ import {
   deliverNotification,
   emailChannelConfigSchema,
   hasAttemptsRemaining,
+  looksLikeLockhavenIngestUrl,
   MAX_NOTIFICATION_ATTEMPTS,
   nextAttemptAt,
+  ticketingIngestAcceptsEvent,
   webhookChannelConfigSchema,
   type AlertNotificationSnapshot,
   type AccessRequestNotificationSnapshot,
@@ -94,6 +96,15 @@ export async function sendChannelMessage(
   accessRequest: AccessRequestNotificationSnapshot | null = null,
   playbookRun: PlaybookRunNotificationSnapshot | null = null
 ) {
+  if (channel.type === "webhook") {
+    const config = webhookChannelConfigSchema.parse(channel.config)
+    if (
+      looksLikeLockhavenIngestUrl(config.url) &&
+      !ticketingIngestAcceptsEvent(event)
+    ) {
+      return "skipped"
+    }
+  }
   return deliverNotification({
     destination: await destinationForChannel(channel),
     event,

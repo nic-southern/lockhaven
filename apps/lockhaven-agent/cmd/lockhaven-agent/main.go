@@ -3,16 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
-	"time"
 
 	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/agent"
-	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/config"
 	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/service"
 	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version"
 )
-
-const defaultInterval = time.Minute
 
 func argValue(args []string, name string) string {
 	for i, arg := range args {
@@ -62,6 +57,14 @@ func bindOpts(args []string) agent.BindOptions {
 }
 
 func main() {
+	handled, err := runWindowsServiceIfNeeded()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+	if handled {
+		return
+	}
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
@@ -126,25 +129,11 @@ func run(args []string) error {
 		fmt.Printf("Check-in complete (%d commands, %d refused).\n", result.Accepted, result.Refused)
 		return nil
 	case "run":
-		if _, _, err := config.Load(); err != nil {
-			return fmt.Errorf("This device is not enrolled yet.")
+		if err := agent.MustBeEnrolled(); err != nil {
+			return err
 		}
-		interval := defaultInterval
-		if raw := os.Getenv("LOCKHAVEN_CHECK_IN_INTERVAL_MS"); raw != "" {
-			if ms, err := strconv.Atoi(raw); err == nil && ms >= 5000 {
-				interval = time.Duration(ms) * time.Millisecond
-			}
-		}
-		tick := func() {
-			if _, err := agent.CheckIn(nil); err != nil {
-				fmt.Fprintln(os.Stderr, err.Error())
-			}
-		}
-		tick()
-		for {
-			time.Sleep(interval)
-			tick()
-		}
+		agent.RunLoop(nil)
+		return nil
 	case "install-service":
 		path, err := service.Install()
 		if err != nil {

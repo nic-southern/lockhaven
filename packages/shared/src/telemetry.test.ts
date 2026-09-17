@@ -7,13 +7,17 @@ import {
   checkInIssuePaths,
   checkInResponseSchema,
   diffPackages,
+  diffTitles,
   encodeHubCommands,
   hubCheckInResponse,
   inventoryFromCheckIn,
+  inventoryFromTitles,
   requestedDeviceIdFromUnknown,
   resolveAgentCommand,
   resolveAgentCommands,
+  titleKey,
   type PackageRecord,
+  type TitleRecord,
 } from "./telemetry"
 
 const validCheckIn = {
@@ -33,6 +37,7 @@ test("check-in payload still parses without metrics or packages", () => {
   if (parsed.success) {
     assert.equal(parsed.data.metrics, undefined)
     assert.equal(parsed.data.packages, undefined)
+    assert.equal(parsed.data.titles, undefined)
     assert.equal(parsed.data.command_results, undefined)
   }
 })
@@ -72,6 +77,18 @@ test("check-in payload parses optional metrics and packages", () => {
         },
       ],
     },
+    titles: {
+      items: [
+        {
+          key: "cabinet-a",
+          title: "Cabinet A",
+          build: "2026.04.11",
+          config_hash: "abc123",
+          process_running: true,
+          process_name: "game-bin",
+        },
+      ],
+    },
   })
 
   assert.equal(parsed.success, true)
@@ -79,6 +96,8 @@ test("check-in payload parses optional metrics and packages", () => {
     assert.equal(parsed.data.metrics?.uptime_seconds, 3600)
     assert.equal(parsed.data.packages?.reboot_required, true)
     assert.equal(parsed.data.packages?.installed[0]?.name, "curl")
+    assert.equal(parsed.data.titles?.items[0]?.title, "Cabinet A")
+    assert.equal(parsed.data.titles?.items[0]?.process_running, true)
   }
 })
 
@@ -130,6 +149,30 @@ test("check-in payload treats JSON null telemetry arrays as empty", () => {
     assert.deepEqual(parsed.data.metrics?.network, [])
     assert.deepEqual(parsed.data.packages?.available_updates, [])
   }
+})
+
+test("check-in payload parses titles and treats a null items list as empty", () => {
+  const parsed = checkInSchema.safeParse({
+    ...validCheckIn,
+    titles: { items: null },
+  })
+  assert.equal(parsed.success, true)
+  if (parsed.success) {
+    assert.deepEqual(parsed.data.titles?.items, [])
+  }
+})
+
+test("check-in payload rejects more than 64 titles", () => {
+  const parsed = checkInSchema.safeParse({
+    ...validCheckIn,
+    titles: {
+      items: Array.from({ length: 65 }, (_, index) => ({
+        title: `Cabinet ${index + 1}`,
+        build: "1",
+      })),
+    },
+  })
+  assert.equal(parsed.success, false)
 })
 
 test("invalid payload still exposes device_id and field paths, not values", () => {
@@ -251,6 +294,128 @@ test("package diff reports added, removed, updated, and unchanged", () => {
   assert.deepEqual(
     diff.unchanged.map((pkg) => pkg.name),
     ["bash"]
+  )
+})
+
+test("title inventory keys by explicit key or normalized title", () => {
+  assert.equal(titleKey({ key: "Cabinet-A", title: "Other" }), "cabinet-a")
+  assert.equal(titleKey({ title: "Cabinet A" }), "cabinet a")
+
+  const inventory = inventoryFromTitles({
+    items: [
+      {
+        key: "cabinet-a",
+        title: "Cabinet A",
+        build: "1.0",
+        config_hash: "abc",
+        process_running: true,
+        process_name: "game-bin",
+      },
+      {
+        title: "Cabinet B",
+        build: "2.0",
+      },
+      {
+        key: "cabinet-a",
+        title: "Cabinet A (later)",
+        build: "1.1",
+      },
+    ],
+  })
+
+  assert.deepEqual(
+    inventory.map((item) => ({
+      key: item.key,
+      title: item.title,
+      build: item.build,
+      processRunning: item.processRunning,
+    })),
+    [
+      {
+        key: "cabinet b",
+        title: "Cabinet B",
+        build: "2.0",
+        processRunning: null,
+      },
+      {
+        key: "cabinet-a",
+        title: "Cabinet A (later)",
+        build: "1.1",
+        processRunning: null,
+      },
+    ]
+  )
+})
+
+test("title diff reports added, removed, updated, and unchanged", () => {
+  const previous: TitleRecord[] = [
+    {
+      key: "cabinet-a",
+      title: "Cabinet A",
+      build: "1.0",
+      configHash: "aaa",
+      processRunning: true,
+      processName: "game-bin",
+    },
+    {
+      key: "cabinet-b",
+      title: "Cabinet B",
+      build: "2.0",
+      configHash: null,
+      processRunning: false,
+      processName: "other-bin",
+    },
+    {
+      key: "gone",
+      title: "Gone",
+      build: "0",
+      configHash: null,
+      processRunning: null,
+      processName: null,
+    },
+  ]
+  const next: TitleRecord[] = [
+    {
+      key: "cabinet-a",
+      title: "Cabinet A",
+      build: "1.1",
+      configHash: "bbb",
+      processRunning: false,
+      processName: "game-bin",
+    },
+    {
+      key: "cabinet-b",
+      title: "Cabinet B",
+      build: "2.0",
+      configHash: null,
+      processRunning: false,
+      processName: "other-bin",
+    },
+    {
+      key: "cabinet-c",
+      title: "Cabinet C",
+      build: "3.0",
+      configHash: "ccc",
+      processRunning: true,
+      processName: "new-bin",
+    },
+  ]
+
+  const diff = diffTitles(previous, next)
+  assert.deepEqual(
+    diff.added.map((item) => item.key),
+    ["cabinet-c"]
+  )
+  assert.deepEqual(
+    diff.removed.map((item) => item.key),
+    ["gone"]
+  )
+  assert.equal(diff.updated.length, 1)
+  assert.equal(diff.updated[0]?.previous.build, "1.0")
+  assert.equal(diff.updated[0]?.next.build, "1.1")
+  assert.deepEqual(
+    diff.unchanged.map((item) => item.key),
+    ["cabinet-b"]
   )
 })
 

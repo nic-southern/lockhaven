@@ -4,15 +4,20 @@ import {
   deviceMetricsLatest,
   deviceMetricsSamples,
   devicePackages,
+  deviceTitles,
 } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
   DEVICE_METRICS_SAMPLE_RETENTION_DAYS,
   diffPackages,
+  diffTitles,
   inventoryFromCheckIn,
+  inventoryFromTitles,
   type CheckInMetrics,
   type CheckInPackages,
+  type CheckInTitles,
   type PackageRecord,
+  type TitleRecord,
 } from "@nms/shared"
 
 type TransactionClient = Parameters<typeof db.transaction>[0] extends (
@@ -112,6 +117,64 @@ async function applyPackageDiff(
   return diff
 }
 
+async function applyTitleDiff(
+  tx: TransactionClient,
+  deviceId: string,
+  now: Date,
+  previous: TitleRecord[],
+  next: TitleRecord[]
+) {
+  const diff = diffTitles(previous, next)
+
+  for (const item of diff.removed) {
+    await tx
+      .delete(deviceTitles)
+      .where(
+        and(eq(deviceTitles.deviceId, deviceId), eq(deviceTitles.key, item.key))
+      )
+  }
+
+  for (const item of diff.added) {
+    await tx.insert(deviceTitles).values({
+      deviceId,
+      key: item.key,
+      title: item.title,
+      build: item.build,
+      configHash: item.configHash,
+      processRunning: item.processRunning,
+      processName: item.processName,
+      lastSeenAt: now,
+    })
+  }
+
+  for (const { next: item } of diff.updated) {
+    await tx
+      .update(deviceTitles)
+      .set({
+        title: item.title,
+        build: item.build,
+        configHash: item.configHash,
+        processRunning: item.processRunning,
+        processName: item.processName,
+        lastSeenAt: now,
+      })
+      .where(
+        and(eq(deviceTitles.deviceId, deviceId), eq(deviceTitles.key, item.key))
+      )
+  }
+
+  for (const item of diff.unchanged) {
+    await tx
+      .update(deviceTitles)
+      .set({ lastSeenAt: now })
+      .where(
+        and(eq(deviceTitles.deviceId, deviceId), eq(deviceTitles.key, item.key))
+      )
+  }
+
+  return diff
+}
+
 export async function ingestDeviceTelemetry(
   tx: TransactionClient,
   args: {
@@ -119,6 +182,7 @@ export async function ingestDeviceTelemetry(
     now: Date
     metrics?: CheckInMetrics
     packages?: CheckInPackages
+    titles?: CheckInTitles
   }
 ) {
   const hasPackages = args.packages !== undefined
@@ -190,21 +254,39 @@ export async function ingestDeviceTelemetry(
       .where(eq(deviceMetricsLatest.deviceId, args.deviceId))
   }
 
-  if (!args.packages) {
+  if (args.packages) {
+    const existing = await tx
+      .select()
+      .from(devicePackages)
+      .where(eq(devicePackages.deviceId, args.deviceId))
+
+    const previous: PackageRecord[] = existing.map((row) => ({
+      name: row.name,
+      version: row.version,
+      source: row.source,
+      availableVersion: row.availableVersion,
+    }))
+    const next = inventoryFromCheckIn(args.packages)
+    await applyPackageDiff(tx, args.deviceId, args.now, previous, next)
+  }
+
+  if (args.titles === undefined) {
     return
   }
 
-  const existing = await tx
+  const existingTitles = await tx
     .select()
-    .from(devicePackages)
-    .where(eq(devicePackages.deviceId, args.deviceId))
+    .from(deviceTitles)
+    .where(eq(deviceTitles.deviceId, args.deviceId))
 
-  const previous: PackageRecord[] = existing.map((row) => ({
-    name: row.name,
-    version: row.version,
-    source: row.source,
-    availableVersion: row.availableVersion,
+  const previousTitles: TitleRecord[] = existingTitles.map((row) => ({
+    key: row.key,
+    title: row.title,
+    build: row.build,
+    configHash: row.configHash,
+    processRunning: row.processRunning,
+    processName: row.processName,
   }))
-  const next = inventoryFromCheckIn(args.packages)
-  await applyPackageDiff(tx, args.deviceId, args.now, previous, next)
+  const nextTitles = inventoryFromTitles(args.titles)
+  await applyTitleDiff(tx, args.deviceId, args.now, previousTitles, nextTitles)
 }

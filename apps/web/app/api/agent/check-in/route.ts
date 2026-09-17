@@ -303,6 +303,7 @@ export async function POST(request: Request) {
       now,
       metrics: input.metrics,
       packages: input.packages,
+      titles: input.titles,
     })
 
     await tryLinkDeviceToAsset(tx, {

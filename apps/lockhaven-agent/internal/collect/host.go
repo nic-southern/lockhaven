@@ -37,10 +37,8 @@ func SerialNumber() string {
 	if env := strings.TrimSpace(os.Getenv("LOCKHAVEN_SERIAL_NUMBER")); env != "" {
 		return env
 	}
-	for _, path := range []string{"/sys/class/dmi/id/product_uuid", "/etc/machine-id"} {
-		if value := readTrimmed(path); value != "" {
-			return value
-		}
+	if value := platformSerial(); value != "" {
+		return value
 	}
 	host, _ := os.Hostname()
 	return host
@@ -58,8 +56,7 @@ func OSVersion() string {
 	if env := strings.TrimSpace(os.Getenv("LOCKHAVEN_OS_VERSION")); env != "" {
 		return env
 	}
-	pretty := parseOSReleasePretty(readTrimmed("/etc/os-release"))
-	if pretty != "" {
+	if pretty := platformOSVersion(); pretty != "" {
 		return pretty
 	}
 	return runtime.GOOS + " " + runtime.GOARCH
@@ -74,6 +71,21 @@ func parseOSReleasePretty(content string) string {
 		return strings.Trim(value, `"`)
 	}
 	return ""
+}
+
+func FormatWindowsNTVersion(productName string, major uint64, displayVersion string) string {
+	name := strings.TrimSpace(productName)
+	if major >= 11 {
+		name = "Windows 11"
+	}
+	displayVersion = strings.TrimSpace(displayVersion)
+	if name == "" {
+		return displayVersion
+	}
+	if displayVersion == "" {
+		return name
+	}
+	return name + " " + displayVersion
 }
 
 func Architecture() string {

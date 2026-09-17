@@ -4,6 +4,7 @@ import {
   checkInCommandResultsSchema,
   checkInMetricsSchema,
   checkInPackagesSchema,
+  checkInTitlesSchema,
 } from "./telemetry"
 
 export const deviceStatuses = [
@@ -267,6 +268,7 @@ export const checkInSchema = z.object({
   ),
   metrics: checkInMetricsSchema.optional(),
   packages: checkInPackagesSchema.optional(),
+  titles: checkInTitlesSchema.optional(),
   command_results: checkInCommandResultsSchema.optional(),
 })
 
@@ -470,6 +472,7 @@ export const auditEventTypeSchema = z.enum([
   "notification_channel_deleted",
   "notification_test_sent",
   "notification_delivery_retried",
+  "ticket_opened",
   "api_key_created",
   "api_key_revoked",
   "access_request_created",

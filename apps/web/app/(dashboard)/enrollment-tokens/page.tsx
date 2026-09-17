@@ -648,8 +648,8 @@ export default function EnrollmentTokensPage() {
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium">Install commands</p>
               <p className="text-sm text-muted-foreground">
-                Linux agent enrolls or attaches, then starts the service. Tunnel
-                only sets up private access without the agent.
+                Linux and Windows agents enroll or attach, then start checking
+                in. Tunnel only sets up private access without the agent.
               </p>
             </div>
             {secretQuery.isLoading && !plaintextToken ? (

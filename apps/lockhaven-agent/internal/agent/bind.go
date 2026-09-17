@@ -29,7 +29,7 @@ func defaultServices(osFamily string) []hub.ServiceIn {
 }
 
 func persistSecret(tunnelName, secret string) {
-	dir := "/var/lib/lockhaven"
+	dir := config.DefaultStateDir()
 	_ = os.MkdirAll(dir, 0o700)
 	_ = os.WriteFile(filepath.Join(dir, tunnelName+".check-in-secret"), []byte(secret+"\n"), 0o600)
 }
@@ -44,26 +44,36 @@ func ApplyBind(state *config.State, bound *hub.BindResponse, privateKey string, 
 		return nil, "", err
 	}
 	persistSecret(next.TunnelName, bound.CheckInSecret)
-	if writeTunnel && privateKey != "" && collect.OSFamily() == "linux" {
-		if err := wgkeys.WriteLinuxTunnel(
-			"/etc/wireguard/"+next.TunnelName+".conf",
-			privateKey,
-			bound.VpnIPv4,
-			struct {
-				ServerPublicKey     string
-				Endpoint            string
-				AllowedIPs          []string
-				PersistentKeepalive int
-			}{
-				ServerPublicKey:     bound.WireGuard.ServerPublicKey,
-				Endpoint:            bound.WireGuard.Endpoint,
-				AllowedIPs:          bound.WireGuard.AllowedIPs,
-				PersistentKeepalive: bound.WireGuard.PersistentKeepalive,
-			},
-		); err != nil {
-			return nil, "", err
+	if writeTunnel && privateKey != "" {
+		settings := struct {
+			ServerPublicKey     string
+			Endpoint            string
+			AllowedIPs          []string
+			PersistentKeepalive int
+		}{
+			ServerPublicKey:     bound.WireGuard.ServerPublicKey,
+			Endpoint:            bound.WireGuard.Endpoint,
+			AllowedIPs:          bound.WireGuard.AllowedIPs,
+			PersistentKeepalive: bound.WireGuard.PersistentKeepalive,
 		}
-		wgkeys.EnableTunnel(next.TunnelName)
+		switch collect.OSFamily() {
+		case "linux":
+			if !wgkeys.TunnelConfigExists(next.TunnelName) {
+				if err := wgkeys.WriteLinuxTunnel(
+					"/etc/wireguard/"+next.TunnelName+".conf",
+					privateKey,
+					bound.VpnIPv4,
+					settings,
+				); err != nil {
+					return nil, "", err
+				}
+				wgkeys.EnableTunnel(next.TunnelName)
+			}
+		case "windows":
+			if err := wgkeys.WriteWindowsTunnel(next.TunnelName, privateKey, bound.VpnIPv4, settings); err != nil {
+				return nil, "", err
+			}
+		}
 	}
 	return &next, path, nil
 }
@@ -98,6 +108,9 @@ func Attach(opts BindOptions) (*config.State, string, error) {
 
 func Enroll(opts BindOptions) (*config.State, string, error) {
 	host := collect.Host()
+	if host.OSFamily == "windows" && wgkeys.WireGuardExe() == "" {
+		return nil, "", fmt.Errorf("WireGuard is not installed.")
+	}
 	privateKey, publicKey, err := wgkeys.Generate()
 	if err != nil {
 		return nil, "", err

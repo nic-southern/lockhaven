@@ -2,6 +2,7 @@ import {
   checkInSchema,
   type CheckInMetrics,
   type CheckInPackages,
+  type CheckInTitles,
 } from "@nms/shared"
 
 import { AGENT_VERSION } from "./version"
@@ -20,6 +21,7 @@ export type CheckInFacts = {
   }>
   metrics?: CheckInMetrics
   packages?: CheckInPackages
+  titles?: CheckInTitles
   commandResults?: Array<{
     id: string
     status: "succeeded" | "failed" | "refused"
@@ -39,6 +41,7 @@ export function buildCheckInPayload(facts: CheckInFacts) {
     services: facts.services,
     metrics: facts.metrics,
     packages: facts.packages,
+    titles: facts.titles,
     command_results: facts.commandResults,
   })
 }

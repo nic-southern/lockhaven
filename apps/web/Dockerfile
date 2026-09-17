@@ -3,6 +3,8 @@ WORKDIR /src
 COPY apps/lockhaven-agent ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-linux-amd64 ./cmd/lockhaven-agent
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-linux-arm64 ./cmd/lockhaven-agent
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-windows-amd64.exe ./cmd/lockhaven-agent
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-windows-arm64.exe ./cmd/lockhaven-agent
 
 FROM node:22-alpine AS base
 WORKDIR /repo
@@ -29,9 +31,12 @@ RUN mkdir -p apps/web/public/install \
   && cp scripts/enroll-android.sh apps/web/public/install/enroll-android.sh \
   && cp scripts/uninstall-windows.ps1 apps/web/public/install/uninstall-windows.ps1 \
   && cp scripts/uninstall-linux.sh apps/web/public/install/uninstall-linux.sh \
-  && cp scripts/install-lockhaven-agent.sh apps/web/public/install/install-lockhaven-agent.sh
+  && cp scripts/install-lockhaven-agent.sh apps/web/public/install/install-lockhaven-agent.sh \
+  && cp scripts/install-lockhaven-agent.ps1 apps/web/public/install/install-lockhaven-agent.ps1
 COPY --from=agent /out/lockhaven-agent-linux-amd64 apps/web/public/install/lockhaven-agent-linux-amd64
 COPY --from=agent /out/lockhaven-agent-linux-arm64 apps/web/public/install/lockhaven-agent-linux-arm64
+COPY --from=agent /out/lockhaven-agent-windows-amd64.exe apps/web/public/install/lockhaven-agent-windows-amd64.exe
+COPY --from=agent /out/lockhaven-agent-windows-arm64.exe apps/web/public/install/lockhaven-agent-windows-arm64.exe
 RUN pnpm --dir /repo build:packages && pnpm --filter @nms/web build
 
 FROM node:22-alpine AS runner

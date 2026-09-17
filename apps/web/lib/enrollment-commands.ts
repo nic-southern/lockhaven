@@ -18,6 +18,34 @@ function quoteShell(value: string) {
 export function buildWindowsInstallCommand({
   token,
   baseUrl,
+  deviceId,
+}: {
+  token: string
+  baseUrl: string
+  deviceId?: string | null
+}) {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  const parts = [
+    `$Token = ${quotePowerShell(token)};`,
+    `$BaseUrl = ${quotePowerShell(normalizedBaseUrl)};`,
+  ]
+  if (deviceId) {
+    parts.push(`$DeviceId = ${quotePowerShell(deviceId)};`)
+  }
+  parts.push(
+    `$Script = "$env:TEMP\\install-lockhaven-agent.ps1";`,
+    `Invoke-WebRequest -Uri "${normalizedBaseUrl}/install/install-lockhaven-agent.ps1" -OutFile $Script;`,
+    "powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $BaseUrl"
+  )
+  if (deviceId) {
+    parts[parts.length - 1] += " -DeviceId $DeviceId"
+  }
+  return parts.join(" ")
+}
+
+export function buildWindowsEnrollCommand({
+  token,
+  baseUrl,
 }: {
   token: string
   baseUrl: string
@@ -26,9 +54,10 @@ export function buildWindowsInstallCommand({
 
   return [
     `$Token = ${quotePowerShell(token)};`,
+    `$BaseUrl = ${quotePowerShell(normalizedBaseUrl)};`,
     `$Script = "$env:TEMP\\lockhaven-enroll.ps1";`,
     `Invoke-WebRequest -Uri "${normalizedBaseUrl}/install/enroll-windows.ps1" -OutFile $Script;`,
-    "powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token",
+    "powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $BaseUrl",
   ].join(" ")
 }
 
@@ -66,11 +95,17 @@ export function buildLinuxEnrollCommand({
 export function buildAgentDownloadUrl({
   baseUrl,
   arch,
+  platform = "linux",
 }: {
   baseUrl: string
   arch: "amd64" | "arm64"
+  platform?: "linux" | "windows"
 }) {
-  return `${normalizeBaseUrl(baseUrl)}/install/lockhaven-agent-linux-${arch}`
+  const normalized = normalizeBaseUrl(baseUrl)
+  if (platform === "windows") {
+    return `${normalized}/install/lockhaven-agent-windows-${arch}.exe`
+  }
+  return `${normalized}/install/lockhaven-agent-linux-${arch}`
 }
 
 export function buildAndroidInstallCommand({

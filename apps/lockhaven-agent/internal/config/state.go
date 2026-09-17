@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 )
 
 type CommandResult struct {
@@ -22,11 +23,21 @@ type State struct {
 	PendingCommandResults []CommandResult `json:"pendingCommandResults,omitempty"`
 }
 
-func DefaultStateDir() string {
-	if os.Getenv("LOCKHAVEN_STATE_DIR") != "" {
-		return os.Getenv("LOCKHAVEN_STATE_DIR")
+func stateDirFor(goos, programData, envDir string) string {
+	if envDir != "" {
+		return envDir
+	}
+	if goos == "windows" {
+		if programData != "" {
+			return filepath.Join(programData, "Lockhaven")
+		}
+		return filepath.Join("C:\\ProgramData", "Lockhaven")
 	}
 	return "/var/lib/lockhaven"
+}
+
+func DefaultStateDir() string {
+	return stateDirFor(runtime.GOOS, os.Getenv("ProgramData"), os.Getenv("LOCKHAVEN_STATE_DIR"))
 }
 
 func FallbackStateDir() string {

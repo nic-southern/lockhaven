@@ -170,8 +170,8 @@ export function EnrollDeviceCard({ onClose }: { onClose?: () => void }) {
             <p className="text-sm text-muted-foreground">
               Create a token, then run Windows or Linux on the device. Android
               runs on a workstation and imports the config into the tablet or
-              phone. On a device that is already listed, Linux installs the
-              agent without adding a second record.
+              phone. On a device that is already listed, Linux and Windows
+              install the agent without adding a second record.
             </p>
           </div>
           {token ? (

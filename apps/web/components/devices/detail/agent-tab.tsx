@@ -15,6 +15,7 @@ import { osFamilyLabel } from "@/lib/devices"
 import {
   buildAgentDownloadUrl,
   buildLinuxInstallCommand,
+  buildWindowsInstallCommand,
 } from "@/lib/enrollment-commands"
 import { getClientVpnBaseUrl } from "@/lib/product-name"
 import { trpc } from "@/lib/trpc"
@@ -27,6 +28,10 @@ const ENROLLMENT_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 function isLinuxFamily(osFamily: string | null | undefined) {
   return (osFamily ?? "").toLowerCase() === "linux"
+}
+
+function isWindowsFamily(osFamily: string | null | undefined) {
+  return (osFamily ?? "").toLowerCase() === "windows"
 }
 
 function architectureHint(architecture: string | null | undefined) {
@@ -49,6 +54,9 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
 
   const baseUrl = getClientVpnBaseUrl()
   const reporting = Boolean(device.agentVersion || device.lastSeenAt)
+  const windowsDevice = isWindowsFamily(device.osFamily)
+  const linuxDevice = isLinuxFamily(device.osFamily)
+  const agentSupported = windowsDevice || linuxDevice || !device.osFamily
   const linuxCommand = token
     ? buildLinuxInstallCommand({
         token,
@@ -56,8 +64,27 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
         deviceId: device.id,
       })
     : ""
-  const amd64Url = buildAgentDownloadUrl({ baseUrl, arch: "amd64" })
-  const arm64Url = buildAgentDownloadUrl({ baseUrl, arch: "arm64" })
+  const windowsCommand = token
+    ? buildWindowsInstallCommand({
+        token,
+        baseUrl,
+        deviceId: device.id,
+      })
+    : ""
+  const showLinuxDownloads = !windowsDevice
+  const showWindowsDownloads = !linuxDevice
+  const linuxAmd64Url = buildAgentDownloadUrl({ baseUrl, arch: "amd64" })
+  const linuxArm64Url = buildAgentDownloadUrl({ baseUrl, arch: "arm64" })
+  const windowsAmd64Url = buildAgentDownloadUrl({
+    baseUrl,
+    arch: "amd64",
+    platform: "windows",
+  })
+  const windowsArm64Url = buildAgentDownloadUrl({
+    baseUrl,
+    arch: "arm64",
+    platform: "windows",
+  })
   const archHint = architectureHint(device.architecture)
 
   async function handleCreate() {
@@ -141,10 +168,10 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
       >
         {canEnroll ? (
           <div className="flex flex-col gap-4">
-            {!isLinuxFamily(device.osFamily) && device.osFamily ? (
+            {!agentSupported ? (
               <p className="text-sm text-muted-foreground">
                 This device is recorded as {osFamilyLabel(device.osFamily)}. The
-                agent installer currently supports Linux.
+                agent installer currently supports Linux and Windows.
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -164,7 +191,18 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
                   : "Create install command"}
             </Button>
             {token ? (
-              <CodeBlock label="Linux" value={linuxCommand} />
+              <div className="flex flex-col gap-3">
+                {windowsDevice ? (
+                  <CodeBlock label="Windows" value={windowsCommand} />
+                ) : linuxDevice ? (
+                  <CodeBlock label="Linux" value={linuxCommand} />
+                ) : (
+                  <>
+                    <CodeBlock label="Linux" value={linuxCommand} />
+                    <CodeBlock label="Windows" value={windowsCommand} />
+                  </>
+                )}
+              </div>
             ) : (
               <EmptyState
                 title="No command yet"
@@ -191,18 +229,38 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
         }
       >
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild>
-            <a href={amd64Url}>
-              <DownloadIcon />
-              Linux (Intel or AMD)
-            </a>
-          </Button>
-          <Button variant="outline" asChild>
-            <a href={arm64Url}>
-              <DownloadIcon />
-              Linux (ARM)
-            </a>
-          </Button>
+          {showLinuxDownloads ? (
+            <>
+              <Button variant="outline" asChild>
+                <a href={linuxAmd64Url}>
+                  <DownloadIcon />
+                  Linux (Intel or AMD)
+                </a>
+              </Button>
+              <Button variant="outline" asChild>
+                <a href={linuxArm64Url}>
+                  <DownloadIcon />
+                  Linux (ARM)
+                </a>
+              </Button>
+            </>
+          ) : null}
+          {showWindowsDownloads ? (
+            <>
+              <Button variant="outline" asChild>
+                <a href={windowsAmd64Url}>
+                  <DownloadIcon />
+                  Windows (Intel or AMD)
+                </a>
+              </Button>
+              <Button variant="outline" asChild>
+                <a href={windowsArm64Url}>
+                  <DownloadIcon />
+                  Windows (ARM)
+                </a>
+              </Button>
+            </>
+          ) : null}
         </div>
       </SectionCard>
     </div>
