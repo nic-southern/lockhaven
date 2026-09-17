@@ -39,6 +39,7 @@ import { devicesRouter } from "./routers/devices"
 import { maintenanceRouter } from "./routers/maintenance"
 import { networkRouter } from "./routers/network"
 import { notificationsRouter } from "./routers/notifications"
+import { ticketsRouter } from "./routers/tickets"
 import { reportsRouter } from "./routers/reports"
 import { fleetRouter } from "./routers/fleet"
 import { playbooksRouter } from "./routers/playbooks"
@@ -1001,6 +1002,7 @@ export const appRouter = createTRPCRouter({
   users: usersRouter,
   apiKeys: apiKeysRouter,
   notifications: notificationsRouter,
+  tickets: ticketsRouter,
   sso: ssoRouter,
   reports: reportsRouter,
   fleet: fleetRouter,

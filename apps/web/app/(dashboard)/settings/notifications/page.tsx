@@ -75,6 +75,7 @@ const eventLabels: Record<string, string> = {
   "alert.escalated": "Alert escalated",
   "access.requested": "Access requested",
   "playbook.requested": "Playbook review",
+  "ticket.opened": "Ticket opened",
   "channel.test": "Test",
 }
 
@@ -107,6 +108,9 @@ function ChannelFormDialog({
   const utils = trpc.useUtils()
   const createChannel = trpc.notifications.createChannel.useMutation()
   const updateChannel = trpc.notifications.updateChannel.useMutation()
+  const suggestedIngest = trpc.tickets.suggestedIngestUrl.useQuery(undefined, {
+    staleTime: 60_000,
+  })
   const editing = Boolean(channel)
 
   const [name, setName] = React.useState("")
@@ -274,13 +278,17 @@ function ChannelFormDialog({
             </FormField>
           ) : (
             <>
-              <FormField label="Destination URL" htmlFor="channel-url">
+              <FormField
+                label="Destination URL"
+                htmlFor="channel-url"
+                description="Alerts open a ticket here. Opening a ticket from a device uses the same destination."
+              >
                 <Input
                   id="channel-url"
                   type="url"
                   value={url}
                   onChange={(event) => setUrl(event.target.value)}
-                  placeholder="https://"
+                  placeholder={suggestedIngest.data?.url ?? "https://"}
                   required
                 />
               </FormField>
@@ -503,7 +511,7 @@ export default function NotificationsSettingsPage() {
       <PageHeader
         badge="Settings"
         title="Notifications"
-        description="Choose how this organization hears about alerts. Messages go to an inbox or a signed destination you control."
+        description="Choose how this organization hears about alerts. Messages go to an inbox or a signed destination you control. Tickets from alerts and devices use a webhook channel."
         actions={
           <Button
             className="w-full sm:w-auto"
@@ -547,7 +555,7 @@ export default function NotificationsSettingsPage() {
         ) : channels.length === 0 ? (
           <EmptyState
             title="No channels yet"
-            description="Add an email or webhook channel to start sending alert messages."
+            description="Add an email or webhook channel to start sending alert messages. A webhook channel is also how tickets open from alerts and devices."
             bordered={false}
           />
         ) : (

@@ -17,6 +17,7 @@ import {
   type AlertNotificationSnapshot,
   type AccessRequestNotificationSnapshot,
   type PlaybookRunNotificationSnapshot,
+  type TicketNotificationSnapshot,
   type NotificationDeliveryEvent,
 } from "@nms/notifications"
 import { decryptSecret } from "@nms/remote-access"
@@ -33,6 +34,7 @@ function snapshotFromPayload(payload: Record<string, unknown>): {
   alert: AlertNotificationSnapshot | null
   accessRequest: AccessRequestNotificationSnapshot | null
   playbookRun: PlaybookRunNotificationSnapshot | null
+  ticket: TicketNotificationSnapshot | null
 } {
   const alert = payload.alert
   let alertSnapshot: AlertNotificationSnapshot | null = null
@@ -58,10 +60,19 @@ function snapshotFromPayload(payload: Record<string, unknown>): {
       playbookSnapshot = row
     }
   }
+  const ticket = payload.ticket
+  let ticketSnapshot: TicketNotificationSnapshot | null = null
+  if (ticket && typeof ticket === "object") {
+    const row = ticket as TicketNotificationSnapshot
+    if (row.title && row.technicianName && row.technicianEmail) {
+      ticketSnapshot = row
+    }
+  }
   return {
     alert: alertSnapshot,
     accessRequest: accessSnapshot,
     playbookRun: playbookSnapshot,
+    ticket: ticketSnapshot,
   }
 }
 
@@ -92,7 +103,8 @@ export async function sendChannelMessage(
   event: NotificationDeliveryEvent,
   alert: AlertNotificationSnapshot | null = null,
   accessRequest: AccessRequestNotificationSnapshot | null = null,
-  playbookRun: PlaybookRunNotificationSnapshot | null = null
+  playbookRun: PlaybookRunNotificationSnapshot | null = null,
+  ticket: TicketNotificationSnapshot | null = null
 ) {
   return deliverNotification({
     destination: await destinationForChannel(channel),
@@ -100,6 +112,7 @@ export async function sendChannelMessage(
     alert,
     accessRequest,
     playbookRun,
+    ticket,
   })
 }
 
@@ -145,6 +158,7 @@ export async function processNotificationDeliveries(now = new Date()) {
       snapshots.alert,
       snapshots.accessRequest,
       snapshots.playbookRun,
+      snapshots.ticket,
       now
     )
   }
@@ -159,6 +173,7 @@ async function settleDelivery(
   alert: AlertNotificationSnapshot | null,
   accessRequest: AccessRequestNotificationSnapshot | null,
   playbookRun: PlaybookRunNotificationSnapshot | null,
+  ticket: TicketNotificationSnapshot | null,
   now: Date
 ) {
   try {
@@ -167,7 +182,8 @@ async function settleDelivery(
       event,
       alert,
       accessRequest,
-      playbookRun
+      playbookRun,
+      ticket
     )
     await db
       .update(notificationDeliveries)

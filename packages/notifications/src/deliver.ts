@@ -5,10 +5,11 @@ import {
   type AlertNotificationSnapshot,
   type AccessRequestNotificationSnapshot,
   type PlaybookRunNotificationSnapshot,
+  type TicketNotificationSnapshot,
   type NotificationDeliveryEvent,
 } from "./payload"
 import { getProductName } from "./product"
-import { webhookHeaders } from "./signature"
+import { postSignedWebhook, deliverTicketOpened } from "./ticket"
 import {
   renderAccessRequestedEmail,
   renderAlertEscalatedEmail,
@@ -38,11 +39,27 @@ export async function deliverNotification(input: {
   alert?: AlertNotificationSnapshot | null
   accessRequest?: AccessRequestNotificationSnapshot | null
   playbookRun?: PlaybookRunNotificationSnapshot | null
+  ticket?: TicketNotificationSnapshot | null
   mailer?: Mailer
   from?: string
   now?: Date
 }): Promise<string> {
   const { destination, event } = input
+  if (event === "ticket.opened") {
+    if (destination.type !== "webhook") {
+      throw new Error("Tickets are sent through a webhook channel")
+    }
+    if (!input.ticket) {
+      throw new Error("Ticket snapshot missing for this delivery")
+    }
+    const delivered = await deliverTicketOpened({
+      url: destination.url,
+      secret: destination.secret,
+      ticket: input.ticket,
+      now: input.now,
+    })
+    return delivered.lastResponse
+  }
   if (destination.type === "email") {
     return deliverEmail({
       destination,
@@ -60,6 +77,7 @@ export async function deliverNotification(input: {
     alert: input.alert ?? null,
     accessRequest: input.accessRequest ?? null,
     playbookRun: input.playbookRun ?? null,
+    ticket: input.ticket ?? null,
     now: input.now,
   })
 }
@@ -92,6 +110,9 @@ function mailForEvent(
       approvalsUrl: new URL("/approvals", baseUrl).toString(),
       productName,
     })
+  }
+  if (event === "ticket.opened") {
+    throw new Error("Tickets are sent through a webhook channel")
   }
   if (event === "playbook.requested") {
     if (!playbookRun) {
@@ -158,6 +179,7 @@ async function deliverWebhook(input: {
   alert: AlertNotificationSnapshot | null
   accessRequest: AccessRequestNotificationSnapshot | null
   playbookRun: PlaybookRunNotificationSnapshot | null
+  ticket: TicketNotificationSnapshot | null
   now?: Date
 }) {
   const body = serializeWebhookBody(
@@ -166,19 +188,15 @@ async function deliverWebhook(input: {
       alert: input.alert,
       accessRequest: input.accessRequest,
       playbookRun: input.playbookRun,
+      ticket: input.ticket,
       occurredAt: input.now,
     })
   )
-  const signed = webhookHeaders(input.destination.secret, body, input.now)
-  const response = await fetch(input.destination.url, {
-    method: "POST",
-    headers: signed.headers,
+  const posted = await postSignedWebhook({
+    url: input.destination.url,
+    secret: input.destination.secret,
     body,
-    signal: AbortSignal.timeout(15_000),
+    now: input.now,
   })
-  const preview = await response.text().then((text) => text.slice(0, 500))
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}${preview ? `: ${preview}` : ""}`)
-  }
-  return `HTTP ${response.status}`
+  return `HTTP ${posted.status}`
 }

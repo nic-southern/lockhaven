@@ -1,13 +1,17 @@
 import { and, eq } from "drizzle-orm"
 
 import {
+  assets,
+  devices,
   notificationChannels,
   notificationDeliveries,
+  sites,
   type Alert,
 } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
   channelMatchesAlert,
+  mergeAlertTicketContext,
   type AlertNotificationSnapshot,
   type NotificationDeliveryEvent,
 } from "@nms/notifications"
@@ -15,7 +19,57 @@ import { shouldEnqueueAlertNotification } from "@nms/shared"
 
 type DbWriter = Pick<typeof db, "insert" | "select" | "update" | "execute">
 
-function asAlertSnapshot(
+async function loadAlertTicketContext(
+  writer: DbWriter,
+  alert: Pick<Alert, "deviceId" | "siteId" | "assetId">
+) {
+  const context: {
+    deviceName?: string | null
+    hostname?: string | null
+    siteName?: string | null
+    assetId?: string | null
+    assetTag?: string | null
+  } = {}
+
+  if (alert.deviceId) {
+    const [device] = await writer
+      .select({
+        displayName: devices.displayName,
+        hostname: devices.hostname,
+        assetId: devices.assetId,
+      })
+      .from(devices)
+      .where(eq(devices.id, alert.deviceId))
+    if (device) {
+      context.deviceName = device.displayName
+      context.hostname = device.hostname
+      context.assetId = device.assetId
+    }
+  }
+
+  if (alert.siteId) {
+    const [site] = await writer
+      .select({ name: sites.name })
+      .from(sites)
+      .where(eq(sites.id, alert.siteId))
+    context.siteName = site?.name ?? null
+  }
+
+  const assetId = alert.assetId ?? context.assetId ?? null
+  if (assetId) {
+    const [asset] = await writer
+      .select({ tag: assets.tag })
+      .from(assets)
+      .where(eq(assets.id, assetId))
+    context.assetId = assetId
+    context.assetTag = asset?.tag ?? null
+  }
+
+  return context
+}
+
+export async function asAlertSnapshot(
+  writer: DbWriter,
   alert: Pick<
     Alert,
     | "id"
@@ -26,9 +80,11 @@ function asAlertSnapshot(
     | "organizationId"
     | "siteId"
     | "deviceId"
+    | "assetId"
     | "detail"
   >
-): AlertNotificationSnapshot {
+): Promise<AlertNotificationSnapshot> {
+  const context = await loadAlertTicketContext(writer, alert)
   return {
     id: alert.id,
     kind: alert.kind,
@@ -38,7 +94,7 @@ function asAlertSnapshot(
     organizationId: alert.organizationId,
     siteId: alert.siteId,
     deviceId: alert.deviceId,
-    detail: alert.detail ?? {},
+    detail: mergeAlertTicketContext(alert.detail ?? {}, context),
   }
 }
 
@@ -54,6 +110,7 @@ export async function enqueueAlertNotifications(
     | "organizationId"
     | "siteId"
     | "deviceId"
+    | "assetId"
     | "detail"
     | "snoozedUntil"
   >,
@@ -105,7 +162,7 @@ export async function enqueueAlertNotifications(
     return []
   }
 
-  const snapshot = asAlertSnapshot(alert)
+  const snapshot = await asAlertSnapshot(writer, alert)
   const rows = matching.map((channel) => ({
     channelId: channel.id,
     organizationId: alert.organizationId as string,

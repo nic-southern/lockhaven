@@ -41,6 +41,7 @@ const statusLabels: Record<string, string> = {
   device_deleted: "Device removed",
   device_archived: "Device archived",
   device_unarchived: "Returned to service",
+  ticket_opened: "Ticket opened",
   ok: "Healthy",
   Down: "Down",
   winrm_https: "WinRM",

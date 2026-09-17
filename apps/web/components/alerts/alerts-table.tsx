@@ -10,7 +10,7 @@ import type {
   RowSelectionState,
   SortingState,
 } from "@tanstack/react-table"
-import { CheckCheckIcon, CheckIcon, ClockIcon } from "lucide-react"
+import { CheckCheckIcon, CheckIcon, ClockIcon, TicketIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -204,10 +204,12 @@ export function AlertsTable({
   const acknowledgeMutation = trpc.alerts.acknowledge.useMutation()
   const resolveMutation = trpc.alerts.resolve.useMutation()
   const snoozeMutation = trpc.alerts.snooze.useMutation()
+  const openTicketMutation = trpc.tickets.openFromAlert.useMutation()
   const busy =
     acknowledgeMutation.isPending ||
     resolveMutation.isPending ||
-    snoozeMutation.isPending
+    snoozeMutation.isPending ||
+    openTicketMutation.isPending
 
   const acknowledge = React.useCallback(
     async (ids: string[]) => {
@@ -255,6 +257,37 @@ export function AlertsTable({
       }
     },
     [snoozeMutation, invalidate]
+  )
+
+  const openTicket = React.useCallback(
+    async (id: string) => {
+      try {
+        const result = await openTicketMutation.mutateAsync({ alertId: id })
+        if (result.created) {
+          toast.success(
+            result.ticketNumber
+              ? `Ticket ${result.ticketNumber} opened`
+              : "Ticket opened"
+          )
+        } else {
+          toast.success(
+            result.ticketNumber
+              ? `Ticket ${result.ticketNumber} is already open`
+              : "A ticket for this alert is already open"
+          )
+        }
+        if (result.ticketsUrl) {
+          window.open(result.ticketsUrl, "_blank", "noopener,noreferrer")
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error && error.message
+            ? error.message
+            : "We couldn't open a ticket."
+        )
+      }
+    },
+    [openTicketMutation]
   )
 
   async function resolve(ids: string[]) {
@@ -430,22 +463,32 @@ export function AlertsTable({
         id: "actions",
         enableSorting: false,
         enableHiding: false,
-        meta: { label: "Actions", align: "right", className: "w-[14rem]" },
+        meta: { label: "Actions", align: "right", className: "w-[18rem]" },
         header: () => <span className="sr-only">Actions</span>,
         cell: ({ row }) => {
-          if (!canAct || row.original.status === "resolved") return null
           const snoozed = isAlertSnoozed(
             row.original.snoozedUntil
               ? new Date(row.original.snoozedUntil)
               : null,
             new Date()
           )
+          const showAct = canAct && row.original.status !== "resolved"
           return (
             <div
               className="flex justify-end gap-1.5"
               onClick={(event) => event.stopPropagation()}
             >
-              {row.original.status === "open" && !snoozed ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8"
+                disabled={busy}
+                onClick={() => void openTicket(row.original.id)}
+              >
+                <TicketIcon />
+                Open ticket
+              </Button>
+              {showAct && row.original.status === "open" && !snoozed ? (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -457,62 +500,70 @@ export function AlertsTable({
                   Acknowledge
                 </Button>
               ) : null}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8"
-                    disabled={busy}
-                  >
-                    <ClockIcon />
-                    Snooze
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={() => void snooze([row.original.id], { hours: 1 })}
-                  >
-                    1 hour
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => void snooze([row.original.id], { hours: 8 })}
-                  >
-                    8 hours
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() =>
-                      void snooze([row.original.id], { hours: 24 })
-                    }
-                  >
-                    24 hours
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setUntilAlertId(row.original.id)}
-                  >
-                    Until a date
-                  </DropdownMenuItem>
-                  {snoozed ? (
+              {showAct ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8"
+                      disabled={busy}
+                    >
+                      <ClockIcon />
+                      Snooze
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
                     <DropdownMenuItem
                       onClick={() =>
-                        void snooze([row.original.id], { clear: true })
+                        void snooze([row.original.id], { hours: 1 })
                       }
                     >
-                      Clear snooze
+                      1 hour
                     </DropdownMenuItem>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={busy}
-                onClick={() => setPendingResolve([row.original.id])}
-              >
-                <CheckCheckIcon />
-                Resolve
-              </Button>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void snooze([row.original.id], { hours: 8 })
+                      }
+                    >
+                      8 hours
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void snooze([row.original.id], { hours: 24 })
+                      }
+                    >
+                      24 hours
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setUntilAlertId(row.original.id)}
+                    >
+                      Until a date
+                    </DropdownMenuItem>
+                    {snoozed ? (
+                      <DropdownMenuItem
+                        onClick={() =>
+                          void snooze([row.original.id], { clear: true })
+                        }
+                      >
+                        Clear snooze
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+              {showAct ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  disabled={busy}
+                  onClick={() => setPendingResolve([row.original.id])}
+                >
+                  <CheckCheckIcon />
+                  Resolve
+                </Button>
+              ) : null}
             </div>
           )
         },
@@ -542,7 +593,7 @@ export function AlertsTable({
     )
 
     return defs
-  }, [full, canAct, busy, acknowledge, snooze])
+  }, [full, canAct, busy, acknowledge, snooze, openTicket])
 
   const facets = React.useMemo<DataTableFacet[]>(() => {
     const data = facetsQuery.data

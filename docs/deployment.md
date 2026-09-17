@@ -150,6 +150,15 @@ one-time link that an administrator can copy from the Console.
 Webhook channels POST a versioned JSON body and sign it with
 `X-Lockhaven-Signature: sha256=…` over `{timestamp}.{body}`, using
 `X-Lockhaven-Timestamp` and the per-channel secret shown once at creation.
+That secret stays on the host; do not commit it.
+
+To open tickets from alerts and from a device, point a webhook channel at the
+tickets ingest URL (`/ingest/lockhaven` on the tickets host). Optional
+`TICKETS_INGEST_URL` is a public placeholder for that address in the Console
+form — not a signing secret.
+
+Device tickets POST to the sibling `/ingest/session` path on the same host,
+still HMAC-signed with the channel secret. Unsigned posts are rejected.
 
 ### Session recordings
 

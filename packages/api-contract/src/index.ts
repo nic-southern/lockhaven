@@ -6,7 +6,7 @@ export {
   resolveAlert,
   syncArchivedDeviceAlerts,
 } from "./alerts"
-export { enqueueAlertNotifications } from "./alert-deliveries"
+export { asAlertSnapshot, enqueueAlertNotifications } from "./alert-deliveries"
 export {
   activeMaintenanceWindowFor,
   effectivePolicyFor,

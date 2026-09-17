@@ -32,7 +32,8 @@ const detailKeyLabels: Record<string, string> = {
   reason: "Reason",
   archived: "Archived",
   count: "Count",
-  action: "Action",
+  ticketNumber: "Ticket",
+  sessionId: "Session",
 }
 
 export function humanizeDetailKey(key: string) {

@@ -8,7 +8,7 @@ import {
   useRouter,
   useSearchParams,
 } from "next/navigation"
-import { ArrowLeftIcon } from "lucide-react"
+import { ArrowLeftIcon, TicketIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,6 +33,7 @@ import { statusLabel, statusVariant, formatRelativeTime } from "@/lib/dashboard"
 import { osFamilyLabel } from "@/lib/devices"
 import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
+import { OpenTicketDialog } from "@/components/tickets/open-ticket-dialog"
 
 const tabLabels: Record<DeviceTab, string> = {
   overview: "Overview",
@@ -71,6 +72,7 @@ function DeviceDetail() {
   const searchParams = useSearchParams()
   const { can, isLoading: permissionsLoading } = usePermissions()
   const deviceId = params.id
+  const [ticketOpen, setTicketOpen] = React.useState(false)
 
   const requestedTab = searchParams.get("tab")
   const tab: DeviceTab = isDeviceTab(requestedTab) ? requestedTab : "overview"
@@ -230,6 +232,12 @@ function DeviceDetail() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {can("device:view") ? (
+              <Button variant="outline" onClick={() => setTicketOpen(true)}>
+                <TicketIcon />
+                Open ticket
+              </Button>
+            ) : null}
             {activeTab !== "connect" ? (
               <Button onClick={() => setTab("connect")}>Connect</Button>
             ) : null}
@@ -281,6 +289,13 @@ function DeviceDetail() {
           <SettingsTab device={device} />
         )}
       </div>
+
+      <OpenTicketDialog
+        open={ticketOpen}
+        onOpenChange={setTicketOpen}
+        deviceId={device.id}
+        deviceName={device.displayName}
+      />
     </div>
   )
 }

@@ -89,6 +89,30 @@ export type PlaybookRunNotificationSnapshot = {
   expiresAt: string
 }
 
+export type TicketNotificationSnapshot = {
+  title: string
+  deviceId: string | null
+  deviceName: string | null
+  siteId: string | null
+  siteName: string | null
+  technicianName: string
+  technicianEmail: string
+  sessionId: string | null
+  accessRequestId: string | null
+  recordingUrl: string | null
+  reason: string | null
+  notes: string | null
+  serviceType: string | null
+}
+
+export type AlertTicketContext = {
+  deviceName?: string | null
+  hostname?: string | null
+  siteName?: string | null
+  assetId?: string | null
+  assetTag?: string | null
+}
+
 export type WebhookEnvelope = {
   version: typeof WEBHOOK_PAYLOAD_VERSION
   event: NotificationDeliveryEvent
@@ -96,6 +120,7 @@ export type WebhookEnvelope = {
   alert: AlertNotificationSnapshot | null
   accessRequest: AccessRequestNotificationSnapshot | null
   playbookRun: PlaybookRunNotificationSnapshot | null
+  ticket: TicketNotificationSnapshot | null
 }
 
 export function buildWebhookEnvelope(input: {
@@ -104,6 +129,7 @@ export function buildWebhookEnvelope(input: {
   alert?: AlertNotificationSnapshot | null
   accessRequest?: AccessRequestNotificationSnapshot | null
   playbookRun?: PlaybookRunNotificationSnapshot | null
+  ticket?: TicketNotificationSnapshot | null
 }): WebhookEnvelope {
   return {
     version: WEBHOOK_PAYLOAD_VERSION,
@@ -112,6 +138,43 @@ export function buildWebhookEnvelope(input: {
     alert: input.alert ?? null,
     accessRequest: input.accessRequest ?? null,
     playbookRun: input.playbookRun ?? null,
+    ticket: input.ticket ?? null,
+  }
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null
+}
+
+/** Names the tickets ingest reads from `alert.detail`. */
+export function mergeAlertTicketContext(
+  detail: Record<string, unknown>,
+  context: AlertTicketContext = {}
+): Record<string, unknown> {
+  const deviceName =
+    nonEmptyString(context.deviceName) ??
+    nonEmptyString(detail.deviceName) ??
+    nonEmptyString(detail.device)
+  const hostname =
+    nonEmptyString(context.hostname) ?? nonEmptyString(detail.hostname)
+  const siteName =
+    nonEmptyString(context.siteName) ??
+    nonEmptyString(detail.siteName) ??
+    nonEmptyString(detail.site)
+  const assetId =
+    nonEmptyString(context.assetId) ?? nonEmptyString(detail.assetId)
+  const assetTag =
+    nonEmptyString(context.assetTag) ?? nonEmptyString(detail.assetTag)
+
+  return {
+    ...detail,
+    ...(deviceName ? { deviceName } : {}),
+    ...(hostname ? { hostname } : {}),
+    ...(siteName ? { siteName } : {}),
+    ...(assetId ? { assetId } : {}),
+    ...(assetTag ? { assetTag } : {}),
   }
 }
 
