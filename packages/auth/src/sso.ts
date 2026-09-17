@@ -134,6 +134,33 @@ export function resetPlatformSsoConfigCache() {
   idpProbe = null
 }
 
+export type PlatformSignInTarget = {
+  providerId: string | null
+  signInMethod: "oauth2" | "sso" | null
+  protocol: SsoProtocol | null
+}
+
+/** Company identity provider used when Sign in with SSO is clicked with no email. */
+export function platformSignInTarget(
+  platform: PlatformSsoConfig
+): PlatformSignInTarget {
+  if (platform.enabled) {
+    return {
+      providerId: platform.providerId,
+      signInMethod: "oauth2",
+      protocol: "oidc",
+    }
+  }
+  if (platform.saml.enabled) {
+    return {
+      providerId: platform.saml.providerId,
+      signInMethod: "sso",
+      protocol: "saml",
+    }
+  }
+  return { providerId: null, signInMethod: null, protocol: null }
+}
+
 export function decodeJwtPayload(
   token: string | null | undefined
 ): Record<string, unknown> | null {

@@ -8,6 +8,7 @@ import { organizationSsoSettings, ssoProvider } from "@nms/db"
 import {
   getPlatformSsoConfig,
   matchOrgSsoSettings,
+  platformSignInTarget,
   probeOidcDiscovery,
 } from "@nms/auth"
 import {
@@ -247,27 +248,16 @@ export const ssoRouter = createTRPCRouter({
       ssoRequired: platform.required,
       idpAvailable: idpAvailable ?? true,
     })
+    const target = platformSignInTarget(platform)
     return {
       enabled,
       required,
       passwordEnabled: !block.blocked,
       idpAvailable,
       unavailable: block.blocked && block.reason === "idp_unavailable",
-      providerId: platform.enabled
-        ? platform.providerId
-        : platform.saml.enabled
-          ? platform.saml.providerId
-          : null,
-      protocol: platform.enabled
-        ? ("oidc" as const)
-        : platform.saml.enabled
-          ? ("saml" as const)
-          : null,
-      signInMethod: platform.enabled
-        ? ("oauth2" as const)
-        : platform.saml.enabled
-          ? ("sso" as const)
-          : null,
+      providerId: target.providerId,
+      protocol: target.protocol,
+      signInMethod: target.signInMethod,
     }
   }),
 
@@ -283,10 +273,10 @@ export const ssoRouter = createTRPCRouter({
       }
       const email = input?.email?.toLowerCase() ?? null
       const policy = email ? matchOrgSsoSettings(email, rows, platform) : null
+      const target = platformSignInTarget(platform)
       return {
-        signInMethod:
-          policy?.signInMethod ?? (platform.enabled ? "oauth2" : null),
-        providerId: policy?.providerId ?? null,
+        signInMethod: policy?.signInMethod ?? target.signInMethod,
+        providerId: policy?.providerId ?? target.providerId,
         required: policy?.required ?? platform.required,
       }
     }),

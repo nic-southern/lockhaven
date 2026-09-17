@@ -56,6 +56,8 @@ SAML assertion consumer URL, when an organization uses its own provider:
 - Existing local accounts with a matching verified email are linked.
 - Domain allowlists apply to new sign-ins. With an empty allowlist, only
   existing accounts can sign in through SSO.
+- Sign in with SSO starts the company identity provider immediately. It
+  does not ask for email first.
 - Password, passkey, and existing sessions stay available while SSO is
   optional. Require SSO is off by default. Enrollment still uses Hub
   credentials.

@@ -4,6 +4,7 @@ import { test } from "node:test"
 import {
   decodeJwtPayload,
   matchOrgSsoSettings,
+  platformSignInTarget,
   platformSsoConfigFromEnv,
 } from "./sso"
 
@@ -38,6 +39,37 @@ test("defaults to optional SSO so password sign-in stays available", () => {
   })
   assert.equal(config.enabled, true)
   assert.equal(config.required, false)
+})
+
+test("company OpenID is the default Sign in with SSO target without email", () => {
+  const oidc = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "a-real-secret",
+  })
+  assert.deepEqual(platformSignInTarget(oidc), {
+    providerId: "sso",
+    signInMethod: "oauth2",
+    protocol: "oidc",
+  })
+
+  const samlOnly = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "replace_me",
+    SSO_SAML_ENTRY_POINT: "https://idp.example.com/sso",
+    SSO_SAML_CERT: "not-a-real-cert",
+  })
+  assert.deepEqual(platformSignInTarget(samlOnly), {
+    providerId: "sso-saml",
+    signInMethod: "sso",
+    protocol: "saml",
+  })
+
+  const off = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "replace_me",
+  })
+  assert.deepEqual(platformSignInTarget(off), {
+    providerId: null,
+    signInMethod: null,
+    protocol: null,
+  })
 })
 
 test("decodes identity-token claims without verifying the signature", () => {

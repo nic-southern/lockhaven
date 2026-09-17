@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator"
 import { FormField } from "@/components/dashboard/form-field"
 import { authClient, signIn } from "@/lib/auth-client"
 import { getClientProductName } from "@/lib/product-name"
+import { resolveSsoStart, SSO_START_ERROR } from "@/lib/sso-sign-in"
 import { trpc } from "@/lib/trpc"
 import { usePasskeySupport } from "@/lib/use-passkey-support"
 
@@ -76,42 +77,37 @@ function SignInForm() {
     setError(null)
     setSsoPending(true)
     try {
-      const method = ssoHint.data?.signInMethod ?? sso?.signInMethod
-      const providerId = ssoHint.data?.providerId ?? sso?.providerId
-      if (method === "sso") {
-        if (!email.trim() && !providerId) {
-          setError("Enter your email to continue with SSO.")
-          return
-        }
+      const start = resolveSsoStart({
+        email,
+        status: sso,
+        hint: emailLooksComplete ? ssoHint.data : null,
+      })
+      if (start.action === "error") {
+        setError(start.message)
+        return
+      }
+      if (start.action === "sso") {
         const result = await authClient.signIn.sso({
-          ...(providerId ? { providerId } : {}),
-          ...(email.trim() ? { email: email.trim() } : {}),
+          ...(start.providerId ? { providerId: start.providerId } : {}),
+          ...(start.email ? { email: start.email } : {}),
           callbackURL: nextPath,
           errorCallbackURL: "/sign-in?reason=sso",
         })
         if (result?.error) {
-          setError("We couldn't complete sign-in. Try again.")
+          setError(SSO_START_ERROR)
         }
         return
       }
-      if (!providerId) {
-        setError(
-          emailLooksComplete
-            ? "We couldn't complete sign-in. Try again."
-            : "Enter your email to continue with SSO."
-        )
-        return
-      }
       const result = await signIn.oauth2({
-        providerId,
+        providerId: start.providerId,
         callbackURL: nextPath,
         errorCallbackURL: "/sign-in?reason=sso",
       })
       if (result?.error) {
-        setError("We couldn't complete sign-in. Try again.")
+        setError(SSO_START_ERROR)
       }
     } catch {
-      setError("We couldn't complete sign-in. Try again.")
+      setError(SSO_START_ERROR)
     } finally {
       setSsoPending(false)
     }
@@ -340,19 +336,6 @@ function SignInForm() {
         <p className="text-sm text-destructive">
           Sign-in is temporarily unavailable. Try again later.
         </p>
-      ) : null}
-
-      {sso?.enabled && !sso.unavailable && !passwordEnabled ? (
-        <FormField label="Email" htmlFor="sso-email">
-          <Input
-            id="sso-email"
-            type="email"
-            autoComplete="username"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-        </FormField>
       ) : null}
 
       {sso?.enabled && !sso.unavailable ? (
