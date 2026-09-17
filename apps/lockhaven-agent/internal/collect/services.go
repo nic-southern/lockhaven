@@ -2,9 +2,11 @@ package collect
 
 import (
 	"os"
+	"runtime"
 	"strings"
 
-	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/proc"
+	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/proc"   // pragma: allowlist secret
+	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/wgkeys" // pragma: allowlist secret
 )
 
 type ServiceStatus struct {
@@ -18,7 +20,14 @@ type VPNStatus struct {
 	VpnIPv4     string `json:"vpn_ipv4"`
 }
 
-func CollectServices(osFamily string) []ServiceStatus {
+func listeningOutput() string {
+	if runtime.GOOS == "windows" {
+		netstat := proc.RunDefault("netstat", "-an")
+		if netstat.Code == 0 {
+			return netstat.Stdout
+		}
+		return ""
+	}
 	ss := proc.RunDefault("ss", "-ltn")
 	output := ss.Stdout
 	if ss.Code != 0 {
@@ -29,7 +38,11 @@ func CollectServices(osFamily string) []ServiceStatus {
 			output = ""
 		}
 	}
-	ports := ParseListeningPorts(output)
+	return output
+}
+
+func CollectServices(osFamily string) []ServiceStatus {
+	ports := ParseListeningPorts(listeningOutput())
 	types := []struct {
 		Type string
 		Port int
@@ -59,12 +72,19 @@ func CollectServices(osFamily string) []ServiceStatus {
 }
 
 func InterfaceExists(name string) bool {
+	if runtime.GOOS == "windows" {
+		return ServiceQueryRunning(proc.RunDefault("sc.exe", "query", "WireGuardTunnel$"+name).Stdout)
+	}
 	_, err := os.Stat("/sys/class/net/" + name)
 	return err == nil
 }
 
+func ServiceQueryRunning(output string) bool {
+	return strings.Contains(output, "RUNNING")
+}
+
 func CollectVPN(tunnelName, expectedIPv4 string) VPNStatus {
-	dump := proc.RunDefault("wg", "show", tunnelName, "dump")
+	dump := proc.RunDefault(wgkeys.WgExe(), "show", tunnelName, "dump")
 	ip := strings.TrimSpace(expectedIPv4)
 	if idx := strings.Index(ip, "/"); idx >= 0 {
 		ip = ip[:idx]

@@ -52,3 +52,22 @@ func TestLoadMissing(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestStateDirForWindowsUsesProgramData(t *testing.T) {
+	got := stateDirFor("windows", `C:\ProgramData`, "")
+	if got == "/var/lib/lockhaven" {
+		t.Fatal("windows state must not use the Linux path")
+	}
+	if filepath.Base(got) != "Lockhaven" {
+		t.Fatalf("dir %s", got)
+	}
+}
+
+func TestStateDirForLinux(t *testing.T) {
+	if stateDirFor("linux", "", "") != "/var/lib/lockhaven" {
+		t.Fatal("linux default")
+	}
+	if stateDirFor("linux", "", "/tmp/agent") != "/tmp/agent" {
+		t.Fatal("env override")
+	}
+}

@@ -23,6 +23,7 @@ func Run(ctx context.Context, file string, args ...string) Result {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	applyRunAttr(cmd)
 	err := cmd.Run()
 	code := 0
 	if err != nil {

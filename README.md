@@ -48,9 +48,9 @@ domain packages.
 
 - `apps/web` - Next.js console, session UI, tRPC route handlers, auth routes,
   enrollment endpoints, and health checks.
-- `apps/lockhaven-agent` - static Linux agent: attach to existing inventory,
-  enroll new hosts, check-in, systemd install.
-- `apps/agent` - TypeScript enrollment/check-in client (Windows/macOS).
+- `apps/lockhaven-agent` - static Linux and Windows agent: attach to existing inventory,
+  enroll new hosts, check-in, systemd or Windows service install.
+- `apps/agent` - TypeScript enrollment/check-in client (macOS).
 - `apps/worker` - WireGuard reconciliation and management service health jobs.
 - `packages/shared` - domain schemas and shared product types.
 - `packages/db` - database schema, migrations, and admin bootstrap script.
@@ -160,13 +160,25 @@ Create an enrollment token in the Console, then run the installer on the remote
 client. The deployed web app serves the current installers from the `/install`
 path.
 
-Windows PowerShell:
+Windows (agent):
+
+```powershell
+$VpnHost = "https://<vpn-hostname>"; $Token = "<enrollment-token>"; $Script = "$env:TEMP\install-lockhaven-agent.ps1"; Invoke-WebRequest -Uri "$VpnHost/install/install-lockhaven-agent.ps1" -OutFile $Script; powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $VpnHost
+```
+
+Windows (tunnel only):
 
 ```powershell
 $VpnHost = "https://<vpn-hostname>"; $Token = "<enrollment-token>"; $Script = "$env:TEMP\lockhaven-enroll.ps1"; Invoke-WebRequest -Uri "$VpnHost/install/enroll-windows.ps1" -OutFile $Script; powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $VpnHost
 ```
 
-Linux:
+Linux (agent):
+
+```bash
+VPN_HOST="https://<vpn-hostname>"; curl -fsSL "$VPN_HOST/install/install-lockhaven-agent.sh" | sudo LOCKHAVEN_TOKEN="<enrollment-token>" LOCKHAVEN_BASE_URL="$VPN_HOST" bash
+```
+
+Linux (tunnel only):
 
 ```bash
 VPN_HOST="https://<vpn-hostname>"; curl -fsSL "$VPN_HOST/install/enroll-linux.sh" | sudo LOCKHAVEN_TOKEN="<enrollment-token>" LOCKHAVEN_BASE_URL="$VPN_HOST" bash

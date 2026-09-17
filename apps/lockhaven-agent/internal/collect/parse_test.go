@@ -92,3 +92,25 @@ LISTEN 0      5            0.0.0.0:5900       0.0.0.0:*
 		t.Fatal("unexpected 3389")
 	}
 }
+
+func TestParseWindowsNetstatListeningPorts(t *testing.T) {
+	ports := ParseListeningPorts(`
+  TCP    0.0.0.0:3389           0.0.0.0:0              LISTENING
+  TCP    [::]:5986            [::]:0                 LISTENING
+`)
+	if _, ok := ports[3389]; !ok {
+		t.Fatal("missing 3389")
+	}
+	if _, ok := ports[5986]; !ok {
+		t.Fatal("missing 5986")
+	}
+}
+
+func TestServiceQueryRunning(t *testing.T) {
+	if !ServiceQueryRunning("STATE              : 4  RUNNING") {
+		t.Fatal("expected running")
+	}
+	if ServiceQueryRunning("STATE              : 1  STOPPED") {
+		t.Fatal("stopped is not running")
+	}
+}

@@ -1,13 +1,13 @@
 package collect
 
 import (
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/proc"
+	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/proc"   // pragma: allowlist secret
+	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/wgkeys" // pragma: allowlist secret
 )
 
 type CPU struct {
@@ -30,35 +30,11 @@ type Metrics struct {
 	WireGuard     WireGuardMetrics `json:"wireguard"`
 }
 
-func loadavg() (float64, float64, float64) {
-	raw := readTrimmed("/proc/loadavg")
-	fields := strings.Fields(raw)
-	if len(fields) < 3 {
-		return 0, 0, 0
-	}
-	one, _ := strconv.ParseFloat(fields[0], 64)
-	five, _ := strconv.ParseFloat(fields[1], 64)
-	fifteen, _ := strconv.ParseFloat(fields[2], 64)
-	return one, five, fifteen
-}
-
-func uptimeSeconds() int64 {
-	raw := readTrimmed("/proc/uptime")
-	fields := strings.Fields(raw)
-	if len(fields) == 0 {
-		return 0
-	}
-	seconds, _ := strconv.ParseFloat(fields[0], 64)
-	return int64(seconds)
-}
-
 func handshakeAgeSeconds(tunnelName string) *int {
-	result := proc.RunDefault("wg", "show", tunnelName, "dump")
+	result := proc.RunDefault(wgkeys.WgExe(), "show", tunnelName, "dump")
 	if result.Code != 0 {
 		return nil
 	}
-	// dump: private_key public_key ... then peer lines:
-	// public_key preshared_key endpoint allowed_ips handshake rx tx keepalive
 	lines := strings.Split(strings.TrimSpace(result.Stdout), "\n")
 	if len(lines) < 2 {
 		return nil
@@ -79,43 +55,22 @@ func handshakeAgeSeconds(tunnelName string) *int {
 }
 
 func CollectMetrics(tunnelName string) Metrics {
-	one, five, fifteen := loadavg()
-	memRaw, err := os.ReadFile("/proc/meminfo")
-	var memory Memory
-	if err == nil {
-		memory = ParseProcMeminfo(string(memRaw))
-	}
-	netRaw, err := os.ReadFile("/proc/net/dev")
-	var network []NetworkIface
-	if err == nil {
-		network = ParseProcNetDev(string(netRaw))
-	}
-	df := proc.RunDefault("df", "-kP")
-	disks := []Disk{}
-	if df.Code == 0 {
-		disks = ParseDfKp(df.Stdout)
-	}
-	if disks == nil {
-		disks = []Disk{}
-	}
-	if network == nil {
-		network = []NetworkIface{}
-	}
 	cores := runtime.NumCPU()
 	if cores < 1 {
 		cores = 1
 	}
+	load1, load5, load15 := platformLoadavg()
 	return Metrics{
-		UptimeSeconds: uptimeSeconds(),
+		UptimeSeconds: platformUptime(),
 		CPU: CPU{
-			Load1:  one,
-			Load5:  five,
-			Load15: fifteen,
+			Load1:  load1,
+			Load5:  load5,
+			Load15: load15,
 			Cores:  cores,
 		},
-		Memory:  memory,
-		Disks:   disks,
-		Network: network,
+		Memory:  platformMemory(),
+		Disks:   nonempty(platformDisks()),
+		Network: nonempty(platformNetwork()),
 		WireGuard: WireGuardMetrics{
 			HandshakeAgeSeconds: handshakeAgeSeconds(tunnelName),
 		},
