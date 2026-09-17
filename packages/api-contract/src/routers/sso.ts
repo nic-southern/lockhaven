@@ -8,7 +8,7 @@ import { organizationSsoSettings, ssoProvider } from "@nms/db"
 import {
   getPlatformSsoConfig,
   matchOrgSsoSettings,
-  platformSignInTarget,
+  publicSsoStartTarget,
   probeOidcDiscovery,
 } from "@nms/auth"
 import {
@@ -248,7 +248,7 @@ export const ssoRouter = createTRPCRouter({
       ssoRequired: platform.required,
       idpAvailable: idpAvailable ?? true,
     })
-    const target = platformSignInTarget(platform)
+    const target = publicSsoStartTarget(platform, rows)
     return {
       enabled,
       required,
@@ -273,7 +273,7 @@ export const ssoRouter = createTRPCRouter({
       }
       const email = input?.email?.toLowerCase() ?? null
       const policy = email ? matchOrgSsoSettings(email, rows, platform) : null
-      const target = platformSignInTarget(platform)
+      const target = publicSsoStartTarget(platform, rows)
       return {
         signInMethod: policy?.signInMethod ?? target.signInMethod,
         providerId: policy?.providerId ?? target.providerId,

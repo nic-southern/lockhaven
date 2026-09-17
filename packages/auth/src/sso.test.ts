@@ -6,6 +6,7 @@ import {
   matchOrgSsoSettings,
   platformSignInTarget,
   platformSsoConfigFromEnv,
+  publicSsoStartTarget,
 } from "./sso"
 
 test("enables company OIDC only when the client secret is set", () => {
@@ -70,6 +71,48 @@ test("company OpenID is the default Sign in with SSO target without email", () =
     signInMethod: null,
     protocol: null,
   })
+})
+
+test("uses company OpenID for Sign in with SSO when only org SSO is on", () => {
+  const platform = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "replace_me",
+  })
+  assert.deepEqual(
+    publicSsoStartTarget(platform, [
+      {
+        enabled: true,
+        protocol: "oidc",
+        usePlatformIdp: true,
+        providerId: null,
+      },
+    ]),
+    {
+      providerId: "sso",
+      signInMethod: "oauth2",
+      protocol: "oidc",
+    }
+  )
+})
+
+test("uses a single organization provider when the company provider is not ready", () => {
+  const platform = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "replace_me",
+  })
+  assert.deepEqual(
+    publicSsoStartTarget(platform, [
+      {
+        enabled: true,
+        protocol: "saml",
+        usePlatformIdp: false,
+        providerId: "org-1-saml",
+      },
+    ]),
+    {
+      providerId: "org-1-saml",
+      signInMethod: "sso",
+      protocol: "saml",
+    }
+  )
 })
 
 test("decodes identity-token claims without verifying the signature", () => {

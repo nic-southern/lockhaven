@@ -161,6 +161,51 @@ export function platformSignInTarget(
   return { providerId: null, signInMethod: null, protocol: null }
 }
 
+type OrgSsoStartRow = {
+  enabled: boolean
+  protocol: SsoProtocol
+  usePlatformIdp: boolean
+  providerId: string | null
+}
+
+/**
+ * Default Sign in with SSO target when the user has not typed an email.
+ * Company OpenID wins. A single organization provider is used only when the
+ * company provider is not ready.
+ */
+export function publicSsoStartTarget(
+  platform: PlatformSsoConfig,
+  rows: OrgSsoStartRow[] = []
+): PlatformSignInTarget {
+  const company = platformSignInTarget(platform)
+  if (company.providerId) {
+    return company
+  }
+
+  const enabled = rows.filter((row) => row.enabled)
+  const dedicated = enabled.filter(
+    (row) => !row.usePlatformIdp && Boolean(row.providerId)
+  )
+  if (dedicated.length === 1) {
+    const row = dedicated[0]
+    return {
+      providerId: row.providerId,
+      signInMethod: "sso",
+      protocol: row.protocol,
+    }
+  }
+
+  if (enabled.length > 0) {
+    return {
+      providerId: platform.providerId,
+      signInMethod: "oauth2",
+      protocol: "oidc",
+    }
+  }
+
+  return company
+}
+
 export function decodeJwtPayload(
   token: string | null | undefined
 ): Record<string, unknown> | null {

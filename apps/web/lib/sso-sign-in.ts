@@ -1,3 +1,5 @@
+import { PLATFORM_SSO_PROVIDER_ID_DEFAULT } from "@nms/shared"
+
 export const SSO_START_ERROR = "We couldn't complete sign-in. Try again."
 
 export type SsoSignInMethod = "oauth2" | "sso"
@@ -36,21 +38,17 @@ export function resolveSsoStart(input: {
   const providerId =
     trimmed(hinted?.providerId) ?? trimmed(input.status?.providerId)
 
-  if (signInMethod === "sso") {
+  if (signInMethod === "sso" && (providerId || email)) {
     if (providerId) {
       return email
         ? { action: "sso", providerId, email }
         : { action: "sso", providerId }
     }
-    if (email) {
-      return { action: "sso", email }
-    }
-    return { action: "error", message: SSO_START_ERROR }
+    return { action: "sso", email }
   }
 
-  if (providerId) {
-    return { action: "oauth2", providerId }
+  return {
+    action: "oauth2",
+    providerId: providerId ?? PLATFORM_SSO_PROVIDER_ID_DEFAULT,
   }
-
-  return { action: "error", message: SSO_START_ERROR }
 }

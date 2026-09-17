@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
+import { PLATFORM_SSO_PROVIDER_ID_DEFAULT } from "@nms/shared"
+
 import { resolveSsoStart, SSO_START_ERROR } from "./sso-sign-in"
 
 const companyOidc = {
@@ -66,11 +68,13 @@ test("keeps company OpenID when a typed email still maps to the platform", () =>
   )
 })
 
-test("never asks for email when SSO cannot start", () => {
-  const result = resolveSsoStart({
-    email: "",
-    status: { signInMethod: null, providerId: null },
-  })
-  assert.deepEqual(result, { action: "error", message: SSO_START_ERROR })
+test("defaults to company OpenID when status has no provider yet", () => {
+  assert.deepEqual(
+    resolveSsoStart({
+      email: "",
+      status: { signInMethod: null, providerId: null },
+    }),
+    { action: "oauth2", providerId: PLATFORM_SSO_PROVIDER_ID_DEFAULT }
+  )
   assert.equal(/email/i.test(SSO_START_ERROR), false)
 })
