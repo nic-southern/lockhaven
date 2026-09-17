@@ -1,0 +1,84 @@
+package commands
+
+import (
+	"os/exec"
+	"runtime"
+)
+
+type Command struct {
+	ID   string
+	Kind string
+}
+
+type Result struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
+type Spec struct {
+	File string
+	Args []string
+}
+
+func RebootSpec(goos string) Spec {
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goos == "windows" {
+		return Spec{File: "shutdown.exe", Args: []string{"/r", "/t", "0"}}
+	}
+	return Spec{File: "/sbin/shutdown", Args: []string{"-r", "now"}}
+}
+
+func RestartSpec(goos string) Spec {
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goos == "darwin" {
+		return Spec{File: "/bin/launchctl", Args: []string{"kickstart", "-k", "system/com.lockhaven.agent"}}
+	}
+	if goos == "windows" {
+		return Spec{File: "sc.exe", Args: []string{"stop", "LockhavenAgent"}}
+	}
+	return Spec{File: "/bin/systemctl", Args: []string{"restart", "lockhaven-agent.service"}}
+}
+
+type Runtime struct {
+	GOOS          string
+	SpawnDetached func(file string, args []string) error
+}
+
+func DefaultRuntime() Runtime {
+	return Runtime{
+		GOOS: runtime.GOOS,
+		SpawnDetached: func(file string, args []string) error {
+			cmd := exec.Command(file, args...)
+			cmd.Stdout = nil
+			cmd.Stderr = nil
+			cmd.Stdin = nil
+			return cmd.Start()
+		},
+	}
+}
+
+func Execute(command Command, rt Runtime) Result {
+	switch command.Kind {
+	case "reboot":
+		spec := RebootSpec(rt.GOOS)
+		if err := rt.SpawnDetached(spec.File, spec.Args); err != nil {
+			return Result{ID: command.ID, Status: "failed", Detail: err.Error()}
+		}
+		return Result{ID: command.ID, Status: "succeeded"}
+	case "restart":
+		spec := RestartSpec(rt.GOOS)
+		if err := rt.SpawnDetached(spec.File, spec.Args); err != nil {
+			return Result{ID: command.ID, Status: "failed", Detail: err.Error()}
+		}
+		return Result{ID: command.ID, Status: "succeeded"}
+	case "update":
+		return Result{ID: command.ID, Status: "failed", Detail: "No signed update is available."}
+	default:
+		return Result{ID: command.ID, Status: "refused", Detail: "This command is not allowed."}
+	}
+}

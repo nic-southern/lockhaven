@@ -75,6 +75,8 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload >/dev/null 2>&1 || true
 fi
 
+rm -f /usr/sbin/lockhaven-agent /usr/local/sbin/lockhaven-agent
+
 if [ -d /var/lib/lockhaven ] && [ -z "$(ls -A /var/lib/lockhaven 2>/dev/null || true)" ]; then
   rmdir /var/lib/lockhaven 2>/dev/null || true
 fi

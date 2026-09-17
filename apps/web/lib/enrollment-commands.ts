@@ -39,7 +39,8 @@ export function buildLinuxInstallCommand({
   token: string
   baseUrl: string
 }) {
-  return `curl -fsSL ${normalizeBaseUrl(baseUrl)}/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN=${quoteShell(token)} bash`
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  return `curl -fsSL ${normalizedBaseUrl}/install/install-lockhaven-agent.sh | sudo LOCKHAVEN_TOKEN=${quoteShell(token)} LOCKHAVEN_BASE_URL=${quoteShell(normalizedBaseUrl)} bash`
 }
 
 export function buildAndroidInstallCommand({

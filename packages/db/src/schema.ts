@@ -485,6 +485,14 @@ export const devices = pgTable(
     siteIdx: index("devices_site_idx").on(table.siteId),
     lastSeenIdx: index("devices_last_seen_idx").on(table.lastSeenAt),
     tagsIdx: index("devices_tags_idx").using("gin", table.tags),
+    organizationSerialIdx: index("devices_organization_serial_idx").on(
+      table.organizationId,
+      table.serialNumber
+    ),
+    organizationHostnameIdx: index("devices_organization_hostname_idx").on(
+      table.organizationId,
+      table.hostname
+    ),
     assetIdx: uniqueIndex("devices_asset_id_idx")
       .on(table.assetId)
       .where(sql`${table.assetId} is not null`),

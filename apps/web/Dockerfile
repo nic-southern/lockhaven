@@ -1,3 +1,9 @@
+FROM golang:1.22-alpine AS agent
+WORKDIR /src
+COPY apps/lockhaven-agent ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-linux-amd64 ./cmd/lockhaven-agent
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-linux-arm64 ./cmd/lockhaven-agent
+
 FROM node:22-alpine AS base
 WORKDIR /repo
 RUN corepack enable
@@ -5,6 +11,7 @@ RUN corepack enable
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.package.json ./
 COPY apps/web/package.json apps/web/package.json
+COPY apps/lockhaven-agent/package.json apps/lockhaven-agent/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/api-contract/package.json packages/api-contract/package.json
@@ -21,7 +28,10 @@ RUN mkdir -p apps/web/public/install \
   && cp scripts/enroll-linux.sh apps/web/public/install/enroll-linux.sh \
   && cp scripts/enroll-android.sh apps/web/public/install/enroll-android.sh \
   && cp scripts/uninstall-windows.ps1 apps/web/public/install/uninstall-windows.ps1 \
-  && cp scripts/uninstall-linux.sh apps/web/public/install/uninstall-linux.sh
+  && cp scripts/uninstall-linux.sh apps/web/public/install/uninstall-linux.sh \
+  && cp scripts/install-lockhaven-agent.sh apps/web/public/install/install-lockhaven-agent.sh
+COPY --from=agent /out/lockhaven-agent-linux-amd64 apps/web/public/install/lockhaven-agent-linux-amd64
+COPY --from=agent /out/lockhaven-agent-linux-arm64 apps/web/public/install/lockhaven-agent-linux-arm64
 RUN pnpm --dir /repo build:packages && pnpm --filter @nms/web build
 
 FROM node:22-alpine AS runner

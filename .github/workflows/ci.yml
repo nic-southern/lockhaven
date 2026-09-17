@@ -31,6 +31,10 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/lockhaven-agent/go.mod
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22

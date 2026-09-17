@@ -48,8 +48,9 @@ domain packages.
 
 - `apps/web` - Next.js console, session UI, tRPC route handlers, auth routes,
   enrollment endpoints, and health checks.
-- `apps/agent` - endpoint enrollment, check-in, metrics, and software inventory
-  client (Linux first; Windows service and macOS launchd wrappers).
+- `apps/lockhaven-agent` - static Linux agent: attach to existing inventory,
+  enroll new hosts, check-in, systemd install.
+- `apps/agent` - TypeScript enrollment/check-in client (Windows/macOS).
 - `apps/worker` - WireGuard reconciliation and management service health jobs.
 - `packages/shared` - domain schemas and shared product types.
 - `packages/db` - database schema, migrations, and admin bootstrap script.

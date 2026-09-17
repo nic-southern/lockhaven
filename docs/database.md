@@ -17,6 +17,9 @@
 - Hub reporting is `0026_reporting` (`device_uptime_daily`, `report_schedules`).
 - Hub agent fleet is `0027_agent_fleet` (`agent_releases`, `device_commands`,
   organization and site `agent_channel`).
+- Client-agent telemetry is `0040_device_telemetry`.
+- Client-agent attach lookups are `0041_agent_attach` (device serial and
+  hostname indexes). Do not edit `0021`–`0039` for client-agent work.
 - Rebuild the schema package after any migration changes with `pnpm build:packages`.
 
 ## Bootstrapping

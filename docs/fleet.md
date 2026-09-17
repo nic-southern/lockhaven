@@ -11,8 +11,8 @@ platform, download link, checksum). Organizations default to the **Stable**
 channel. A site can follow the organization or choose **Beta**.
 
 On check-in, Hub returns `desired_agent_version` and `download_url` for the
-resolved channel and platform, plus any waiting `commands`. The device
-acknowledges those commands on the next check-in.
+resolved channel and platform, plus any waiting `commands`. The Linux Go
+agent acknowledges those commands on the next check-in.
 
 ## Alerts
 
