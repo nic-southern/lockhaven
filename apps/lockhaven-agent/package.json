@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "scripts": {
     "build": "CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o dist/lockhaven-agent ./cmd/lockhaven-agent",
-    "test": "go test ./...",
+    "test": "go test ./... && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o dist/lockhaven-agent-windows-amd64.exe ./cmd/lockhaven-agent",
     "lint": "go vet ./...",
     "typecheck": "go test -count=0 ./..."
   }

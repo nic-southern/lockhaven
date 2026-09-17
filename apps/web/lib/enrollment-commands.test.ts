@@ -7,11 +7,12 @@ import {
   buildLinuxEnrollCommand,
   buildLinuxInstallCommand,
   buildLinuxUninstallCommand,
+  buildWindowsEnrollCommand,
   buildWindowsInstallCommand,
   buildWindowsUninstallCommand,
 } from "./enrollment-commands"
 
-test("builds the Windows VPN enrollment command", () => {
+test("builds the Windows agent install command", () => {
   assert.equal(
     buildWindowsInstallCommand({
       token: "nms_enroll_abc'123",
@@ -19,9 +20,44 @@ test("builds the Windows VPN enrollment command", () => {
     }),
     [
       "$Token = 'nms_enroll_abc''123';",
+      "$BaseUrl = 'https://vpn.example.com';",
+      '$Script = "$env:TEMP\\install-lockhaven-agent.ps1";',
+      'Invoke-WebRequest -Uri "https://vpn.example.com/install/install-lockhaven-agent.ps1" -OutFile $Script;',
+      "powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $BaseUrl",
+    ].join(" ")
+  )
+})
+
+test("builds the Windows agent install command for a listed device", () => {
+  assert.equal(
+    buildWindowsInstallCommand({
+      token: "nms_enroll_abc'123",
+      baseUrl: "https://vpn.example.com/",
+      deviceId: "11111111-1111-4111-8111-111111111111",
+    }),
+    [
+      "$Token = 'nms_enroll_abc''123';",
+      "$BaseUrl = 'https://vpn.example.com';",
+      "$DeviceId = '11111111-1111-4111-8111-111111111111';",
+      '$Script = "$env:TEMP\\install-lockhaven-agent.ps1";',
+      'Invoke-WebRequest -Uri "https://vpn.example.com/install/install-lockhaven-agent.ps1" -OutFile $Script;',
+      "powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $BaseUrl -DeviceId $DeviceId",
+    ].join(" ")
+  )
+})
+
+test("builds the Windows tunnel-only enrollment command", () => {
+  assert.equal(
+    buildWindowsEnrollCommand({
+      token: "nms_enroll_abc'123",
+      baseUrl: "https://vpn.example.com/",
+    }),
+    [
+      "$Token = 'nms_enroll_abc''123';",
+      "$BaseUrl = 'https://vpn.example.com';",
       '$Script = "$env:TEMP\\lockhaven-enroll.ps1";',
       'Invoke-WebRequest -Uri "https://vpn.example.com/install/enroll-windows.ps1" -OutFile $Script;',
-      "powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token",
+      "powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $BaseUrl",
     ].join(" ")
   )
 })
@@ -71,6 +107,25 @@ test("builds Linux agent download URLs", () => {
       arch: "arm64",
     }),
     "https://vpn.example.com/install/lockhaven-agent-linux-arm64"
+  )
+})
+
+test("builds Windows agent download URLs", () => {
+  assert.equal(
+    buildAgentDownloadUrl({
+      baseUrl: "https://vpn.example.com/",
+      arch: "amd64",
+      platform: "windows",
+    }),
+    "https://vpn.example.com/install/lockhaven-agent-windows-amd64.exe"
+  )
+  assert.equal(
+    buildAgentDownloadUrl({
+      baseUrl: "https://vpn.example.com/",
+      arch: "arm64",
+      platform: "windows",
+    }),
+    "https://vpn.example.com/install/lockhaven-agent-windows-arm64.exe"
   )
 })
 

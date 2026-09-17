@@ -5,6 +5,7 @@ import {
   buildAndroidInstallCommand,
   buildLinuxEnrollCommand,
   buildLinuxInstallCommand,
+  buildWindowsEnrollCommand,
   buildWindowsInstallCommand,
 } from "@/lib/enrollment-commands"
 import { getClientVpnBaseUrl } from "@/lib/product-name"
@@ -29,8 +30,12 @@ export function EnrollmentInstallCommands({
         value={buildLinuxEnrollCommand({ token, baseUrl })}
       />
       <CodeBlock
-        label="Windows"
-        value={buildWindowsInstallCommand({ token, baseUrl })}
+        label="Windows agent"
+        value={buildWindowsInstallCommand({ token, baseUrl, deviceId })}
+      />
+      <CodeBlock
+        label="Windows tunnel only"
+        value={buildWindowsEnrollCommand({ token, baseUrl })}
       />
       <CodeBlock
         label="Android"

@@ -57,6 +57,27 @@ if (-not $RunAsAdministrator -and -not (Test-Administrator)) {
 
 Write-Host "Removing $TunnelName tunnel..."
 
+$agentExeCandidates = @()
+foreach ($programFiles in @($env:ProgramW6432, $env:ProgramFiles) | Where-Object { $_ }) {
+  $agentExeCandidates += (Join-Path $programFiles "Lockhaven\lockhaven-agent.exe")
+}
+$agentExe = $agentExeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($agentExe) {
+  try {
+    & $agentExe uninstall-service
+  } catch {
+    # Fall through to service cleanup.
+  }
+}
+
+$agentService = Get-Service -Name "LockhavenAgent" -ErrorAction SilentlyContinue
+if ($agentService) {
+  if ($agentService.Status -ne "Stopped") {
+    Stop-Service -Name "LockhavenAgent" -Force -ErrorAction SilentlyContinue
+  }
+  sc.exe delete LockhavenAgent | Out-Null
+}
+
 $paths = Get-WireGuardPaths
 $serviceName = "WireGuardTunnel`$$TunnelName"
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
@@ -78,7 +99,12 @@ if ($paths.WireGuardExe) {
 
 $secretPath = Join-Path $env:TEMP "$TunnelName.check-in-secret.txt"
 $configPath = Join-Path $env:TEMP "$TunnelName.conf"
+$programDataDir = Join-Path $env:ProgramData "Lockhaven"
 Remove-Item -Path $secretPath, $configPath -Force -ErrorAction SilentlyContinue
+Remove-Item -Path $programDataDir -Recurse -Force -ErrorAction SilentlyContinue
+foreach ($programFiles in @($env:ProgramW6432, $env:ProgramFiles) | Where-Object { $_ }) {
+  Remove-Item -Path (Join-Path $programFiles "Lockhaven") -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host "Uninstall complete."
 Write-Host "Tunnel service and local Lockhaven files were removed."

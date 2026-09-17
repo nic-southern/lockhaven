@@ -23,41 +23,52 @@
     the result on the next check-in.
 11. The worker reconciles the server peer and status tables.
 
-The Linux endpoint agent is a static binary (`apps/lockhaven-agent`). It
-attaches to a device Hub already has, or enrolls a new one, then installs a
-systemd service:
+The Linux and Windows endpoint agent is a static binary (`apps/lockhaven-agent`).
+It attaches to a device Hub already has, or enrolls a new one, then installs as
+a service:
 
 ```
 curl -fsSL <hub>/install/install-lockhaven-agent.sh | sudo LOCKHAVEN_TOKEN=<token> LOCKHAVEN_BASE_URL=<hub> bash
 ```
 
+```powershell
+$Token = "<token>"; $BaseUrl = "<hub>"; $Script = "$env:TEMP\install-lockhaven-agent.ps1"; Invoke-WebRequest -Uri "$BaseUrl/install/install-lockhaven-agent.ps1" -OutFile $Script; powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $BaseUrl
+```
+
 On a listed device the installer binds to that record and leaves the existing
 tunnel in place. It only calls `POST /api/enroll` when Hub has no match.
-Local `/var/lib/lockhaven/agent.json` is enough to start the service without
-calling Hub again.
+Local agent state (`/var/lib/lockhaven/agent.json` on Linux,
+`%ProgramData%\Lockhaven\agent.json` on Windows) is enough to start the service
+without calling Hub again.
 
-From a device page in Console, the Agent tab creates a Linux install command
-that includes `LOCKHAVEN_DEVICE_ID` so attach binds that listing even when
-hostname or serial would be ambiguous. The tab also links the Linux agent
-downloads from `/install/lockhaven-agent-linux-amd64` and `…-arm64`.
+From a device page in Console, the Agent tab creates a Linux or Windows install
+command that includes the device id so attach binds that listing even when
+hostname or serial would be ambiguous. The tab also links agent downloads from
+`/install/lockhaven-agent-linux-amd64`, `…-arm64`,
+`/install/lockhaven-agent-windows-amd64.exe`, and `…-arm64.exe`.
 
 The Enrollment tokens page is a full-width list. **New token** is in the
 header. After create, and whenever you open a token, a side panel shows the
-same Linux agent command (and the older tunnel-only `enroll-linux.sh` command)
-plus the raw token. Hub stores the token hash for auth plus an encrypted copy
-of the secret so those commands can be copied later. Tokens created before that
-storage need a new secret issued once.
+Linux and Windows agent commands (and the older tunnel-only `enroll-linux.sh`
+and `enroll-windows.ps1` commands) plus the raw token. Hub stores the token hash
+for auth plus an encrypted copy of the secret so those commands can be copied
+later. Tokens created before that storage need a new secret issued once.
 
 `POST /api/agent/attach` issues a new check-in secret for the matched device.
 `POST /api/enroll` refuses with `device_exists` when the host already matches
 inventory.
 
-The TypeScript client in `apps/agent` remains a protocol reference. Windows
-and macOS still use that path until those installers ship the Go binary.
+The TypeScript client in `apps/agent` remains a protocol reference. macOS still
+uses that path until that installer ships the Go binary.
 
-For Windows devices, the enrollment script can generate the keypair, call the
-API over your app hostname, install WireGuard if needed, import the tunnel,
-and start it.
+Windows installs the same Go agent as a Windows service (`LockhavenAgent`).
+Attach never replaces an existing WireGuard tunnel. Greenfield enroll writes a
+tunnel only when WireGuard is already present (the Windows installer installs
+WireGuard if needed). Hub commands stay `reboot`, `restart`, and `update`.
+
+For tunnel-only Windows enrollment (no agent), the enrollment script can
+generate the keypair, call the API over your app hostname, install WireGuard if
+needed, import the tunnel, and start it.
 
 ## Android
 
