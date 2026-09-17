@@ -3,9 +3,11 @@ import test from "node:test"
 
 import { DEVICE_ONLINE_WINDOW_MS } from "./domain"
 import {
+  archiveScopeShowsArchived,
   archivedDeviceIsPresent,
   archivedOnlineAlertTitle,
   isDeviceArchived,
+  resolveDeviceArchiveScope,
   shouldSkipQuietAlert,
 } from "./device-archive"
 
@@ -17,6 +19,45 @@ test("archive is a durable timestamp, not a live status", () => {
   assert.equal(isDeviceArchived(undefined), false)
   assert.equal(isDeviceArchived(archivedAt), true)
   assert.equal(isDeviceArchived(archivedAt.toISOString()), true)
+})
+
+test("inventory list hides archived devices unless asked", () => {
+  assert.equal(resolveDeviceArchiveScope(undefined), "active", "no filter")
+  assert.equal(resolveDeviceArchiveScope(null), "active")
+  assert.equal(resolveDeviceArchiveScope([]), "active", "empty filter")
+  assert.equal(
+    resolveDeviceArchiveScope(["maybe"]),
+    "active",
+    "unknown values fall back to the default"
+  )
+  assert.equal(resolveDeviceArchiveScope(["no"]), "active")
+  assert.equal(resolveDeviceArchiveScope("no"), "active", "single value")
+})
+
+test("archived devices are included on request", () => {
+  assert.equal(resolveDeviceArchiveScope(["all"]), "all")
+  assert.equal(resolveDeviceArchiveScope(" ALL "), "all", "case and spacing")
+  assert.equal(
+    resolveDeviceArchiveScope(["no", "yes"]),
+    "all",
+    "both options selected behaves like the toggle"
+  )
+  assert.equal(
+    resolveDeviceArchiveScope(["yes", "all"]),
+    "all",
+    "all wins over a narrower value"
+  )
+  assert.equal(
+    resolveDeviceArchiveScope(["yes"]),
+    "archived",
+    "archived-only view"
+  )
+})
+
+test("archive scope reports whether archived rows are visible", () => {
+  assert.equal(archiveScopeShowsArchived("active"), false)
+  assert.equal(archiveScopeShowsArchived("archived"), true)
+  assert.equal(archiveScopeShowsArchived("all"), true)
 })
 
 test("archived devices skip offline and flap, not other kinds", () => {

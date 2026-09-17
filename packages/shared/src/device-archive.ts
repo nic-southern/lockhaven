@@ -22,6 +22,45 @@ export function isDeviceArchived(archivedAt: Date | string | null | undefined) {
   return archivedAt != null && archivedAt !== ""
 }
 
+/** Values accepted by the `archived` list filter. */
+export const deviceArchiveFilterValues = ["no", "yes", "all"] as const
+export type DeviceArchiveFilterValue =
+  (typeof deviceArchiveFilterValues)[number]
+
+/** What the `archived` list filter resolves to for the query. */
+export type DeviceArchiveScope = "active" | "archived" | "all"
+
+/**
+ * Archived devices stay out of the inventory list unless asked for. An
+ * absent or unrecognized filter therefore means in-service devices only;
+ * `all` (or both `yes` and `no`) opens the list up; `yes` alone narrows to
+ * archived devices.
+ */
+export function resolveDeviceArchiveScope(
+  values: readonly string[] | string | null | undefined
+): DeviceArchiveScope {
+  const list = (Array.isArray(values) ? values : values ? [values] : []).map(
+    (value) => value.trim().toLowerCase()
+  )
+  if (list.includes("all")) {
+    return "all"
+  }
+  const wantsArchived = list.includes("yes")
+  const wantsActive = list.includes("no")
+  if (wantsArchived && wantsActive) {
+    return "all"
+  }
+  if (wantsArchived) {
+    return "archived"
+  }
+  return "active"
+}
+
+/** Whether a resolved archive scope includes archived devices. */
+export function archiveScopeShowsArchived(scope: DeviceArchiveScope) {
+  return scope !== "active"
+}
+
 export function shouldSkipQuietAlert(args: {
   archivedAt: Date | string | null | undefined
   kind: AlertKind
