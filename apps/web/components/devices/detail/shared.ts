@@ -43,6 +43,7 @@ export function useInvalidateDevice(deviceId: string) {
       utils.telemetry.metricsLatest.invalidate(),
       utils.telemetry.metricsSamples.invalidate(),
       utils.telemetry.packages.invalidate(),
+      utils.telemetry.titles.invalidate(),
     ])
   }, [utils, deviceId])
 }

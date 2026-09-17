@@ -117,6 +117,23 @@ export const checkInPackagesSchema = z.object({
 
 export type CheckInPackages = z.infer<typeof checkInPackagesSchema>
 
+export const checkInTitleSchema = z.object({
+  key: z.string().trim().min(1).max(128).optional(),
+  title: z.string().trim().min(1).max(256),
+  build: z.string().trim().max(128).optional(),
+  config_hash: z.string().trim().min(1).max(128).optional(),
+  process_running: z.boolean().optional(),
+  process_name: z.string().trim().min(1).max(256).optional(),
+})
+
+export const checkInTitlesSchema = z.object({
+  collected_at: z.coerce.date().optional(),
+  items: jsonArray(checkInTitleSchema, 64),
+})
+
+export type CheckInTitle = z.infer<typeof checkInTitleSchema>
+export type CheckInTitles = z.infer<typeof checkInTitlesSchema>
+
 /**
  * Hub check-in response. `commands` stays `unknown[]` so a single invalid
  * entry can be refused without dropping the rest of the payload.
@@ -185,6 +202,92 @@ export function inventoryFromCheckIn(
   return [...inventory.values()].sort((left, right) =>
     packageKey(left).localeCompare(packageKey(right))
   )
+}
+
+export type TitleRecord = {
+  key: string
+  title: string
+  build: string
+  configHash: string | null
+  processRunning: boolean | null
+  processName: string | null
+}
+
+export type TitleDiff = {
+  added: TitleRecord[]
+  removed: TitleRecord[]
+  updated: Array<{ previous: TitleRecord; next: TitleRecord }>
+  unchanged: TitleRecord[]
+}
+
+export function titleKey(item: { key?: string; title: string }) {
+  const raw = (item.key?.trim() || item.title).trim().toLowerCase()
+  return raw.slice(0, 128)
+}
+
+export function inventoryFromTitles(payload: CheckInTitles): TitleRecord[] {
+  const inventory = new Map<string, TitleRecord>()
+  for (const item of payload.items) {
+    const key = titleKey(item)
+    if (!key) continue
+    inventory.set(key, {
+      key,
+      title: item.title,
+      build: item.build?.trim() ?? "",
+      configHash: item.config_hash ?? null,
+      processRunning: item.process_running ?? null,
+      processName: item.process_name ?? null,
+    })
+  }
+  return [...inventory.values()].sort((left, right) =>
+    left.key.localeCompare(right.key)
+  )
+}
+
+function titleChanged(previous: TitleRecord, next: TitleRecord) {
+  return (
+    previous.title !== next.title ||
+    previous.build !== next.build ||
+    previous.configHash !== next.configHash ||
+    previous.processRunning !== next.processRunning ||
+    previous.processName !== next.processName
+  )
+}
+
+export function diffTitles(
+  previous: TitleRecord[],
+  next: TitleRecord[]
+): TitleDiff {
+  const previousByKey = new Map(
+    previous.map((item) => [item.key, item] as const)
+  )
+  const nextByKey = new Map(next.map((item) => [item.key, item] as const))
+
+  const added: TitleRecord[] = []
+  const removed: TitleRecord[] = []
+  const updated: TitleDiff["updated"] = []
+  const unchanged: TitleRecord[] = []
+
+  for (const [key, item] of nextByKey) {
+    const prior = previousByKey.get(key)
+    if (!prior) {
+      added.push(item)
+      continue
+    }
+    if (titleChanged(prior, item)) {
+      updated.push({ previous: prior, next: item })
+      continue
+    }
+    unchanged.push(item)
+  }
+
+  for (const [key, item] of previousByKey) {
+    if (!nextByKey.has(key)) {
+      removed.push(item)
+    }
+  }
+
+  return { added, removed, updated, unchanged }
 }
 
 export function diffPackages(

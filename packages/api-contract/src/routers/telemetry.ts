@@ -6,6 +6,7 @@ import {
   deviceMetricsLatest,
   deviceMetricsSamples,
   devicePackages,
+  deviceTitles,
   devices,
 } from "@nms/db"
 
@@ -121,6 +122,47 @@ export const telemetryRouter = createTRPCRouter({
       return {
         rebootRequired: latest?.rebootRequired ?? false,
         collectedAt: latest?.collectedAt ?? null,
+        items: rows,
+      }
+    }),
+  titles: permissionProcedure("device:view")
+    .input(
+      deviceIdInput.extend({
+        search: z.string().trim().max(200).optional(),
+        notRunningOnly: z.boolean().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      await requireViewableDevice(ctx, input.deviceId)
+
+      const rows = await ctx.db
+        .select()
+        .from(deviceTitles)
+        .where(
+          and(
+            eq(deviceTitles.deviceId, input.deviceId),
+            input.search
+              ? or(
+                  ilike(deviceTitles.title, likePattern(input.search)),
+                  ilike(deviceTitles.build, likePattern(input.search)),
+                  ilike(deviceTitles.key, likePattern(input.search)),
+                  ilike(deviceTitles.configHash, likePattern(input.search))
+                )
+              : undefined,
+            input.notRunningOnly
+              ? eq(deviceTitles.processRunning, false)
+              : undefined
+          )
+        )
+        .orderBy(deviceTitles.title)
+
+      const collectedAt = rows.reduce<Date | null>((latest, row) => {
+        if (!latest || row.lastSeenAt > latest) return row.lastSeenAt
+        return latest
+      }, null)
+
+      return {
+        collectedAt,
         items: rows,
       }
     }),

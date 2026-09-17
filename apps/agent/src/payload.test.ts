@@ -25,9 +25,10 @@ test("builds a check-in payload that keeps hostname and secret fields", () => {
   assert.equal(payload.hostname, "kiosk-01")
   assert.equal(payload.metrics, undefined)
   assert.equal(payload.packages, undefined)
+  assert.equal(payload.titles, undefined)
 })
 
-test("includes optional metrics and packages when collected", () => {
+test("includes optional metrics, packages, and titles when collected", () => {
   const payload = buildCheckInPayload({
     ...facts,
     metrics: {
@@ -43,9 +44,23 @@ test("includes optional metrics and packages when collected", () => {
       installed: [{ name: "curl", version: "8.0.0", source: "apt" }],
       available_updates: [],
     },
+    titles: {
+      items: [
+        {
+          key: "cabinet-a",
+          title: "Cabinet A",
+          build: "2026.04.11",
+          config_hash: "abc",
+          process_running: true,
+          process_name: "game-bin",
+        },
+      ],
+    },
   })
   assert.equal(payload.metrics?.uptime_seconds, 12)
   assert.equal(payload.packages?.installed[0]?.name, "curl")
+  assert.equal(payload.titles?.items[0]?.title, "Cabinet A")
+  assert.equal(payload.titles?.items[0]?.process_running, true)
 })
 
 test("rejects a payload that drops the check-in secret", () => {

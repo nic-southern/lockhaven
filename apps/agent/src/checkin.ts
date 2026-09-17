@@ -8,6 +8,7 @@ import { collectHostIdentity } from "./collect/host"
 import { collectMetrics } from "./collect/metrics"
 import { collectPackages } from "./collect/packages"
 import { collectServices } from "./collect/services"
+import { collectTitles } from "./collect/titles"
 import { collectVpn } from "./collect/vpn"
 import {
   createCommandRuntime,
@@ -25,11 +26,12 @@ export async function performCheckIn(state?: AgentState) {
   }
 
   const host = await collectHostIdentity()
-  const [vpn, services, metrics, packages] = await Promise.all([
+  const [vpn, services, metrics, packages, titles] = await Promise.all([
     collectVpn(current.tunnelName, current.vpnIpv4),
     collectServices(host.osFamily),
     collectMetrics(current.tunnelName),
     collectPackages(),
+    collectTitles(),
   ])
 
   const payload = buildCheckInPayload({
@@ -41,6 +43,7 @@ export async function performCheckIn(state?: AgentState) {
     services,
     metrics,
     packages,
+    titles,
     commandResults: current.pendingCommandResults,
   })
 

@@ -4,6 +4,7 @@ The system is a pnpm TypeScript monorepo with these layers:
 
 - `apps/web` serves the dashboard, Better Auth routes, tRPC route handlers, and device endpoints.
 - `apps/lockhaven-agent` is the static Linux and Windows endpoint agent (enroll, attach, check-in).
+  Optional check-in `titles` reports game/cabinet build, config hash, and process status.
 - `apps/agent` is the TypeScript protocol client (macOS wrappers).
 - `apps/worker` runs reconciliation and health jobs.
 - `packages/db` owns the schema and database access.
