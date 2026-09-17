@@ -393,11 +393,15 @@ export async function localSignInBlockedForEmail(email: string | null) {
 }
 
 export function trustedSsoProviderIds(config = getPlatformSsoConfig()) {
-  const ids = [config.providerId]
+  const ids = new Set(
+    [config.providerId, config.clientId, "sso"].filter((id): id is string =>
+      Boolean(id)
+    )
+  )
   if (config.saml.enabled) {
-    ids.push(config.saml.providerId)
+    ids.add(config.saml.providerId)
   }
-  return ids
+  return [...ids]
 }
 
 export async function claimsFromUserAccounts(userId: string) {
@@ -548,6 +552,20 @@ export function ssoGenericOAuthConfig(config = getPlatformSsoConfig()) {
     pkce: true,
     scopes: ["openid", "profile", "email"],
   }
+}
+
+/** Company OpenID under the configured id plus client-id and legacy aliases. */
+export function ssoGenericOAuthConfigs(config = getPlatformSsoConfig()) {
+  const base = ssoGenericOAuthConfig(config)
+  if (!base) {
+    return []
+  }
+  const ids = new Set(
+    [base.providerId, config.clientId, "sso"].filter((id): id is string =>
+      Boolean(id)
+    )
+  )
+  return [...ids].map((providerId) => ({ ...base, providerId }))
 }
 
 export async function ssoUserInfoFromTokens(tokens: {

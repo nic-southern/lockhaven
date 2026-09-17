@@ -12,7 +12,11 @@ import { Separator } from "@/components/ui/separator"
 import { FormField } from "@/components/dashboard/form-field"
 import { authClient, signIn } from "@/lib/auth-client"
 import { getClientProductName } from "@/lib/product-name"
-import { resolveSsoStart, SSO_START_ERROR } from "@/lib/sso-sign-in"
+import {
+  resolveSsoStart,
+  ssoRedirectUrl,
+  SSO_START_ERROR,
+} from "@/lib/sso-sign-in"
 import { trpc } from "@/lib/trpc"
 import { usePasskeySupport } from "@/lib/use-passkey-support"
 
@@ -93,6 +97,11 @@ function SignInForm() {
           callbackURL: nextPath,
           errorCallbackURL: "/sign-in?reason=sso",
         })
+        const ssoUrl = ssoRedirectUrl(result)
+        if (ssoUrl) {
+          window.location.assign(ssoUrl)
+          return
+        }
         if (result?.error) {
           setError(SSO_START_ERROR)
         }
@@ -103,6 +112,11 @@ function SignInForm() {
         callbackURL: nextPath,
         errorCallbackURL: "/sign-in?reason=sso",
       })
+      const oauthUrl = ssoRedirectUrl(result)
+      if (oauthUrl) {
+        window.location.assign(oauthUrl)
+        return
+      }
       if (result?.error) {
         setError(SSO_START_ERROR)
       }

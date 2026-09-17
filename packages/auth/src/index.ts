@@ -27,7 +27,7 @@ import {
   getPlatformSsoConfig,
   localSignInBlockedForEmail,
   provisionSsoLogin,
-  ssoGenericOAuthConfig,
+  ssoGenericOAuthConfigs,
   ssoUserInfoFromTokens,
   trustedSsoProviderIds,
 } from "./sso"
@@ -524,26 +524,24 @@ export const auth = betterAuth({
     ...(isProduction() && process.env.DISABLE_PWNED_PASSWORD_CHECK !== "true"
       ? [haveIBeenPwned()]
       : []),
-    ...(ssoGenericOAuthConfig()
+    ...(ssoGenericOAuthConfigs().length
       ? [
           genericOAuth({
-            config: [
-              {
-                ...ssoGenericOAuthConfig()!,
-                getUserInfo: async (tokens) => {
-                  const result = await ssoUserInfoFromTokens(tokens)
-                  if (!result.ok) {
-                    throw new APIError("FORBIDDEN", {
-                      message:
-                        result.reason === "inactive"
-                          ? "This account is currently suspended. Contact an administrator."
-                          : "Sign in with SSO to continue.",
-                    })
-                  }
-                  return result.user
-                },
+            config: ssoGenericOAuthConfigs().map((oauthConfig) => ({
+              ...oauthConfig,
+              getUserInfo: async (tokens) => {
+                const result = await ssoUserInfoFromTokens(tokens)
+                if (!result.ok) {
+                  throw new APIError("FORBIDDEN", {
+                    message:
+                      result.reason === "inactive"
+                        ? "This account is currently suspended. Contact an administrator."
+                        : "Sign in with SSO to continue.",
+                  })
+                }
+                return result.user
               },
-            ],
+            })),
           }),
         ]
       : []),

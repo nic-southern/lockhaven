@@ -52,3 +52,15 @@ export function resolveSsoStart(input: {
     providerId: providerId ?? PLATFORM_SSO_PROVIDER_ID_DEFAULT,
   }
 }
+
+export function ssoRedirectUrl(result: unknown) {
+  if (!result || typeof result !== "object" || !("data" in result)) {
+    return null
+  }
+  const data = (result as { data?: unknown }).data
+  if (!data || typeof data !== "object" || !("url" in data)) {
+    return null
+  }
+  const url = (data as { url?: unknown }).url
+  return typeof url === "string" && url.trim() ? url : null
+}

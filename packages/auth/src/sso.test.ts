@@ -7,6 +7,7 @@ import {
   platformSignInTarget,
   platformSsoConfigFromEnv,
   publicSsoStartTarget,
+  ssoGenericOAuthConfigs,
 } from "./sso"
 
 test("enables company OIDC only when the client secret is set", () => {
@@ -42,12 +43,28 @@ test("defaults to optional SSO so password sign-in stays available", () => {
   assert.equal(config.required, false)
 })
 
+test("registers company OpenID under the client id and the legacy sso id", () => {
+  const configs = ssoGenericOAuthConfigs(
+    platformSsoConfigFromEnv({
+      SSO_OIDC_CLIENT_SECRET: "a-real-secret",
+    })
+  )
+  assert.deepEqual(configs.map((entry) => entry.providerId).sort(), [
+    "lockhaven",
+    "sso",
+  ])
+  assert.equal(
+    configs.every((entry) => entry.clientId === "lockhaven"),
+    true
+  )
+})
+
 test("company OpenID is the default Sign in with SSO target without email", () => {
   const oidc = platformSsoConfigFromEnv({
     SSO_OIDC_CLIENT_SECRET: "a-real-secret",
   })
   assert.deepEqual(platformSignInTarget(oidc), {
-    providerId: "sso",
+    providerId: "lockhaven",
     signInMethod: "oauth2",
     protocol: "oidc",
   })
@@ -87,7 +104,7 @@ test("uses company OpenID for Sign in with SSO when only org SSO is on", () => {
       },
     ]),
     {
-      providerId: "sso",
+      providerId: "lockhaven",
       signInMethod: "oauth2",
       protocol: "oidc",
     }
@@ -169,5 +186,5 @@ test("falls back to company OpenID when no organization domain matches", () => {
   assert.equal(policy?.usePlatformIdp, true)
   assert.equal(policy?.signInMethod, "oauth2")
   assert.equal(policy?.required, true)
-  assert.equal(policy?.providerId, "sso")
+  assert.equal(policy?.providerId, "lockhaven")
 })
