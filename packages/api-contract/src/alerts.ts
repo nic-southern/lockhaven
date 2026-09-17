@@ -154,9 +154,17 @@ export async function raiseAlert(input: RaiseAlertInput) {
         now.getTime() - existing.lastSeenAt.getTime() <
         CONDITION_TOUCH_INTERVAL_MS
       if (!fresh) {
+        // A condition's summary can change while it stays open (fewer
+        // volumes tripped), so refresh the title alongside the detail.
         await db
           .update(alerts)
-          .set({ lastSeenAt: now, updatedAt: now, severity, detail })
+          .set({
+            lastSeenAt: now,
+            updatedAt: now,
+            severity,
+            detail,
+            ...(input.title ? { title } : {}),
+          })
           .where(eq(alerts.id, existing.id))
       }
       return { id: existing.id, created: false as const }
