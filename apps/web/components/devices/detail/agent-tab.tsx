@@ -135,8 +135,8 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
         title="Install on this device"
         description={
           reporting
-            ? "Use this if you need to reinstall the agent. It stays attached to this listing."
-            : "Install the agent on this machine. It joins this listing instead of creating a new one."
+            ? "Use this if you need to reinstall the agent. It stays on this device."
+            : "Install the agent on this machine. It attaches to this device instead of creating a new one."
         }
       >
         {canEnroll ? (
@@ -148,8 +148,8 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
               </p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Create a command, then run it on the device. The listing id is
-                included so install binds here even if the host name is shared.
+                Create a command, then run it on the device. It stays on this
+                device even if another machine shares the same name.
               </p>
             )}
             <Button
