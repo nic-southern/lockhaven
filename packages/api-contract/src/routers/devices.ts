@@ -38,6 +38,7 @@ import {
   entriesFromRoutes,
   parseDeviceBulkCsv,
   archivedDeviceIsPresent,
+  resolveDeviceArchiveScope,
   type DeviceConnectivity,
   type DeviceStatus,
 } from "@nms/shared"
@@ -146,19 +147,19 @@ function withNone(values: string[], column: AnyPgColumn) {
   return inArray(column, concrete)
 }
 
-function archivedFilter(values: string[] | undefined) {
-  const archived = (values ?? []).filter(
-    (value) => value === "yes" || value === "no"
-  )
-  const wantsArchived = archived.includes("yes")
-  const wantsActive = archived.includes("no")
-  if (wantsArchived && !wantsActive) {
-    return isNotNull(devices.archivedAt)
+/**
+ * Archived devices are hidden by default; the `archived` filter opens them
+ * up (`all`) or narrows to them (`yes`). See `resolveDeviceArchiveScope`.
+ */
+function archivedFilter(values: readonly string[] | undefined) {
+  switch (resolveDeviceArchiveScope(values)) {
+    case "archived":
+      return isNotNull(devices.archivedAt)
+    case "all":
+      return undefined
+    default:
+      return isNull(devices.archivedAt)
   }
-  if (wantsActive && !wantsArchived) {
-    return isNull(devices.archivedAt)
-  }
-  return undefined
 }
 
 /** Translates a resolved list query into WHERE conditions for the devices join. */
@@ -428,86 +429,103 @@ export const devicesRouter = createTRPCRouter({
     }),
   /**
    * Option counts for the filter bar. Counts reflect the actor's scope, not
-   * the current filters, so options never disappear while narrowing.
+   * the current filters, so options never disappear while narrowing. The one
+   * exception is the archive scope: archived devices are hidden from the
+   * list by default, so they stay out of the counts until the caller asks
+   * for them. The `archived` breakdown itself always covers the whole scope
+   * so the "show archived" control can say how many there are.
    */
-  facets: permissionProcedure("device:view").query(async ({ ctx }) => {
-    const scope = deviceScopeCondition(ctx.actor)
-    const empty = {
-      status: [] as Array<{ value: string; count: number }>,
-      connectivity: [] as Array<{ value: string; count: number }>,
-      siteId: [] as Array<{ value: string; label: string; count: number }>,
-      osFamily: [] as Array<{ value: string; count: number }>,
-      routePolicyId: [] as Array<{
-        value: string
-        label: string
-        count: number
-      }>,
-      tags: [] as Array<{ value: string; count: number }>,
-      agentVersion: [] as Array<{ value: string; count: number }>,
-      behind: [] as Array<{ value: string; count: number }>,
-      archived: [] as Array<{ value: string; count: number }>,
-    }
-    if (scope.kind === "none") {
-      return empty
-    }
-    const where = scope.kind === "where" ? scope.condition : undefined
-
-    const grouped = <T extends SQL>(expression: T) =>
-      ctx.db
-        .select({ value: expression, total: count() })
-        .from(devices)
-        .leftJoin(sites, eq(sites.id, devices.siteId))
-        .leftJoin(organizations, eq(organizations.id, devices.organizationId))
-        .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
-        .where(where)
-        .groupBy(expression)
-
-    const releases = await loadReleasePicks(ctx)
-    const behindExpr = deviceBehindSql(releases)
-
-    const [
-      statusRows,
-      connectivityRows,
-      siteRows,
-      osRows,
-      policyRows,
-      tagRows,
-      agentRows,
-      behindRows,
-      archivedRows,
-    ] = await Promise.all([
-      grouped(sql<string>`${devices.status}::text`),
-      grouped(connectivityExpression()),
-      ctx.db
-        .select({
-          value: sql<string>`coalesce(${devices.siteId}::text, 'none')`,
-          label: sql<string>`coalesce(${sites.name}, 'No site')`,
-          total: count(),
+  facets: permissionProcedure("device:view")
+    .input(
+      z
+        .object({
+          archived: z.array(z.string().max(16)).max(4).optional(),
         })
-        .from(devices)
-        .leftJoin(sites, eq(sites.id, devices.siteId))
-        .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
-        .where(where)
-        .groupBy(devices.siteId, sites.name),
-      grouped(sql<string>`coalesce(${devices.osFamily}, 'unknown')`),
-      ctx.db
-        .select({
-          value: sql<string>`coalesce(${vpnIdentities.routePolicyId}::text, 'none')`,
-          label: sql<string>`coalesce(${routePolicies.name}, 'No policy')`,
-          total: count(),
-        })
-        .from(devices)
-        .leftJoin(sites, eq(sites.id, devices.siteId))
-        .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
-        .leftJoin(
-          routePolicies,
-          eq(routePolicies.id, vpnIdentities.routePolicyId)
-        )
-        .where(where)
-        .groupBy(vpnIdentities.routePolicyId, routePolicies.name),
-      ctx.db
-        .execute<{ value: string; total: number }>(
-          sql`select tag as value, count(*)::int as total
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const scope = deviceScopeCondition(ctx.actor)
+      const empty = {
+        status: [] as Array<{ value: string; count: number }>,
+        connectivity: [] as Array<{ value: string; count: number }>,
+        siteId: [] as Array<{ value: string; label: string; count: number }>,
+        osFamily: [] as Array<{ value: string; count: number }>,
+        routePolicyId: [] as Array<{
+          value: string
+          label: string
+          count: number
+        }>,
+        tags: [] as Array<{ value: string; count: number }>,
+        agentVersion: [] as Array<{ value: string; count: number }>,
+        behind: [] as Array<{ value: string; count: number }>,
+        archived: [] as Array<{ value: string; count: number }>,
+      }
+      if (scope.kind === "none") {
+        return empty
+      }
+      const scopeWhere = scope.kind === "where" ? scope.condition : undefined
+      const archiveCondition = archivedFilter(input?.archived)
+      const where =
+        scopeWhere && archiveCondition
+          ? and(scopeWhere, archiveCondition)
+          : (archiveCondition ?? scopeWhere)
+
+      const grouped = <T extends SQL>(expression: T) =>
+        ctx.db
+          .select({ value: expression, total: count() })
+          .from(devices)
+          .leftJoin(sites, eq(sites.id, devices.siteId))
+          .leftJoin(organizations, eq(organizations.id, devices.organizationId))
+          .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+          .where(where)
+          .groupBy(expression)
+
+      const releases = await loadReleasePicks(ctx)
+      const behindExpr = deviceBehindSql(releases)
+
+      const [
+        statusRows,
+        connectivityRows,
+        siteRows,
+        osRows,
+        policyRows,
+        tagRows,
+        agentRows,
+        behindRows,
+        archivedRows,
+      ] = await Promise.all([
+        grouped(sql<string>`${devices.status}::text`),
+        grouped(connectivityExpression()),
+        ctx.db
+          .select({
+            value: sql<string>`coalesce(${devices.siteId}::text, 'none')`,
+            label: sql<string>`coalesce(${sites.name}, 'No site')`,
+            total: count(),
+          })
+          .from(devices)
+          .leftJoin(sites, eq(sites.id, devices.siteId))
+          .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+          .where(where)
+          .groupBy(devices.siteId, sites.name),
+        grouped(sql<string>`coalesce(${devices.osFamily}, 'unknown')`),
+        ctx.db
+          .select({
+            value: sql<string>`coalesce(${vpnIdentities.routePolicyId}::text, 'none')`,
+            label: sql<string>`coalesce(${routePolicies.name}, 'No policy')`,
+            total: count(),
+          })
+          .from(devices)
+          .leftJoin(sites, eq(sites.id, devices.siteId))
+          .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+          .leftJoin(
+            routePolicies,
+            eq(routePolicies.id, vpnIdentities.routePolicyId)
+          )
+          .where(where)
+          .groupBy(vpnIdentities.routePolicyId, routePolicies.name),
+        ctx.db
+          .execute<{ value: string; total: number }>(
+            sql`select tag as value, count(*)::int as total
               from ${devices}
               left join ${sites} on ${sites.id} = ${devices.siteId}
               left join ${organizations} on ${organizations.id} = ${devices.organizationId}
@@ -515,44 +533,54 @@ export const devicesRouter = createTRPCRouter({
               cross join unnest(${devices.tags}) as tag
               ${where ? sql`where ${where}` : sql``}
               group by tag`
-        )
-        .then((result) => result.rows),
-      grouped(sql<string>`coalesce(${devices.agentVersion}, 'unknown')`),
-      grouped(
-        sql<string>`case when ${behindExpr} then 'true' else 'false' end`
-      ),
-      grouped(
-        sql<string>`case when ${devices.archivedAt} is not null then 'yes' else 'no' end`
-      ),
-    ])
+          )
+          .then((result) => result.rows),
+        grouped(sql<string>`coalesce(${devices.agentVersion}, 'unknown')`),
+        grouped(
+          sql<string>`case when ${behindExpr} then 'true' else 'false' end`
+        ),
+        ctx.db
+          .select({
+            value: sql<string>`case when ${devices.archivedAt} is not null then 'yes' else 'no' end`,
+            total: count(),
+          })
+          .from(devices)
+          .where(scopeWhere)
+          .groupBy(
+            sql`case when ${devices.archivedAt} is not null then 'yes' else 'no' end`
+          ),
+      ])
 
-    const plain = (rows: Array<{ value: string; total: number }>) =>
-      rows
-        .map((row) => ({ value: String(row.value), count: Number(row.total) }))
-        .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
-    const labelled = (
-      rows: Array<{ value: string; label: string; total: number }>
-    ) =>
-      rows
-        .map((row) => ({
-          value: String(row.value),
-          label: String(row.label),
-          count: Number(row.total),
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label))
+      const plain = (rows: Array<{ value: string; total: number }>) =>
+        rows
+          .map((row) => ({
+            value: String(row.value),
+            count: Number(row.total),
+          }))
+          .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+      const labelled = (
+        rows: Array<{ value: string; label: string; total: number }>
+      ) =>
+        rows
+          .map((row) => ({
+            value: String(row.value),
+            label: String(row.label),
+            count: Number(row.total),
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label))
 
-    return {
-      status: plain(statusRows),
-      connectivity: plain(connectivityRows),
-      siteId: labelled(siteRows),
-      osFamily: plain(osRows),
-      routePolicyId: labelled(policyRows),
-      tags: plain(tagRows),
-      agentVersion: plain(agentRows),
-      behind: plain(behindRows),
-      archived: plain(archivedRows),
-    }
-  }),
+      return {
+        status: plain(statusRows),
+        connectivity: plain(connectivityRows),
+        siteId: labelled(siteRows),
+        osFamily: plain(osRows),
+        routePolicyId: labelled(policyRows),
+        tags: plain(tagRows),
+        agentVersion: plain(agentRows),
+        behind: plain(behindRows),
+        archived: plain(archivedRows),
+      }
+    }),
   /** Same filters as `page`, capped, for CSV download. */
   export: permissionProcedure("device:view")
     .input(listQuerySchema.omit({ cursor: true, limit: true }).optional())
