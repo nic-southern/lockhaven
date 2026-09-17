@@ -48,6 +48,7 @@ import { sessionsTerminate } from "./routers/sessions-terminate"
 import { accessRequestsRouter } from "./routers/access-requests"
 import { systemRouter } from "./routers/system"
 import { telemetryRouter } from "./routers/telemetry"
+import { ticketsRouter } from "./routers/tickets"
 import { usersRouter } from "./routers/users"
 import { ssoRouter } from "./routers/sso"
 import { getRemoteAccessProvider } from "./remote-session-provider"
@@ -1001,6 +1002,7 @@ export const appRouter = createTRPCRouter({
   users: usersRouter,
   apiKeys: apiKeysRouter,
   notifications: notificationsRouter,
+  tickets: ticketsRouter,
   sso: ssoRouter,
   reports: reportsRouter,
   fleet: fleetRouter,

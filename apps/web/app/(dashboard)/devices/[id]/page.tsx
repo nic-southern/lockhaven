@@ -8,7 +8,7 @@ import {
   useRouter,
   useSearchParams,
 } from "next/navigation"
-import { ArrowLeftIcon } from "lucide-react"
+import { ArrowLeftIcon, TicketIcon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -29,6 +29,7 @@ import { ServicesTab } from "@/components/devices/detail/services-tab"
 import { SettingsTab } from "@/components/devices/detail/settings-tab"
 import { SoftwareTab } from "@/components/devices/detail/software-tab"
 import { type DeviceTab, isDeviceTab } from "@/components/devices/detail/shared"
+import { OpenDeviceTicketDialog } from "@/components/tickets/open-ticket-dialog"
 import { statusLabel, statusVariant, formatRelativeTime } from "@/lib/dashboard"
 import { osFamilyLabel } from "@/lib/devices"
 import { trpc } from "@/lib/trpc"
@@ -71,6 +72,7 @@ function DeviceDetail() {
   const searchParams = useSearchParams()
   const { can, isLoading: permissionsLoading } = usePermissions()
   const deviceId = params.id
+  const [ticketOpen, setTicketOpen] = React.useState(false)
 
   const requestedTab = searchParams.get("tab")
   const tab: DeviceTab = isDeviceTab(requestedTab) ? requestedTab : "overview"
@@ -230,6 +232,12 @@ function DeviceDetail() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {can("device:update") ? (
+              <Button variant="outline" onClick={() => setTicketOpen(true)}>
+                <TicketIcon />
+                Open ticket
+              </Button>
+            ) : null}
             {activeTab !== "connect" ? (
               <Button onClick={() => setTab("connect")}>Connect</Button>
             ) : null}
@@ -281,6 +289,17 @@ function DeviceDetail() {
           <SettingsTab device={device} />
         )}
       </div>
+
+      {can("device:update") ? (
+        <OpenDeviceTicketDialog
+          key={device.id}
+          deviceId={device.id}
+          deviceName={device.displayName}
+          siteName={device.siteName}
+          open={ticketOpen}
+          onOpenChange={setTicketOpen}
+        />
+      ) : null}
     </div>
   )
 }
