@@ -7,10 +7,12 @@ import {
   agentStaleState,
   agentStaleWindowStart,
   diskFullAlertTitle,
+  diskFullThresholdsFrom,
   diskReadingFromStored,
-  findFullDisks,
+  evaluateDiskFull as evaluateDisks,
   formatBytes,
   type DiskReading,
+  type SkippedDisk,
 } from "@nms/shared"
 
 import { alertKeys, raiseAlert, resolveAlert } from "./alerts"
@@ -58,6 +60,18 @@ async function resolveIfOpen(
   openKeys.delete(key)
 }
 
+function skippedDiskDetail(disk: SkippedDisk) {
+  return {
+    mount: disk.mount,
+    filesystem: disk.filesystem ?? null,
+    label: disk.label ?? null,
+    usedPercent: disk.usedPercent,
+    available: formatBytes(disk.availableBytes),
+    total: formatBytes(disk.totalBytes),
+    skipped: disk.skipped,
+  }
+}
+
 async function evaluateDiskFull(
   state: LifecycleState,
   openKeys: Set<string>,
@@ -78,13 +92,19 @@ async function evaluateDiskFull(
     device.organizationId,
     device.siteId
   )
-  const full = findFullDisks(readings, {
-    usedPercent: policy.diskUsedPercent,
-    freeBytes: policy.diskFreeBytes,
-  })
+  const thresholds = diskFullThresholdsFrom(policy)
+  const { full, skipped } = evaluateDisks(readings, thresholds)
 
   if (full.length === 0) {
-    await resolveIfOpen(openKeys, key, { resolvedReason: "space_recovered" })
+    // An alert that only ever pointed at excluded volumes (boot, firmware,
+    // recovery, or one too small for the floor) was never a real outage.
+    await resolveIfOpen(openKeys, key, {
+      resolvedReason:
+        skipped.length > 0 ? "volume_excluded" : "space_recovered",
+      ...(skipped.length > 0
+        ? { excludedDisks: skipped.map(skippedDiskDetail) }
+        : {}),
+    })
     return
   }
 
@@ -99,11 +119,13 @@ async function evaluateDiskFull(
     detail: {
       device: displayName,
       collectedAt: device.metricsCollectedAt?.toISOString() ?? null,
-      usedPercentThreshold: policy.diskUsedPercent,
-      freeBytesThreshold: policy.diskFreeBytes,
+      usedPercentThreshold: thresholds.usedPercent,
+      freeBytesThreshold: thresholds.freeBytes,
+      floorMinTotalBytes: thresholds.floorMinTotalBytes,
       disks: full.map((disk) => ({
         mount: disk.mount,
         filesystem: disk.filesystem ?? null,
+        label: disk.label ?? null,
         usedPercent: disk.usedPercent,
         availableBytes: disk.availableBytes,
         totalBytes: disk.totalBytes,

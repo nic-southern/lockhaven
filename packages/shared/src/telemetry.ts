@@ -63,6 +63,7 @@ function jsonArray<T extends z.ZodType>(item: T, max: number) {
 export const checkInDiskSchema = z.object({
   mount: z.string().trim().min(1).max(256),
   filesystem: z.string().trim().min(1).max(64).optional(),
+  label: z.string().trim().min(1).max(128).optional(),
   total_bytes: z.number().int().nonnegative(),
   used_bytes: z.number().int().nonnegative(),
   available_bytes: z.number().int().nonnegative(),
