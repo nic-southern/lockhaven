@@ -34,6 +34,13 @@ type PkgUpdate struct {
 	Source           string `json:"source"`
 }
 
+func nonempty[T any](in []T) []T {
+	if in == nil {
+		return []T{}
+	}
+	return in
+}
+
 func ParseDfKp(output string) []Disk {
 	var disks []Disk
 	lines := strings.Split(output, "\n")
@@ -68,7 +75,7 @@ func ParseDfKp(output string) []Disk {
 			AvailableBytes: availableKb * 1024,
 		})
 	}
-	return disks
+	return nonempty(disks)
 }
 
 func ParseProcNetDev(output string) []NetworkIface {
@@ -107,7 +114,7 @@ func ParseProcNetDev(output string) []NetworkIface {
 			TxPackets: txPackets,
 		})
 	}
-	return ifaces
+	return nonempty(ifaces)
 }
 
 type Memory struct {
@@ -156,7 +163,7 @@ func ParseDpkgQuery(output, source string) []Pkg {
 		}
 		packages = append(packages, Pkg{Name: name, Version: version, Source: source})
 	}
-	return packages
+	return nonempty(packages)
 }
 
 func ParseRpmQa(output string) []Pkg {
@@ -191,7 +198,7 @@ func ParseAptUpgradable(output string) []PkgUpdate {
 			Source:           "apt",
 		})
 	}
-	return updates
+	return nonempty(updates)
 }
 
 func ParseListeningPorts(ssOutput string) map[int]struct{} {

@@ -4,11 +4,13 @@ import test from "node:test"
 import { checkInSchema } from "./domain"
 import {
   agentCommandSchema,
+  checkInIssuePaths,
   checkInResponseSchema,
   diffPackages,
   encodeHubCommands,
   hubCheckInResponse,
   inventoryFromCheckIn,
+  requestedDeviceIdFromUnknown,
   resolveAgentCommand,
   resolveAgentCommands,
   type PackageRecord,
@@ -104,6 +106,56 @@ test("check-in payload rejects invalid metrics", () => {
     },
   })
   assert.equal(parsed.success, false)
+})
+
+test("check-in payload treats JSON null telemetry arrays as empty", () => {
+  const parsed = checkInSchema.safeParse({
+    ...validCheckIn,
+    metrics: {
+      uptime_seconds: 10,
+      cpu: { load1: 0, load5: 0, load15: 0 },
+      memory: { total_bytes: 1, available_bytes: 1, used_bytes: 1 },
+      disks: null,
+      network: null,
+    },
+    packages: {
+      reboot_required: false,
+      installed: [],
+      available_updates: null,
+    },
+  })
+  assert.equal(parsed.success, true)
+  if (parsed.success) {
+    assert.deepEqual(parsed.data.metrics?.disks, [])
+    assert.deepEqual(parsed.data.metrics?.network, [])
+    assert.deepEqual(parsed.data.packages?.available_updates, [])
+  }
+})
+
+test("invalid payload still exposes device_id and field paths, not values", () => {
+  assert.equal(
+    requestedDeviceIdFromUnknown({
+      ...validCheckIn,
+      check_in_secret: "must-not-appear-in-issue-paths",
+    }),
+    "11111111-1111-4111-8111-111111111111"
+  )
+  assert.equal(requestedDeviceIdFromUnknown(null), null)
+  assert.equal(requestedDeviceIdFromUnknown({ device_id: "not-a-uuid" }), null)
+
+  const parsed = checkInSchema.safeParse({
+    ...validCheckIn,
+    vpn: { interface_up: true, vpn_ipv4: "" },
+  })
+  assert.equal(parsed.success, false)
+  if (!parsed.success) {
+    const paths = checkInIssuePaths(parsed.error)
+    assert.ok(paths.includes("vpn.vpn_ipv4"))
+    assert.equal(
+      JSON.stringify(paths).includes("must-not-appear-in-issue-paths"),
+      false
+    )
+  }
 })
 
 test("package inventory merges installed rows with available updates", () => {

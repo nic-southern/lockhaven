@@ -43,6 +43,17 @@ export const checkInCommandResultsSchema = z
   .array(agentCommandResultSchema)
   .max(32)
 
+/**
+ * Go nil slices marshal as JSON null. Zod `.default([])` only fills missing
+ * keys, so treat null the same as [] and keep check-in from failing.
+ */
+function jsonArray<T extends z.ZodType>(item: T, max: number) {
+  return z.preprocess(
+    (value) => (value == null ? [] : value),
+    z.array(item).max(max)
+  )
+}
+
 export const checkInDiskSchema = z.object({
   mount: z.string().trim().min(1).max(256),
   filesystem: z.string().trim().min(1).max(64).optional(),
@@ -73,8 +84,8 @@ export const checkInMetricsSchema = z.object({
     available_bytes: z.number().int().nonnegative(),
     used_bytes: z.number().int().nonnegative(),
   }),
-  disks: z.array(checkInDiskSchema).max(64).default([]),
-  network: z.array(checkInNetworkInterfaceSchema).max(64).default([]),
+  disks: jsonArray(checkInDiskSchema, 64),
+  network: jsonArray(checkInNetworkInterfaceSchema, 64),
   wireguard: z
     .object({
       handshake_age_seconds: z.number().int().nonnegative().nullable(),
@@ -100,8 +111,8 @@ export const checkInPackageUpdateSchema = z.object({
 export const checkInPackagesSchema = z.object({
   collected_at: z.coerce.date().optional(),
   reboot_required: z.boolean().default(false),
-  installed: z.array(checkInPackageSchema).max(5000).default([]),
-  available_updates: z.array(checkInPackageUpdateSchema).max(2000).default([]),
+  installed: jsonArray(checkInPackageSchema, 5000),
+  available_updates: jsonArray(checkInPackageUpdateSchema, 2000),
 })
 
 export type CheckInPackages = z.infer<typeof checkInPackagesSchema>
@@ -278,6 +289,27 @@ export function resolveAgentCommand(input: unknown): ResolvedAgentCommand {
       detail,
     },
   }
+}
+
+const DEVICE_ID_IN_BODY = z.string().uuid()
+
+/** Read `device_id` from a body that failed full check-in validation. */
+export function requestedDeviceIdFromUnknown(value: unknown) {
+  if (!value || typeof value !== "object") return null
+  const id = (value as { device_id?: unknown }).device_id
+  const parsed = DEVICE_ID_IN_BODY.safeParse(id)
+  return parsed.success ? parsed.data : null
+}
+
+/** Field paths only — never issue values (secrets live in this payload). */
+export function checkInIssuePaths(error: z.ZodError) {
+  const paths: string[] = []
+  for (const issue of error.issues) {
+    const path = issue.path.join(".")
+    if (path) paths.push(path)
+    if (paths.length >= 32) break
+  }
+  return paths
 }
 
 export function resolveAgentCommands(inputs: unknown[] | undefined) {
