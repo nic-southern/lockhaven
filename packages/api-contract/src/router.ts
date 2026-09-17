@@ -41,6 +41,8 @@ import { networkRouter } from "./routers/network"
 import { notificationsRouter } from "./routers/notifications"
 import { reportsRouter } from "./routers/reports"
 import { fleetRouter } from "./routers/fleet"
+import { cancelAfterHoursRun } from "./after-hours-engine"
+import { afterHoursRouter } from "./routers/after-hours"
 import { playbooksRouter } from "./routers/playbooks"
 import { agentModulesRouter } from "./routers/agent-modules"
 import { routePoliciesRouter } from "./routers/route-policies"
@@ -77,6 +79,7 @@ import {
   organizationSshCredentials,
   remoteSessions,
   routePolicies,
+  siteAfterHoursRuns,
   siteMemberships,
   siteSshCredentials,
   sites,
@@ -92,6 +95,7 @@ import {
   type EncryptedSecret,
 } from "@nms/remote-access"
 import {
+  afterHoursStepsSchema,
   BROWSER_CONNECTION_METHOD,
   enrollmentTokenCreateSchema,
   enrollmentTokenUpdateSchema,
@@ -600,6 +604,9 @@ const siteCreateInput = z.object({
   businessHours: siteBusinessHoursSchema.nullable().optional(),
   requireAccessReason: z.boolean().optional(),
   requireApproval: z.boolean().optional(),
+  afterHoursEnabled: z.boolean().optional(),
+  afterHoursSteps: afterHoursStepsSchema.optional(),
+  afterHoursRequireApproval: z.boolean().optional(),
 })
 
 const siteUpdateInput = z.object({
@@ -612,7 +619,32 @@ const siteUpdateInput = z.object({
   businessHours: siteBusinessHoursSchema.nullable().optional(),
   requireAccessReason: z.boolean().optional(),
   requireApproval: z.boolean().optional(),
+  afterHoursEnabled: z.boolean().optional(),
+  afterHoursSteps: afterHoursStepsSchema.optional(),
+  afterHoursRequireApproval: z.boolean().optional(),
 })
+
+function requireHoursForAfterHoursRuns(
+  enabled: boolean | undefined,
+  timezone: string | null | undefined,
+  hours: z.infer<typeof siteBusinessHoursSchema> | null | undefined,
+  steps: readonly string[] | undefined
+) {
+  if (!enabled) return
+  if (!hasConfiguredSiteHours(hours)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Set open and close hours before turning on after-hours runs.",
+    })
+  }
+  requireTimezoneForSiteHours(timezone, hours)
+  if (steps !== undefined && steps.length === 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Choose at least one step for after-hours runs.",
+    })
+  }
+}
 
 function requireTimezoneForSiteHours(
   timezone: string | null | undefined,
@@ -1023,6 +1055,7 @@ export const appRouter = createTRPCRouter({
   reports: reportsRouter,
   fleet: fleetRouter,
   playbooks: playbooksRouter,
+  afterHours: afterHoursRouter,
   agentModules: agentModulesRouter,
   assets: assetsRouter,
   customFields: customFieldsRouter,
@@ -1160,6 +1193,12 @@ export const appRouter = createTRPCRouter({
           organizationId: input.organizationId,
         })
         requireTimezoneForSiteHours(input.timezone, input.businessHours)
+        requireHoursForAfterHoursRuns(
+          input.afterHoursEnabled,
+          input.timezone,
+          input.businessHours,
+          input.afterHoursSteps
+        )
 
         const [record] = await ctx.db
           .insert(sites)
@@ -1173,6 +1212,11 @@ export const appRouter = createTRPCRouter({
             businessHours: input.businessHours ?? null,
             requireAccessReason: input.requireAccessReason ?? false,
             requireApproval: input.requireApproval ?? false,
+            afterHoursEnabled: input.afterHoursEnabled ?? false,
+            ...(input.afterHoursSteps === undefined
+              ? {}
+              : { afterHoursSteps: input.afterHoursSteps }),
+            afterHoursRequireApproval: input.afterHoursRequireApproval ?? false,
           })
           .returning()
         const keyPair = generateSiteSshKeyPair(
@@ -1216,6 +1260,14 @@ export const appRouter = createTRPCRouter({
           organizationId: existing.organizationId,
         })
         requireTimezoneForSiteHours(input.timezone, input.businessHours)
+        const afterHoursEnabled =
+          input.afterHoursEnabled ?? existing.afterHoursEnabled
+        requireHoursForAfterHoursRuns(
+          afterHoursEnabled,
+          input.timezone,
+          input.businessHours,
+          input.afterHoursSteps ?? existing.afterHoursSteps
+        )
 
         const [record] = await ctx.db
           .update(sites)
@@ -1232,6 +1284,15 @@ export const appRouter = createTRPCRouter({
             ...(input.requireApproval === undefined
               ? {}
               : { requireApproval: input.requireApproval }),
+            ...(input.afterHoursEnabled === undefined
+              ? {}
+              : { afterHoursEnabled: input.afterHoursEnabled }),
+            ...(input.afterHoursSteps === undefined
+              ? {}
+              : { afterHoursSteps: input.afterHoursSteps }),
+            ...(input.afterHoursRequireApproval === undefined
+              ? {}
+              : { afterHoursRequireApproval: input.afterHoursRequireApproval }),
           })
           .where(eq(sites.id, input.id))
           .returning()
@@ -1244,8 +1305,34 @@ export const appRouter = createTRPCRouter({
             name: record.name,
             requireAccessReason: record.requireAccessReason,
             requireApproval: record.requireApproval,
+            afterHoursEnabled: record.afterHoursEnabled,
+            afterHoursSteps: record.afterHoursSteps,
+            afterHoursRequireApproval: record.afterHoursRequireApproval,
           },
         })
+
+        if (existing.afterHoursEnabled && !record.afterHoursEnabled) {
+          const active = await ctx.db
+            .select()
+            .from(siteAfterHoursRuns)
+            .where(
+              and(
+                eq(siteAfterHoursRuns.siteId, record.id),
+                inArray(siteAfterHoursRuns.status, [
+                  "pending_approval",
+                  "queued",
+                ])
+              )
+            )
+          for (const run of active) {
+            await cancelAfterHoursRun(ctx.db, {
+              run,
+              siteName: record.name,
+              reason: "schedule_disabled",
+              actorUserId: ctx.actor?.id ?? null,
+            })
+          }
+        }
 
         const [sshCredential] = await ctx.db
           .select()

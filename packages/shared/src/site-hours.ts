@@ -170,10 +170,13 @@ export function siteOpenState(
   const yesterdayKey = calendarDateKey(yesterdayParts)
   const yesterdayHoliday = holidayOnDate(hours.holidays, yesterdayKey)
   const yesterdayWeekday = (parts.weekday + 6) % 7
-  const yesterdayWindow = windowForWeekday(hours, yesterdayWeekday)
+  const yesterdayWindow = yesterdayHoliday
+    ? holidayClosedAllDay(yesterdayHoliday)
+      ? null
+      : asHoursWindow(yesterdayHoliday)
+    : windowForWeekday(hours, yesterdayWeekday)
 
   if (
-    !yesterdayHoliday &&
     yesterdayWindow &&
     isOvernightWindow(yesterdayWindow) &&
     minutes < (parseMinutes(yesterdayWindow.close) ?? 0)
@@ -184,7 +187,24 @@ export function siteOpenState(
   const todayWindow = windowForWeekday(hours, parts.weekday)
   if (!todayWindow) return false
   if (isTwentyFourHourWindow(todayWindow)) return true
-  return windowCoversMinutes(todayWindow, minutes)
+  return todayPortionCoversMinutes(todayWindow, minutes)
+}
+
+/**
+ * The part of a window that belongs to its own calendar day. An overnight
+ * window (close earlier than open) covers open -> midnight today; the
+ * midnight -> close part belongs to the next day and is handled as
+ * yesterday's spill there.
+ */
+function todayPortionCoversMinutes(window: SiteHoursWindow, minutes: number) {
+  const open = parseMinutes(window.open)
+  const close = parseMinutes(window.close)
+  if (open == null || close == null) return false
+  if (open === close) return true
+  if (close > open) {
+    return minutes >= open && minutes < close
+  }
+  return minutes >= open
 }
 
 /** Offline/down that begins while closed is not opened. Maintenance still suppresses. */

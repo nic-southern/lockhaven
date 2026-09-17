@@ -8,7 +8,11 @@ import { Queue, Worker } from "bullmq"
 import Redis from "ioredis"
 import { inArray, isNotNull, lte } from "drizzle-orm"
 
-import { evaluatePlaybooks, tryLinkDevicesToAssets } from "@nms/api-contract"
+import {
+  evaluateAfterHoursSites,
+  evaluatePlaybooks,
+  tryLinkDevicesToAssets,
+} from "@nms/api-contract"
 import {
   accessRequests,
   adminVpnProfiles,
@@ -78,6 +82,7 @@ import { evaluateAgentVersions } from "./fleet"
 import { evaluateVenueHealth } from "./venue-health"
 import { evaluateWarranties } from "./warranties"
 import { refreshRemoteSessions } from "./sessions"
+import { SiteOpenStateRedisStore } from "./site-hours-state"
 import { pruneUptimeHistory, rollupUptime } from "./uptime"
 
 const execFileAsync = promisify(execFile)
@@ -93,6 +98,7 @@ const connection = new Redis(redisUrl, {
 const peerStateStore = new PeerStateStore(connection)
 const flowCursorStore = new FlowCursorStore(connection)
 const heartbeatStore = new JobHeartbeatStore(connection)
+const siteOpenStateStore = new SiteOpenStateRedisStore(connection)
 
 type VpnctlResult =
   | { ok: true }
@@ -904,6 +910,7 @@ const schedules: Array<{ name: string; everyMs: number }> = [
   { name: "evaluate-warranties", everyMs: 60 * 60 * 1000 },
   { name: "evaluate-venue-health", everyMs: 60_000 },
   { name: "run-playbooks", everyMs: 30_000 },
+  { name: "after-hours-runs", everyMs: 60_000 },
   { name: "prune-history", everyMs: 60 * 60 * 1000 },
 ]
 
@@ -1000,6 +1007,9 @@ async function main() {
             break
           case "run-playbooks":
             await evaluatePlaybooks(db)
+            break
+          case "after-hours-runs":
+            await evaluateAfterHoursSites(db, siteOpenStateStore)
             break
           case "prune-history":
             await pruneHistory()

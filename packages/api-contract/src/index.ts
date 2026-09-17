@@ -1,6 +1,14 @@
 export { tryLinkDeviceToAsset, tryLinkDevicesToAssets } from "./asset-link"
 export { evaluatePlaybooks } from "./playbook-engine"
 export {
+  cancelAfterHoursRun,
+  evaluateAfterHoursSites,
+  expireAfterHoursRuns,
+  queueAfterHoursRunCommands,
+  startAfterHoursRun,
+  type SiteOpenStateStore,
+} from "./after-hours-engine"
+export {
   alertKeys,
   raiseAlert,
   resolveAlert,
@@ -11,6 +19,7 @@ export {
   activeMaintenanceWindowFor,
   alertIsHeld,
   alertIsHeldFor,
+  deviceInPlannedRebootGrace,
   effectivePolicyFor,
   loadAlertLifecycleState,
   offlineAlertHours,

@@ -7,10 +7,15 @@ import { toast } from "sonner"
 
 import type { ColumnDef } from "@tanstack/react-table"
 import {
+  AFTER_HOURS_DEFAULT_STEPS,
+  afterHoursStepLabels,
   hasConfiguredSiteHours,
   isValidTimeZone,
+  playbookActions,
+  sanitizeAfterHoursSteps,
   siteOpenLabel,
   siteOpenState,
+  type PlaybookAction,
   type SiteBusinessHours,
   type SiteHoliday,
 } from "@nms/shared"
@@ -33,6 +38,7 @@ import { PageHeader } from "@/components/dashboard/page-header"
 import { SelectField } from "@/components/dashboard/select-field"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import { formatRelativeTime } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
 
 type SiteRow = {
@@ -104,6 +110,160 @@ function businessHoursFromForm(
     return null
   }
   return hours
+}
+
+type StepSlots = [string, string, string]
+
+function stepSlotsFromSteps(steps: readonly string[] | null | undefined) {
+  const clean = sanitizeAfterHoursSteps(steps ?? AFTER_HOURS_DEFAULT_STEPS)
+  return [clean[0] ?? "", clean[1] ?? "", clean[2] ?? ""] as StepSlots
+}
+
+function stepsFromSlots(slots: StepSlots): PlaybookAction[] {
+  return sanitizeAfterHoursSteps(slots.filter(Boolean))
+}
+
+function AfterHoursFields({
+  enabled,
+  onEnabledChange,
+  slots,
+  onSlotsChange,
+  requireApproval,
+  onRequireApprovalChange,
+  hoursConfigured,
+}: {
+  enabled: boolean
+  onEnabledChange: (next: boolean) => void
+  slots: StepSlots
+  onSlotsChange: (next: StepSlots) => void
+  requireApproval: boolean
+  onRequireApprovalChange: (next: boolean) => void
+  hoursConfigured: boolean
+}) {
+  const stepOptions = playbookActions.map((action) => ({
+    value: action,
+    label: afterHoursStepLabels[action],
+  }))
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border px-3 py-3 md:col-span-2">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">Run after close</p>
+          <p className="text-xs text-muted-foreground">
+            When this location closes for the day, run the steps below on every
+            device that is online. Devices that are archived or already offline
+            are left alone.
+          </p>
+        </div>
+        <Switch
+          checked={enabled}
+          onCheckedChange={onEnabledChange}
+          disabled={!hoursConfigured && !enabled}
+        />
+      </div>
+      {!hoursConfigured ? (
+        <p className="text-xs text-muted-foreground">
+          Set open and close hours first.
+        </p>
+      ) : null}
+      {enabled ? (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {slots.map((slot, index) => (
+              <FormField
+                key={index}
+                label={`Step ${index + 1}`}
+                htmlFor={`site-after-hours-step-${index + 1}`}
+              >
+                <SelectField
+                  id={`site-after-hours-step-${index + 1}`}
+                  value={slot}
+                  onValueChange={(value) => {
+                    const next = [...slots] as StepSlots
+                    next[index] = value
+                    onSlotsChange(next)
+                  }}
+                  emptyLabel={index === 0 ? undefined : "None"}
+                  placeholder="Choose a step"
+                  options={stepOptions.map((option) => ({
+                    ...option,
+                    disabled: slots.some(
+                      (other, otherIndex) =>
+                        otherIndex !== index && other === option.value
+                    ),
+                  }))}
+                />
+              </FormField>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Steps run in order. Only restart device, restart agent, and update
+            agent are available; custom scripts are not.
+          </p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">Require approval</p>
+              <p className="text-xs text-muted-foreground">
+                Each night&apos;s run waits in Approvals until someone approves
+                it.
+              </p>
+            </div>
+            <Switch
+              checked={requireApproval}
+              onCheckedChange={onRequireApprovalChange}
+            />
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function AfterHoursRunList({ siteId }: { siteId: string }) {
+  const runsQuery = trpc.afterHours.runs.useQuery(
+    { siteId, limit: 5 },
+    { refetchInterval: 30_000 }
+  )
+  const runs = runsQuery.data ?? []
+  if (runs.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No after-hours runs yet. The first one starts the next time this
+        location closes.
+      </p>
+    )
+  }
+  return (
+    <ul className="flex flex-col divide-y text-sm">
+      {runs.map((run) => (
+        <li
+          key={run.id}
+          className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0"
+        >
+          <div className="min-w-0">
+            <p className="truncate">{run.stepsLabel}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {formatRelativeTime(run.createdAt)}
+              {` · ${run.queuedDeviceCount} queued`}
+              {run.skippedDeviceCount > 0
+                ? ` · ${run.skippedDeviceCount} skipped`
+                : ""}
+              {run.cancelReasonLabel ? ` · ${run.cancelReasonLabel}` : ""}
+            </p>
+          </div>
+          <Badge
+            variant={
+              run.status === "queued" || run.status === "pending_approval"
+                ? "default"
+                : "outline"
+            }
+          >
+            {run.statusLabel}
+          </Badge>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function HoursDayFields({
@@ -197,6 +357,12 @@ export default function SitesPage() {
   const [holidayClose, setHolidayClose] = React.useState("16:00")
   const [editRequireReason, setEditRequireReason] = React.useState(false)
   const [editRequireApproval, setEditRequireApproval] = React.useState(false)
+  const [editAfterHoursEnabled, setEditAfterHoursEnabled] =
+    React.useState(false)
+  const [editAfterHoursSlots, setEditAfterHoursSlots] =
+    React.useState<StepSlots>(() => stepSlotsFromSteps(null))
+  const [editAfterHoursApproval, setEditAfterHoursApproval] =
+    React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
   const [importOrgId, setImportOrgId] = React.useState("")
 
@@ -310,8 +476,15 @@ export default function SitesPage() {
       setHolidayClose("16:00")
       setEditRequireReason(Boolean(selectedSite.requireAccessReason))
       setEditRequireApproval(Boolean(selectedSite.requireApproval))
+      setEditAfterHoursEnabled(Boolean(selectedSite.afterHoursEnabled))
+      setEditAfterHoursSlots(stepSlotsFromSteps(selectedSite.afterHoursSteps))
+      setEditAfterHoursApproval(Boolean(selectedSite.afterHoursRequireApproval))
     }
   }, [selectedSite])
+
+  const editHoursConfigured = hasConfiguredSiteHours(
+    businessHoursFromForm(editWeekdays, editSaturday, editSunday, editHolidays)
+  )
 
   const rows = React.useMemo<SiteRow[]>(
     () =>
@@ -844,6 +1017,15 @@ export default function SitesPage() {
               When this location is closed, offline alerts stay quiet. Device
               restarts and agent updates wait until close.
             </p>
+            <AfterHoursFields
+              enabled={editAfterHoursEnabled}
+              onEnabledChange={setEditAfterHoursEnabled}
+              slots={editAfterHoursSlots}
+              onSlotsChange={setEditAfterHoursSlots}
+              requireApproval={editAfterHoursApproval}
+              onRequireApprovalChange={setEditAfterHoursApproval}
+              hoursConfigured={editHoursConfigured}
+            />
             <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-3 md:col-span-2">
               <div>
                 <p className="text-sm font-medium">Require a reason</p>
@@ -886,6 +1068,21 @@ export default function SitesPage() {
                     toast.error("Set a timezone before saving site hours.")
                     return
                   }
+                  const afterHoursSteps = stepsFromSlots(editAfterHoursSlots)
+                  if (editAfterHoursEnabled) {
+                    if (!hasConfiguredSiteHours(businessHours)) {
+                      toast.error(
+                        "Set open and close hours before turning on after-hours runs."
+                      )
+                      return
+                    }
+                    if (afterHoursSteps.length === 0) {
+                      toast.error(
+                        "Choose at least one step to run after close."
+                      )
+                      return
+                    }
+                  }
                   void updateSite.mutateAsync({
                     id: selectedSite.id,
                     name: editName,
@@ -904,6 +1101,12 @@ export default function SitesPage() {
                     businessHours,
                     requireAccessReason: editRequireReason,
                     requireApproval: editRequireApproval,
+                    afterHoursEnabled: editAfterHoursEnabled,
+                    afterHoursSteps:
+                      afterHoursSteps.length > 0
+                        ? afterHoursSteps
+                        : [...AFTER_HOURS_DEFAULT_STEPS],
+                    afterHoursRequireApproval: editAfterHoursApproval,
                   })
                 }}
                 disabled={!editName || updateSite.isPending}
@@ -919,6 +1122,17 @@ export default function SitesPage() {
                 Remove site
               </Button>
             </div>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t pt-6">
+            <div>
+              <p className="text-sm font-medium">After-hours runs</p>
+              <p className="text-sm text-muted-foreground">
+                Each close starts one run. Devices pick up their steps at the
+                next check-in.
+              </p>
+            </div>
+            <AfterHoursRunList siteId={selectedSite.id} />
           </div>
 
           <div className="flex flex-col gap-3 border-t pt-6">

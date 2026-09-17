@@ -53,6 +53,9 @@ import {
   type AgentModuleCollector,
   type AgentModuleKind,
   type AgentModuleObservation,
+  type AfterHoursCancelReason,
+  type AfterHoursDeviceResult,
+  type AfterHoursRunStatus,
   type PlaybookAction,
   type PlaybookRunStatus,
   type PlaybookSkipReason,
@@ -312,6 +315,14 @@ export const sites = pgTable("sites", {
     .notNull()
     .default(sql`'[]'::jsonb`),
   businessHours: jsonb("business_hours").$type<SiteBusinessHours>(),
+  afterHoursEnabled: boolean("after_hours_enabled").notNull().default(false),
+  afterHoursSteps: jsonb("after_hours_steps")
+    .$type<PlaybookAction[]>()
+    .notNull()
+    .default(sql`'["update","reboot"]'::jsonb`),
+  afterHoursRequireApproval: boolean("after_hours_require_approval")
+    .notNull()
+    .default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1505,6 +1516,63 @@ export type AgentRelease = typeof agentReleases.$inferSelect
 export type DeviceCommand = typeof deviceCommands.$inferSelect
 export type Playbook = typeof playbooks.$inferSelect
 export type PlaybookRun = typeof playbookRuns.$inferSelect
+
+/**
+ * One row per site per close. Device commands it queued live in
+ * `device_commands`; the per-device outcome list here is the run's receipt.
+ */
+export const siteAfterHoursRuns = pgTable(
+  "site_after_hours_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    siteId: uuid("site_id")
+      .notNull()
+      .references(() => sites.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    closedAt: timestamp("closed_at", { withTimezone: true }).notNull(),
+    steps: jsonb("steps").$type<PlaybookAction[]>().notNull(),
+    requireApproval: boolean("require_approval").notNull().default(false),
+    status: text("status")
+      .$type<AfterHoursRunStatus>()
+      .notNull()
+      .default("queued"),
+    deviceResults: jsonb("device_results")
+      .$type<AfterHoursDeviceResult[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    queuedDeviceCount: integer("queued_device_count").notNull().default(0),
+    skippedDeviceCount: integer("skipped_device_count").notNull().default(0),
+    cancelReason: text("cancel_reason").$type<AfterHoursCancelReason>(),
+    decidedByUserId: text("decided_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    siteCreatedIdx: index("site_after_hours_runs_site_created_idx").on(
+      table.siteId,
+      table.createdAt
+    ),
+    organizationStatusIdx: index(
+      "site_after_hours_runs_organization_status_idx"
+    ).on(table.organizationId, table.status),
+    statusIdx: index("site_after_hours_runs_status_idx").on(
+      table.status,
+      table.createdAt
+    ),
+  })
+)
+
+export type SiteAfterHoursRun = typeof siteAfterHoursRuns.$inferSelect
 
 export const apiKeys = pgTable(
   "api_keys",

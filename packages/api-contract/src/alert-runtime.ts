@@ -1,5 +1,8 @@
+import { and, eq, gte } from "drizzle-orm"
+
 import {
   alertPolicies,
+  deviceCommands,
   maintenanceWindows,
   sites,
   type AlertPolicy,
@@ -7,6 +10,8 @@ import {
 import { db } from "@nms/db/client"
 import {
   findActiveMaintenanceWindow,
+  inPlannedRebootGrace,
+  isClosedHoursQuietKind,
   pickEffectiveAlertPolicy,
   siteOpenState,
   type AlertKind,
@@ -29,6 +34,7 @@ type Cache = {
 }
 
 const CACHE_TTL_MS = 10_000
+const RECENT_COMMAND_LOOKBACK_MS = 24 * 60 * 60 * 1000
 let cache: Cache | null = null
 
 async function loadWindows() {
@@ -133,6 +139,37 @@ export async function siteOpenForTarget(siteId: string | null, now: Date) {
   if (!siteId) return null
   const state = await loadAlertLifecycleState()
   return siteOpenFor(state, siteId, now)
+}
+
+/**
+ * Offline and flapping are expected right after a Hub-issued restart. Only
+ * those kinds ask; everything else pages as usual.
+ */
+export async function deviceInPlannedRebootGrace(
+  kind: AlertKind,
+  deviceId: string | null | undefined,
+  now: Date
+) {
+  if (!deviceId || !isClosedHoursQuietKind(kind)) return false
+  // A restart can sit waiting for a check-in long after it was created; the
+  // grace itself is measured from when it was handed to the agent.
+  const since = new Date(now.getTime() - RECENT_COMMAND_LOOKBACK_MS)
+  const rows = await db
+    .select({
+      kind: deviceCommands.kind,
+      status: deviceCommands.status,
+      sentAt: deviceCommands.sentAt,
+      completedAt: deviceCommands.completedAt,
+    })
+    .from(deviceCommands)
+    .where(
+      and(
+        eq(deviceCommands.deviceId, deviceId),
+        eq(deviceCommands.kind, "reboot"),
+        gte(deviceCommands.createdAt, since)
+      )
+    )
+  return inPlannedRebootGrace(rows, now)
 }
 
 export function alertIsHeld(
