@@ -23,18 +23,30 @@
     the result on the next check-in.
 11. The worker reconciles the server peer and status tables.
 
-The endpoint agent in `apps/agent` enrolls with `POST /api/enroll`, checks in
-on a timer, and can install itself as a systemd unit, Windows scheduled task,
-or macOS launchd daemon:
+The Linux endpoint agent is a static binary (`apps/lockhaven-agent`). It
+attaches to a device Hub already has, or enrolls a new one, then installs a
+systemd service:
 
 ```
-pnpm --filter @nms/agent build
-lockhaven-agent enroll --token <token> --base-url <url>
-lockhaven-agent install-service
+curl -fsSL <hub>/install/install-lockhaven-agent.sh | sudo LOCKHAVEN_TOKEN=<token> LOCKHAVEN_BASE_URL=<hub> bash
 ```
 
-The Linux installer also writes `/var/lib/lockhaven/agent.json` so an already
-enrolled host can start the agent without enrolling again.
+On a listed device the installer binds to that record and leaves the existing
+tunnel in place. It only calls `POST /api/enroll` when Hub has no match.
+Local `/var/lib/lockhaven/agent.json` is enough to start the service without
+calling Hub again.
+
+From a device page in Console, the Agent tab creates a Linux install command
+that includes `LOCKHAVEN_DEVICE_ID` so attach binds that listing even when
+hostname or serial would be ambiguous. The tab also links the Linux agent
+downloads from `/install/lockhaven-agent-linux-amd64` and `…-arm64`.
+
+`POST /api/agent/attach` issues a new check-in secret for the matched device.
+`POST /api/enroll` refuses with `device_exists` when the host already matches
+inventory.
+
+The TypeScript client in `apps/agent` remains a protocol reference. Windows
+and macOS still use that path until those installers ship the Go binary.
 
 For Windows devices, the enrollment script can generate the keypair, call the
 API over your app hostname, install WireGuard if needed, import the tunnel,

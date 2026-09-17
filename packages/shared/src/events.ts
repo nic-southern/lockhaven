@@ -37,6 +37,8 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   vpn_endpoint_changed: "notice",
   firewall_sync_failed: "critical",
   device_enroll_failed: "warning",
+  device_agent_attached: "notice",
+  device_agent_attach_failed: "warning",
   device_check_in_failed: "warning",
   device_check_in_secret_mismatch: "critical",
   device_check_in_hostname_mismatch: "warning",

@@ -10,6 +10,7 @@ export type DeviceService = DeviceDetail["services"][number]
 
 export const DEVICE_TABS = [
   "overview",
+  "agent",
   "connect",
   "services",
   "network",

@@ -218,6 +218,13 @@
       "when": 1781400000000,
       "tag": "0040_device_telemetry",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1782300000000,
+      "tag": "0041_agent_attach",
+      "breakpoints": true
     }
   ]
 }

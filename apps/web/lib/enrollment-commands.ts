@@ -35,11 +35,31 @@ export function buildWindowsInstallCommand({
 export function buildLinuxInstallCommand({
   token,
   baseUrl,
+  deviceId,
 }: {
   token: string
   baseUrl: string
+  deviceId?: string | null
 }) {
-  return `curl -fsSL ${normalizeBaseUrl(baseUrl)}/install/enroll-linux.sh | sudo LOCKHAVEN_TOKEN=${quoteShell(token)} bash`
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
+  const env = [
+    `LOCKHAVEN_TOKEN=${quoteShell(token)}`,
+    `LOCKHAVEN_BASE_URL=${quoteShell(normalizedBaseUrl)}`,
+  ]
+  if (deviceId) {
+    env.push(`LOCKHAVEN_DEVICE_ID=${quoteShell(deviceId)}`)
+  }
+  return `curl -fsSL ${normalizedBaseUrl}/install/install-lockhaven-agent.sh | sudo ${env.join(" ")} bash`
+}
+
+export function buildAgentDownloadUrl({
+  baseUrl,
+  arch,
+}: {
+  baseUrl: string
+  arch: "amd64" | "arm64"
+}) {
+  return `${normalizeBaseUrl(baseUrl)}/install/lockhaven-agent-linux-${arch}`
 }
 
 export function buildAndroidInstallCommand({

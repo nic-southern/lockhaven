@@ -141,8 +141,24 @@ export function OverviewTab({
               },
               {
                 label: "Agent version",
-                value: device.agentVersion,
-                mono: true,
+                value: device.agentVersion ? (
+                  <button
+                    type="button"
+                    className="font-mono text-xs hover:underline"
+                    onClick={() => onNavigate("agent")}
+                  >
+                    {device.agentVersion}
+                  </button>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="-ml-2 h-auto px-2 py-0"
+                    onClick={() => onNavigate("agent")}
+                  >
+                    Install agent
+                  </Button>
+                ),
               },
               {
                 label: "Status",

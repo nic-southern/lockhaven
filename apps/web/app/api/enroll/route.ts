@@ -26,9 +26,14 @@ import {
   enrollmentResponseSchema,
   severityForEvent,
 } from "@nms/shared"
-import { allocateVpnIpv4, buildClientAllowedIps } from "@nms/vpn"
+import { allocateVpnIpv4 } from "@nms/vpn"
 
 import { hashAgentSecret } from "@/lib/agent-secret"
+import {
+  clientVpnSettings,
+  loadAttachCandidates,
+  matchForToken,
+} from "@/lib/agent-attach"
 import {
   addressKey,
   enforceRateLimit,
@@ -162,6 +167,7 @@ type EnrollmentRejection = {
     | "token_exhausted"
     | "token_expired"
     | "organization_missing"
+    | "device_exists"
   organizationId?: string | null
   siteId?: string | null
   tokenId?: string | null
@@ -275,6 +281,31 @@ export async function POST(request: Request) {
 
     if (!organization) {
       rejection = { reason: "organization_missing", ...tokenScope }
+      return null
+    }
+
+    const attachIdentity = {
+      hostname: input.hostname,
+      serialNumber: input.serial_number,
+      wireguardPublicKey: input.wireguard_public_key,
+    }
+    const existingMatch = matchForToken(
+      await loadAttachCandidates(
+        tx,
+        token.organizationId,
+        attachIdentity,
+        token.siteId
+      ),
+      attachIdentity,
+      token
+    )
+    if (
+      existingMatch.ok ||
+      existingMatch.reason === "ambiguous" ||
+      existingMatch.reason === "hostname_conflict" ||
+      existingMatch.reason === "revoked"
+    ) {
+      rejection = { reason: "device_exists", ...tokenScope }
       return null
     }
 
@@ -447,14 +478,34 @@ export async function POST(request: Request) {
   })
 
   if (!result) {
-    await recordEnrollmentFailure(
-      request,
-      rejection ?? { reason: "token_not_found" },
-      { hostname: input.hostname, osFamily: input.os_family }
-    )
+    const failed: EnrollmentRejection = rejection ?? {
+      reason: "token_not_found",
+    }
+    await recordEnrollmentFailure(request, failed, {
+      hostname: input.hostname,
+      osFamily: input.os_family,
+    })
+    if (failed.reason === "device_exists") {
+      return Response.json(
+        {
+          error:
+            "This device is already listed. Install the agent to attach to it.",
+          code: "device_exists",
+        },
+        { status: 409 }
+      )
+    }
     return Response.json(
       { error: "Enrollment token not found" },
       { status: 404 }
+    )
+  }
+
+  const vpn = clientVpnSettings(result.routePolicyRoutes)
+  if (!vpn) {
+    return Response.json(
+      { error: "VPN server key is not configured" },
+      { status: 500 }
     )
   }
 
@@ -462,15 +513,7 @@ export async function POST(request: Request) {
     device_id: result.device.id,
     vpn_ipv4: result.identity.vpnIpv4,
     check_in_secret: checkInSecret,
-    wireguard: {
-      server_public_key: env.vpnServerPublicKey,
-      endpoint: `${env.vpnPublicHostname}:${env.vpnPublicPort}`,
-      allowed_ips: buildClientAllowedIps({
-        serverIp: env.vpnServerIp,
-        routePolicyRoutes: result.routePolicyRoutes,
-      }),
-      persistent_keepalive: 25,
-    },
+    wireguard: vpn,
     ssh: result.sshAccess
       ? {
           username: result.sshAccess.username,

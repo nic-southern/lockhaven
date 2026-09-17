@@ -231,6 +231,22 @@ export const enrollmentResponseSchema = z.object({
     .optional(),
 })
 
+export const agentAttachRequestSchema = z.object({
+  token: z.string().min(1),
+  hostname: z.string().min(1),
+  os_family: z.string().min(1),
+  os_version: z.string().min(1),
+  architecture: z.string().min(1),
+  serial_number: z.string().min(1),
+  device_id: z.string().uuid().optional(),
+  wireguard_public_key: z.string().min(1).optional(),
+})
+
+export const agentAttachResponseSchema = enrollmentResponseSchema.extend({
+  attached: z.literal(true),
+  tunnel_ready: z.boolean(),
+})
+
 export const checkInSchema = z.object({
   device_id: z.string().uuid(),
   check_in_secret: z.string().min(1),
@@ -389,6 +405,7 @@ export const auditEventTypeSchema = z.enum([
   "enrollment_token_updated",
   "enrollment_token_revoked",
   "device_enrolled",
+  "device_agent_attached",
   "vpn_peer_added",
   "vpn_peer_removed",
   "remote_session_started",
@@ -422,6 +439,7 @@ export const auditEventTypeSchema = z.enum([
   "firewall_synced",
   "firewall_sync_failed",
   "device_enroll_failed",
+  "device_agent_attach_failed",
   "device_check_in_failed",
   "device_check_in_secret_mismatch",
   "device_check_in_hostname_mismatch",

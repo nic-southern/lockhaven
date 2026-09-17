@@ -1,4 +1,5 @@
 export * from "./domain"
+export * from "./agent-attach"
 export * from "./devices"
 export * from "./routes"
 export * from "./events"

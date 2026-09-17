@@ -38,7 +38,8 @@ The current public repository is
 
 - `apps/web` - Next.js Console, session UI, tRPC route handlers, auth routes,
   enrollment endpoints, and health checks.
-- `apps/agent` - endpoint enrollment and check-in client.
+- `apps/lockhaven-agent` - static Linux endpoint agent (attach, enroll, check-in).
+- `apps/agent` - TypeScript enrollment and check-in client.
 - `apps/worker` - WireGuard reconciliation and service health jobs.
 - `packages/shared` - Domain schemas and shared product types.
 - `packages/db` - Database schema, migrations, and admin bootstrap script.
