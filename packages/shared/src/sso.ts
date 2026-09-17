@@ -26,7 +26,7 @@ export type SsoClaimsMap = z.infer<typeof ssoClaimsMapSchema>
 
 export const DEFAULT_SSO_ORGANIZATION_ROLE: OrganizationRole = "technician"
 
-export const PLATFORM_SSO_PROVIDER_ID_DEFAULT = "sso"
+export const PLATFORM_SSO_PROVIDER_ID_DEFAULT = "lockhaven"
 export const PLATFORM_SSO_ISSUER_DEFAULT =
   "https://auth.newmarketsecurity.com/realms/nms"
 export const PLATFORM_SSO_DISCOVERY_PATH = "/.well-known/openid-configuration"

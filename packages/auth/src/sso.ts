@@ -134,6 +134,78 @@ export function resetPlatformSsoConfigCache() {
   idpProbe = null
 }
 
+export type PlatformSignInTarget = {
+  providerId: string | null
+  signInMethod: "oauth2" | "sso" | null
+  protocol: SsoProtocol | null
+}
+
+/** Company identity provider used when Sign in with SSO is clicked with no email. */
+export function platformSignInTarget(
+  platform: PlatformSsoConfig
+): PlatformSignInTarget {
+  if (platform.enabled) {
+    return {
+      providerId: platform.providerId,
+      signInMethod: "oauth2",
+      protocol: "oidc",
+    }
+  }
+  if (platform.saml.enabled) {
+    return {
+      providerId: platform.saml.providerId,
+      signInMethod: "sso",
+      protocol: "saml",
+    }
+  }
+  return { providerId: null, signInMethod: null, protocol: null }
+}
+
+type OrgSsoStartRow = {
+  enabled: boolean
+  protocol: SsoProtocol
+  usePlatformIdp: boolean
+  providerId: string | null
+}
+
+/**
+ * Default Sign in with SSO target when the user has not typed an email.
+ * Company OpenID wins. A single organization provider is used only when the
+ * company provider is not ready.
+ */
+export function publicSsoStartTarget(
+  platform: PlatformSsoConfig,
+  rows: OrgSsoStartRow[] = []
+): PlatformSignInTarget {
+  const company = platformSignInTarget(platform)
+  if (company.providerId) {
+    return company
+  }
+
+  const enabled = rows.filter((row) => row.enabled)
+  const dedicated = enabled.filter(
+    (row) => !row.usePlatformIdp && Boolean(row.providerId)
+  )
+  if (dedicated.length === 1) {
+    const row = dedicated[0]
+    return {
+      providerId: row.providerId,
+      signInMethod: "sso",
+      protocol: row.protocol,
+    }
+  }
+
+  if (enabled.length > 0) {
+    return {
+      providerId: platform.providerId,
+      signInMethod: "oauth2",
+      protocol: "oidc",
+    }
+  }
+
+  return company
+}
+
 export function decodeJwtPayload(
   token: string | null | undefined
 ): Record<string, unknown> | null {
@@ -321,11 +393,15 @@ export async function localSignInBlockedForEmail(email: string | null) {
 }
 
 export function trustedSsoProviderIds(config = getPlatformSsoConfig()) {
-  const ids = [config.providerId]
+  const ids = new Set(
+    [config.providerId, config.clientId, "sso"].filter((id): id is string =>
+      Boolean(id)
+    )
+  )
   if (config.saml.enabled) {
-    ids.push(config.saml.providerId)
+    ids.add(config.saml.providerId)
   }
-  return ids
+  return [...ids]
 }
 
 export async function claimsFromUserAccounts(userId: string) {
@@ -476,6 +552,20 @@ export function ssoGenericOAuthConfig(config = getPlatformSsoConfig()) {
     pkce: true,
     scopes: ["openid", "profile", "email"],
   }
+}
+
+/** Company OpenID under the configured id plus client-id and legacy aliases. */
+export function ssoGenericOAuthConfigs(config = getPlatformSsoConfig()) {
+  const base = ssoGenericOAuthConfig(config)
+  if (!base) {
+    return []
+  }
+  const ids = new Set(
+    [base.providerId, config.clientId, "sso"].filter((id): id is string =>
+      Boolean(id)
+    )
+  )
+  return [...ids].map((providerId) => ({ ...base, providerId }))
 }
 
 export async function ssoUserInfoFromTokens(tokens: {

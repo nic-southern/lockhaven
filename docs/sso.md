@@ -15,7 +15,7 @@ SSO_OIDC_ISSUER=https://auth.newmarketsecurity.com/realms/nms
 SSO_OIDC_DISCOVERY_URL=https://auth.newmarketsecurity.com/realms/nms/.well-known/openid-configuration
 SSO_OIDC_CLIENT_ID=lockhaven
 SSO_OIDC_CLIENT_SECRET=replace_me
-SSO_OIDC_PROVIDER_ID=sso
+SSO_OIDC_PROVIDER_ID=lockhaven
 SSO_ALLOWED_DOMAINS=example.com
 SSO_CLAIMS_MAP={"claim":"groups","values":{"operators":{"organizationRole":"operator"},"technicians":{"organizationRole":"technician"}}}
 SSO_DEFAULT_ORGANIZATION_ID=
@@ -42,7 +42,9 @@ SSO stays off until `SSO_OIDC_CLIENT_SECRET` is a real secret (not
 
 Redirect URIs for the `lockhaven` client:
 
-- `{APP_BASE_URL}/api/auth/oauth2/callback/sso`
+- `{APP_BASE_URL}/api/auth/oauth2/callback/lockhaven`
+- `{APP_BASE_URL}/api/auth/callback/lockhaven`
+- `{APP_BASE_URL}/api/auth/oauth2/callback/sso` (legacy provider id)
 - `{APP_BASE_URL}/api/auth/callback/sso`
 
 SAML assertion consumer URL, when an organization uses its own provider:
@@ -56,6 +58,8 @@ SAML assertion consumer URL, when an organization uses its own provider:
 - Existing local accounts with a matching verified email are linked.
 - Domain allowlists apply to new sign-ins. With an empty allowlist, only
   existing accounts can sign in through SSO.
+- Sign in with SSO starts the company identity provider immediately. It
+  does not ask for email first.
 - Password, passkey, and existing sessions stay available while SSO is
   optional. Require SSO is off by default. Enrollment still uses Hub
   credentials.

@@ -4,7 +4,10 @@ import { test } from "node:test"
 import {
   decodeJwtPayload,
   matchOrgSsoSettings,
+  platformSignInTarget,
   platformSsoConfigFromEnv,
+  publicSsoStartTarget,
+  ssoGenericOAuthConfigs,
 } from "./sso"
 
 test("enables company OIDC only when the client secret is set", () => {
@@ -38,6 +41,95 @@ test("defaults to optional SSO so password sign-in stays available", () => {
   })
   assert.equal(config.enabled, true)
   assert.equal(config.required, false)
+})
+
+test("registers company OpenID under the client id and the legacy sso id", () => {
+  const configs = ssoGenericOAuthConfigs(
+    platformSsoConfigFromEnv({
+      SSO_OIDC_CLIENT_SECRET: "a-real-secret",
+    })
+  )
+  assert.deepEqual(configs.map((entry) => entry.providerId).sort(), [
+    "lockhaven",
+    "sso",
+  ])
+  assert.equal(
+    configs.every((entry) => entry.clientId === "lockhaven"),
+    true
+  )
+})
+
+test("company OpenID is the default Sign in with SSO target without email", () => {
+  const oidc = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "a-real-secret",
+  })
+  assert.deepEqual(platformSignInTarget(oidc), {
+    providerId: "lockhaven",
+    signInMethod: "oauth2",
+    protocol: "oidc",
+  })
+
+  const samlOnly = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "replace_me",
+    SSO_SAML_ENTRY_POINT: "https://idp.example.com/sso",
+    SSO_SAML_CERT: "not-a-real-cert",
+  })
+  assert.deepEqual(platformSignInTarget(samlOnly), {
+    providerId: "sso-saml",
+    signInMethod: "sso",
+    protocol: "saml",
+  })
+
+  const off = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "replace_me",
+  })
+  assert.deepEqual(platformSignInTarget(off), {
+    providerId: null,
+    signInMethod: null,
+    protocol: null,
+  })
+})
+
+test("uses company OpenID for Sign in with SSO when only org SSO is on", () => {
+  const platform = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "replace_me",
+  })
+  assert.deepEqual(
+    publicSsoStartTarget(platform, [
+      {
+        enabled: true,
+        protocol: "oidc",
+        usePlatformIdp: true,
+        providerId: null,
+      },
+    ]),
+    {
+      providerId: "lockhaven",
+      signInMethod: "oauth2",
+      protocol: "oidc",
+    }
+  )
+})
+
+test("uses a single organization provider when the company provider is not ready", () => {
+  const platform = platformSsoConfigFromEnv({
+    SSO_OIDC_CLIENT_SECRET: "replace_me",
+  })
+  assert.deepEqual(
+    publicSsoStartTarget(platform, [
+      {
+        enabled: true,
+        protocol: "saml",
+        usePlatformIdp: false,
+        providerId: "org-1-saml",
+      },
+    ]),
+    {
+      providerId: "org-1-saml",
+      signInMethod: "sso",
+      protocol: "saml",
+    }
+  )
 })
 
 test("decodes identity-token claims without verifying the signature", () => {
@@ -94,5 +186,5 @@ test("falls back to company OpenID when no organization domain matches", () => {
   assert.equal(policy?.usePlatformIdp, true)
   assert.equal(policy?.signInMethod, "oauth2")
   assert.equal(policy?.required, true)
-  assert.equal(policy?.providerId, "sso")
+  assert.equal(policy?.providerId, "lockhaven")
 })
