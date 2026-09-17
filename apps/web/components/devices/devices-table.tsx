@@ -72,6 +72,7 @@ export const DEVICES_DEFAULT_VIEW: TableViewState = {
     vpnLatestEndpoint: false,
     agentVersion: false,
     behind: false,
+    archived: false,
     createdAt: false,
   },
 }
@@ -123,6 +124,15 @@ export const DEVICES_BUILT_IN_VIEWS: SavedView[] = [
       columnFilters: [{ id: "behind", value: ["true"] }],
     },
   },
+  {
+    id: "archived",
+    name: "Archived",
+    builtIn: true,
+    state: {
+      ...DEVICES_DEFAULT_VIEW,
+      columnFilters: [{ id: "archived", value: ["yes"] }],
+    },
+  },
 ]
 
 const csvColumns = [
@@ -133,7 +143,14 @@ const csvColumns = [
     header: "Connectivity",
     value: (row: DeviceRow) => connectivityLabel[row.connectivity],
   },
-  { header: "Status", value: (row: DeviceRow) => statusLabel(row.status) },
+  {
+    header: "Status",
+    value: (row: DeviceRow) => statusLabel(row.status),
+  },
+  {
+    header: "Archived",
+    value: (row: DeviceRow) => (row.archivedAt ? "Yes" : "No"),
+  },
   { header: "OS", value: (row: DeviceRow) => osFamilyLabel(row.osFamily) },
   { header: "OS version", value: (row: DeviceRow) => row.osVersion },
   { header: "Tunnel address", value: (row: DeviceRow) => row.vpnIpv4 },
@@ -276,7 +293,11 @@ export function DevicesTable({
           ? "removed"
           : variables.action === "revoke_vpn"
             ? "revoked"
-            : "updated"
+            : variables.action === "archive"
+              ? "archived"
+              : variables.action === "unarchive"
+                ? "returned to service"
+                : "updated"
       toast.success(
         result.skipped > 0
           ? `${result.updated} ${verb}, ${result.skipped} skipped (no access)`
@@ -345,6 +366,22 @@ export function DevicesTable({
         })),
       })
     }
+    list.push({
+      columnId: "archived",
+      title: "Archived",
+      options: [
+        {
+          value: "no",
+          label: "In service",
+          count: data.archived.find((entry) => entry.value === "no")?.count,
+        },
+        {
+          value: "yes",
+          label: "Archived",
+          count: data.archived.find((entry) => entry.value === "yes")?.count,
+        },
+      ],
+    })
     if (data.tags.length > 0) {
       list.push({
         columnId: "tags",
@@ -428,8 +465,15 @@ export function DevicesTable({
         enableHiding: false,
         cell: ({ row }) => (
           <div className="flex min-w-0 flex-col">
-            <span className="truncate font-medium">
-              {row.original.displayName}
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-medium">
+                {row.original.displayName}
+              </span>
+              {row.original.archivedAt ? (
+                <Badge variant="outline" className="font-normal">
+                  Archived
+                </Badge>
+              ) : null}
             </span>
             {row.original.hostname &&
             row.original.hostname !== row.original.displayName ? (
@@ -606,6 +650,15 @@ export function DevicesTable({
         enableHiding: true,
       },
       {
+        id: "archived",
+        accessorFn: (row) => (row.archivedAt ? "yes" : "no"),
+        header: "Archived",
+        meta: { label: "Archived", className: "hidden" },
+        enableHiding: false,
+        enableSorting: false,
+        cell: () => null,
+      },
+      {
         id: "lastSeenAt",
         accessorKey: "lastSeenAt",
         header: ({ column }) => (
@@ -674,6 +727,16 @@ export function DevicesTable({
                       label: "Add tags…",
                       icon: TagIcon,
                       onSelect: () => openBulk("add_tags", [row.original.id]),
+                    },
+                    {
+                      label: row.original.archivedAt
+                        ? "Return to service"
+                        : "Archive device",
+                      onSelect: () =>
+                        openBulk(
+                          row.original.archivedAt ? "unarchive" : "archive",
+                          [row.original.id]
+                        ),
                     },
                   ]
                 : []),
@@ -745,6 +808,7 @@ export function DevicesTable({
             routePolicyId: false,
             agentVersion: false,
             behind: false,
+            archived: false,
             createdAt: false,
             status: false,
             osFamily: false,
@@ -890,6 +954,12 @@ export function DevicesTable({
                     onSelect={() => openBulk("remove_tags", ids)}
                   >
                     Remove tags…
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => openBulk("archive", ids)}>
+                    Archive
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => openBulk("unarchive", ids)}>
+                    Return to service
                   </DropdownMenuItem>
                   {canRevoke || canDelete ? <DropdownMenuSeparator /> : null}
                   {canRevoke ? (

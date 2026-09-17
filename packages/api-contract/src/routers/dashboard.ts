@@ -27,6 +27,7 @@ const ACTIVITY_LIMIT = 8
 const needsAttentionCondition = () =>
   and(
     isNull(vpnIdentities.revokedAt),
+    isNull(devices.archivedAt),
     sql`${devices.status} <> 'pending'`,
     or(
       sql`${connectivityExpression()} in ('offline', 'never')`,
@@ -110,7 +111,7 @@ export const dashboardRouter = createTRPCRouter({
         .select({ value: connectivityExpression(), total: count() })
         .from(devices)
         .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
-        .where(where)
+        .where(and(where, isNull(devices.archivedAt)))
         .groupBy(connectivityExpression()),
       ctx.db
         .select({ total: count() })

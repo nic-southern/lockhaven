@@ -470,6 +470,10 @@ export const devices = pgTable(
     }),
     status: statusEnum("status").notNull().default("pending"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedByUserId: text("archived_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -484,6 +488,9 @@ export const devices = pgTable(
     ),
     siteIdx: index("devices_site_idx").on(table.siteId),
     lastSeenIdx: index("devices_last_seen_idx").on(table.lastSeenAt),
+    archivedAtIdx: index("devices_archived_at_idx")
+      .on(table.archivedAt)
+      .where(sql`${table.archivedAt} is not null`),
     tagsIdx: index("devices_tags_idx").using("gin", table.tags),
     organizationSerialIdx: index("devices_organization_serial_idx").on(
       table.organizationId,

@@ -169,6 +169,16 @@ export function OverviewTab({
                 ),
               },
               {
+                label: "Archive",
+                value: device.archivedAt ? (
+                  <span title={formatDate(device.archivedAt)}>
+                    Archived · {formatRelativeTime(device.archivedAt)}
+                  </span>
+                ) : (
+                  "In service"
+                ),
+              },
+              {
                 label: "Enrolled",
                 value: (
                   <span title={formatDate(device.enrolledAt)}>

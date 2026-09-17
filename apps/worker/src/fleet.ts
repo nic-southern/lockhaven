@@ -27,6 +27,7 @@ export async function evaluateAgentVersions() {
         agentVersion: devices.agentVersion,
         osFamily: devices.osFamily,
         status: devices.status,
+        archivedAt: devices.archivedAt,
         organizationChannel: organizations.agentChannel,
         siteChannel: sites.agentChannel,
       })
@@ -45,8 +46,14 @@ export async function evaluateAgentVersions() {
 
   for (const device of deviceRows) {
     const key = alertKeys.agentOutdated(device.id)
-    if (device.status === "revoked" || device.status === "pending") {
-      await resolveAlert(key, { reason: "not_enrolled" })
+    if (
+      device.status === "revoked" ||
+      device.status === "pending" ||
+      device.archivedAt
+    ) {
+      await resolveAlert(key, {
+        reason: device.archivedAt ? "archived" : "not_enrolled",
+      })
       continue
     }
 

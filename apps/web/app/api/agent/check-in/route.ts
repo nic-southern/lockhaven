@@ -1,4 +1,8 @@
-import { requestInfoFromHeaders, tryLinkDeviceToAsset } from "@nms/api-contract"
+import {
+  requestInfoFromHeaders,
+  syncArchivedDeviceAlerts,
+  tryLinkDeviceToAsset,
+} from "@nms/api-contract"
 import {
   agentReleases,
   and,
@@ -299,6 +303,18 @@ export async function POST(request: Request) {
       now,
     })
   })
+
+  if (device.archivedAt) {
+    await syncArchivedDeviceAlerts({
+      deviceId: device.id,
+      organizationId: device.organizationId,
+      siteId: device.siteId,
+      displayName: device.displayName || input.hostname || "Device",
+      archived: true,
+      present: true,
+      source: "agent_check_in",
+    })
+  }
 
   return Response.json(
     hubCheckInResponse({

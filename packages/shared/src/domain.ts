@@ -346,6 +346,14 @@ export const deviceBulkActionSchema = z.discriminatedUnion("action", [
     ids: z.array(z.string().uuid()).min(1).max(500),
   }),
   z.object({
+    action: z.literal("archive"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+  }),
+  z.object({
+    action: z.literal("unarchive"),
+    ids: z.array(z.string().uuid()).min(1).max(500),
+  }),
+  z.object({
     action: z.literal("delete"),
     ids: z.array(z.string().uuid()).min(1).max(500),
   }),
@@ -414,6 +422,8 @@ export const auditEventTypeSchema = z.enum([
   "remote_session_terminated",
   "device_revoked",
   "device_deleted",
+  "device_archived",
+  "device_unarchived",
   "site_created",
   "site_updated",
   "site_deleted",

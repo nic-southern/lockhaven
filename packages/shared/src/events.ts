@@ -33,6 +33,8 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   remote_session_terminated: "notice",
   device_revoked: "warning",
   device_deleted: "warning",
+  device_archived: "notice",
+  device_unarchived: "notice",
   vpn_peer_down: "notice",
   vpn_endpoint_changed: "notice",
   firewall_sync_failed: "critical",
@@ -105,6 +107,7 @@ export const alertKinds = [
   "check_in_secret_mismatch",
   "agent_outdated",
   "warranty_expiring",
+  "archived_device_online",
 ] as const
 
 export type AlertKind = (typeof alertKinds)[number]
@@ -131,6 +134,7 @@ export const alertKindLabels: Record<AlertKind, string> = {
   check_in_secret_mismatch: "Check-in secret rejected",
   agent_outdated: "Agent outdated",
   warranty_expiring: "Warranty expiring",
+  archived_device_online: "Archived device came online",
 }
 
 export const alertKindDefaultSeverity: Record<AlertKind, AuditSeverity> = {
@@ -142,6 +146,7 @@ export const alertKindDefaultSeverity: Record<AlertKind, AuditSeverity> = {
   check_in_secret_mismatch: "critical",
   agent_outdated: "warning",
   warranty_expiring: "notice",
+  archived_device_online: "warning",
 }
 
 export const notificationChannelTypes = ["email", "webhook"] as const

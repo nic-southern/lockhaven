@@ -30,6 +30,7 @@ const detailKeyLabels: Record<string, string> = {
   userAgent: "Browser",
   method: "Method",
   reason: "Reason",
+  archived: "Archived",
   count: "Count",
   action: "Action",
 }
