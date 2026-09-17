@@ -93,6 +93,10 @@ export default function PlaybooksPage() {
     { limit: 50 },
     { enabled: canView, refetchInterval: 15_000 }
   )
+  const afterHoursRunsQuery = trpc.afterHours.runs.useQuery(
+    { limit: 20 },
+    { enabled: canView, refetchInterval: 30_000 }
+  )
 
   const [form, setForm] = React.useState<PlaybookForm | null>(null)
   const [deleteId, setDeleteId] = React.useState<string | null>(null)
@@ -182,7 +186,7 @@ export default function PlaybooksPage() {
       <PageHeader
         badge="Operate"
         title="Playbooks"
-        description="Map an alert to an allowed device action. Reboot and agent update wait until the location is closed when hours are set. Playbooks never run custom scripts."
+        description="Map an alert to an allowed device action, or let a location run its after-hours steps when it closes. Reboot and agent update wait until the location is closed when hours are set. Playbooks never run custom scripts."
         actions={
           canManage && organizations[0] ? (
             <Button
@@ -316,6 +320,71 @@ export default function PlaybooksPage() {
                           </div>
                         </TableCell>
                       ) : null}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="After-hours runs"
+            description="Locations that opt in run their steps once each time they close. Turn this on per location under Locations."
+            actions={
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/sites">Locations</Link>
+              </Button>
+            }
+          >
+            {(afterHoursRunsQuery.data?.length ?? 0) === 0 ? (
+              <EmptyState
+                title="No after-hours runs yet"
+                description="Runs appear here after a location with after-hours steps closes for the day."
+                bordered={false}
+              />
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>When</TableHead>
+                    <TableHead>Location</TableHead>
+                    <TableHead className="hidden sm:table-cell">
+                      Steps
+                    </TableHead>
+                    <TableHead className="hidden md:table-cell">
+                      Devices
+                    </TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {afterHoursRunsQuery.data?.map((run) => (
+                    <TableRow key={run.id}>
+                      <TableCell className="text-sm whitespace-nowrap text-muted-foreground">
+                        {formatRelativeTime(run.createdAt)}
+                      </TableCell>
+                      <TableCell>{run.siteName ?? "Location"}</TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        {run.stepsLabel}
+                      </TableCell>
+                      <TableCell className="hidden text-sm md:table-cell">
+                        {run.queuedDeviceCount} queued
+                        {run.skippedDeviceCount > 0
+                          ? ` · ${run.skippedDeviceCount} skipped`
+                          : ""}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            run.status === "queued" ||
+                            run.status === "pending_approval"
+                              ? "default"
+                              : "outline"
+                          }
+                        >
+                          {run.statusLabel}
+                        </Badge>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

@@ -76,6 +76,26 @@ export default function ApprovalsPage() {
     refetchInterval: 15_000,
   })
 
+  const afterHoursQuery = trpc.afterHours.pendingApprovals.useQuery(undefined, {
+    enabled: allowed,
+    refetchInterval: 15_000,
+  })
+
+  const decideAfterHours = trpc.afterHours.decide.useMutation({
+    async onSuccess(_data, variables) {
+      toast.success(
+        variables.decision === "approved" ? "Run approved" : "Run declined"
+      )
+      await Promise.all([
+        utils.afterHours.pendingApprovals.invalidate(),
+        utils.afterHours.runs.invalidate(),
+      ])
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't update that request.")
+    },
+  })
+
   const decidePlaybook = trpc.playbooks.decide.useMutation({
     async onSuccess(_data, variables) {
       toast.success(
@@ -254,8 +274,72 @@ export default function ApprovalsPage() {
       <PageHeader
         badge="Access"
         title="Approvals"
-        description="Review session requests and playbook actions before they run."
+        description="Review session requests, playbook actions, and after-hours runs before they run."
       />
+      <SectionCard
+        title="After-hours runs"
+        description="Approve a location's after-close steps before its devices pick them up."
+      >
+        {(afterHoursQuery.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            title="No after-hours runs waiting"
+            description="When a location requires approval for its after-hours steps, each night's run appears here."
+            bordered={false}
+          />
+        ) : (
+          <div className="flex flex-col divide-y">
+            {afterHoursQuery.data?.map((run) => (
+              <div
+                key={run.id}
+                className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {run.siteName ?? "Location"}
+                  </p>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {run.stepsLabel}
+                    {` · ${run.queuedDeviceCount} online`}
+                    {run.skippedDeviceCount > 0
+                      ? ` · ${run.skippedDeviceCount} skipped`
+                      : ""}
+                    {run.expiresAt
+                      ? ` · Expires ${formatRelativeTime(run.expiresAt)}`
+                      : ""}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={decideAfterHours.isPending}
+                    onClick={() =>
+                      decideAfterHours.mutate({
+                        id: run.id,
+                        decision: "denied",
+                      })
+                    }
+                  >
+                    Decline
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={decideAfterHours.isPending}
+                    onClick={() =>
+                      decideAfterHours.mutate({
+                        id: run.id,
+                        decision: "approved",
+                      })
+                    }
+                  >
+                    Approve
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
       <SectionCard
         title="Playbooks"
         description="Approve an allowed device action before it is queued."
