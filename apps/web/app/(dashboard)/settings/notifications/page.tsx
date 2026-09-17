@@ -95,6 +95,7 @@ function ChannelFormDialog({
   organizationId,
   sites,
   channel,
+  suggestedUrl,
   onCreatedSecret,
 }: {
   open: boolean
@@ -102,6 +103,7 @@ function ChannelFormDialog({
   organizationId: string
   sites: Array<{ id: string; name: string }>
   channel: ChannelRow | null
+  suggestedUrl?: string | null
   onCreatedSecret?: (secret: string) => void
 }) {
   const utils = trpc.useUtils()
@@ -124,13 +126,13 @@ function ChannelFormDialog({
     setName(channel?.name ?? "")
     setType(channel?.type ?? "email")
     setAddresses((channel?.addresses ?? []).join("\n"))
-    setUrl(channel?.url ?? "")
+    setUrl(channel?.url ?? suggestedUrl ?? "")
     setMinSeverity(channel?.minSeverity ?? "warning")
     setSelectedKinds(channel?.alertKinds ?? [])
     setSelectedSites(channel?.siteIds ?? [])
     setEnabled(channel?.enabled ?? true)
     setRotateSecret(false)
-  }, [open, channel])
+  }, [open, channel, suggestedUrl])
 
   const pending = createChannel.isPending || updateChannel.isPending
   const parsedAddresses = parseAddresses(addresses)
@@ -274,13 +276,17 @@ function ChannelFormDialog({
             </FormField>
           ) : (
             <>
-              <FormField label="Destination URL" htmlFor="channel-url">
+              <FormField
+                label="Destination URL"
+                htmlFor="channel-url"
+                description="Use the tickets destination to open a ticket when an alert opens or resolves."
+              >
                 <Input
                   id="channel-url"
                   type="url"
                   value={url}
                   onChange={(event) => setUrl(event.target.value)}
-                  placeholder="https://"
+                  placeholder={suggestedUrl || "https://"}
                   required
                 />
               </FormField>
@@ -406,6 +412,10 @@ export default function NotificationsSettingsPage() {
     { organizationId: selectedOrganizationId, limit: 50 },
     { enabled: Boolean(selectedOrganizationId) }
   )
+  const ticketingQuery = trpc.tickets.setup.useQuery(
+    { organizationId: selectedOrganizationId },
+    { enabled: Boolean(selectedOrganizationId) }
+  )
 
   const sendTest = trpc.notifications.sendTest.useMutation()
   const retryDelivery = trpc.notifications.retryDelivery.useMutation()
@@ -488,7 +498,7 @@ export default function NotificationsSettingsPage() {
         <PageHeader
           badge="Settings"
           title="Notifications"
-          description="Send alert messages to an inbox or a signed destination."
+          description="Send alert messages to an inbox or a signed destination. A webhook to the tickets destination opens a ticket when an alert opens or resolves."
         />
         <EmptyState
           title="No organization yet"
@@ -503,7 +513,7 @@ export default function NotificationsSettingsPage() {
       <PageHeader
         badge="Settings"
         title="Notifications"
-        description="Choose how this organization hears about alerts. Messages go to an inbox or a signed destination you control."
+        description="Choose how this organization hears about alerts. A webhook to the tickets destination opens a ticket when an alert opens or resolves."
         actions={
           <Button
             className="w-full sm:w-auto"
@@ -547,7 +557,7 @@ export default function NotificationsSettingsPage() {
         ) : channels.length === 0 ? (
           <EmptyState
             title="No channels yet"
-            description="Add an email or webhook channel to start sending alert messages."
+            description="Add an email or webhook channel to start sending alert messages. Point a webhook at the tickets destination to open a ticket when an alert opens or resolves."
             bordered={false}
           />
         ) : (
@@ -720,6 +730,7 @@ export default function NotificationsSettingsPage() {
         organizationId={selectedOrganizationId}
         sites={orgSites}
         channel={editing}
+        suggestedUrl={ticketingQuery.data?.ingestUrl}
         onCreatedSecret={setRevealedSecret}
       />
 

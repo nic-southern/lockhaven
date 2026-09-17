@@ -38,6 +38,7 @@ import { formatDate } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
 import type { RouterOutputs } from "@/lib/trpc"
+import { OpenAssetTicketDialog } from "@/components/tickets/open-ticket-dialog"
 
 type AssetRow = RouterOutputs["assets"]["page"]["items"][number]
 
@@ -129,6 +130,7 @@ function AssetsContent() {
   const [selectedId, setSelectedId] = React.useState("")
   const [mobileOpen, setMobileOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
+  const [ticketOpen, setTicketOpen] = React.useState(false)
   const [form, setForm] = React.useState<AssetForm>(emptyForm)
   const [linkDeviceId, setLinkDeviceId] = React.useState("")
   const [importOrgId, setImportOrgId] = React.useState("")
@@ -358,6 +360,13 @@ function AssetsContent() {
               },
               ...(canUpdate
                 ? [
+                    {
+                      label: "Open ticket",
+                      onSelect: () => {
+                        setSelectedId(row.original.id)
+                        setTicketOpen(true)
+                      },
+                    },
                     {
                       label: "Remove asset",
                       destructive: true,
@@ -722,6 +731,9 @@ function AssetsContent() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => setTicketOpen(true)}>
+                  Open ticket
+                </Button>
                 <Button
                   disabled={!form.tag || updateAsset.isPending}
                   onClick={() =>
@@ -793,6 +805,17 @@ function AssetsContent() {
           if (selectedId) void deleteAsset.mutateAsync({ id: selectedId })
         }}
       />
+
+      {selected ? (
+        <OpenAssetTicketDialog
+          key={selected.id}
+          assetId={selected.id}
+          assetTag={selected.tag}
+          siteName={selected.siteName}
+          open={ticketOpen}
+          onOpenChange={setTicketOpen}
+        />
+      ) : null}
     </div>
   )
 }
