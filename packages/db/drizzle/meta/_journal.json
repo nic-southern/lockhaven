@@ -225,6 +225,13 @@
       "when": 1782300000000,
       "tag": "0041_agent_attach",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1782400000000,
+      "tag": "0042_enrollment_token_secret",
+      "breakpoints": true
     }
   ]
 }

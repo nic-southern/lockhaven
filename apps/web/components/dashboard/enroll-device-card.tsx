@@ -17,12 +17,8 @@ import { CodeBlock } from "@/components/dashboard/code-block"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField } from "@/components/dashboard/form-field"
 import { SelectField } from "@/components/dashboard/select-field"
-import {
-  buildAndroidInstallCommand,
-  buildLinuxInstallCommand,
-  buildWindowsInstallCommand,
-} from "@/lib/enrollment-commands"
-import { getClientProductName, getClientVpnBaseUrl } from "@/lib/product-name"
+import { EnrollmentInstallCommands } from "@/components/dashboard/enrollment-install-commands"
+import { getClientProductName } from "@/lib/product-name"
 import { trpc } from "@/lib/trpc"
 
 const ENROLLMENT_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -52,7 +48,6 @@ export function EnrollDeviceCard({ onClose }: { onClose?: () => void }) {
 
   const sites = sitesQuery.data ?? []
   const selectedSite = sites.find((site) => site.id === siteId)
-  const baseUrl = getClientVpnBaseUrl()
   const routePolicies = routePoliciesQuery.data ?? []
   const targetOrganizationId =
     selectedSite?.organizationId ?? organizationsQuery.data?.[0]?.id ?? null
@@ -180,20 +175,7 @@ export function EnrollDeviceCard({ onClose }: { onClose?: () => void }) {
             </p>
           </div>
           {token ? (
-            <div className="flex flex-col gap-3">
-              <CodeBlock
-                label="Windows"
-                value={buildWindowsInstallCommand({ token, baseUrl })}
-              />
-              <CodeBlock
-                label="Linux"
-                value={buildLinuxInstallCommand({ token, baseUrl })}
-              />
-              <CodeBlock
-                label="Android"
-                value={buildAndroidInstallCommand({ token, baseUrl })}
-              />
-            </div>
+            <EnrollmentInstallCommands token={token} />
           ) : (
             <EmptyState
               title="No token yet"

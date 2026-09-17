@@ -2,18 +2,20 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import { PlusIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import {
   DataTable,
@@ -22,7 +24,6 @@ import {
 } from "@/components/dashboard/data-table"
 import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
-import { SectionCard } from "@/components/dashboard/section-card"
 import { SelectField } from "@/components/dashboard/select-field"
 import { StatusIndicator } from "@/components/dashboard/status-indicator"
 import { formatRelativeTime } from "@/lib/dashboard"
@@ -69,6 +70,7 @@ export default function AdminVpnPage() {
   const utils = trpc.useUtils()
   const organizationsQuery = trpc.organizations.list.useQuery()
   const profilesQuery = trpc.adminVpn.list.useQuery()
+  const [createOpen, setCreateOpen] = React.useState(false)
   const [organizationId, setOrganizationId] = React.useState("")
   const [label, setLabel] = React.useState("")
   const [revokeId, setRevokeId] = React.useState<string | null>(null)
@@ -95,6 +97,7 @@ export default function AdminVpnPage() {
       await utils.adminVpn.list.invalidate()
       downloadTextFile(result.filename, result.config)
       setLabel("")
+      setCreateOpen(false)
       toast.success("Admin VPN profile created. Config downloaded once.")
     },
     onError(error) {
@@ -325,22 +328,64 @@ export default function AdminVpnPage() {
   )
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Admin VPN"
         description="Download a profile for each machine you connect from. Enable same-user access on a profile to let your other machines reach it."
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <PlusIcon />
+            Create profile
+          </Button>
+        }
       />
 
-      <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Create profile</CardTitle>
-            <CardDescription>
+      <DataTable
+        columns={columns}
+        data={rows}
+        isLoading={profilesQuery.isLoading}
+        getRowId={(row) => row.id}
+        searchPlaceholder="Search profiles"
+        facets={[
+          {
+            columnId: "status",
+            title: "Status",
+            options: [
+              { value: "Online", label: "Online" },
+              { value: "Ready", label: "Ready" },
+              { value: "Revoked", label: "Revoked" },
+            ],
+          },
+          {
+            columnId: "organizationName",
+            title: "Organization",
+            options: organizations.map((organization) => ({
+              value: organization.name,
+              label: organization.name,
+            })),
+          },
+        ]}
+        initialSorting={[{ id: "status", desc: false }]}
+        emptyTitle="No admin VPN profiles yet"
+        emptyDescription="Create a profile for each machine you connect from to download its config."
+        emptyAction={
+          <Button onClick={() => setCreateOpen(true)}>
+            <PlusIcon />
+            Create profile
+          </Button>
+        }
+      />
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create profile</DialogTitle>
+            <DialogDescription>
               Create one profile per machine you connect from. The private key
               is shown only in the downloaded file.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4">
             <FormField label="Organization" htmlFor="admin-vpn-org">
               <SelectField
                 id="admin-vpn-org"
@@ -373,8 +418,12 @@ export default function AdminVpnPage() {
                 cannot be used on two machines at once.
               </p>
             ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Button>
             <Button
-              className="w-full"
               disabled={!organizationId || createProfile.isPending}
               onClick={() =>
                 createProfile.mutate({
@@ -385,44 +434,9 @@ export default function AdminVpnPage() {
             >
               {createProfile.isPending ? "Creating…" : "Create and download"}
             </Button>
-          </CardContent>
-        </Card>
-
-        <SectionCard
-          title="Profiles"
-          description="Import each downloaded file on its machine, then connect. Turn on same-user access when you want your other machines to reach that profile."
-        >
-          <DataTable
-            columns={columns}
-            data={rows}
-            isLoading={profilesQuery.isLoading}
-            getRowId={(row) => row.id}
-            searchPlaceholder="Search profiles"
-            facets={[
-              {
-                columnId: "status",
-                title: "Status",
-                options: [
-                  { value: "Online", label: "Online" },
-                  { value: "Ready", label: "Ready" },
-                  { value: "Revoked", label: "Revoked" },
-                ],
-              },
-              {
-                columnId: "organizationName",
-                title: "Organization",
-                options: organizations.map((organization) => ({
-                  value: organization.name,
-                  label: organization.name,
-                })),
-              },
-            ]}
-            initialSorting={[{ id: "status", desc: false }]}
-            emptyTitle="No admin VPN profiles yet"
-            emptyDescription="Create a profile for each machine you connect from to download its config."
-          />
-        </SectionCard>
-      </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={Boolean(reissueId)}

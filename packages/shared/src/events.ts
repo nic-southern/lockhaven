@@ -45,6 +45,7 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   device_hostname_changed: "notice",
   device_hostname_change_allowed: "notice",
   enrollment_token_revoked: "notice",
+  enrollment_token_secret_rotated: "notice",
   route_policy_deleted: "notice",
   route_policy_devices_reassigned: "notice",
   alert_raised: "warning",

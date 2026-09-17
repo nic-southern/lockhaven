@@ -696,6 +696,9 @@ export const enrollmentTokens = pgTable("enrollment_tokens", {
   siteId: uuid("site_id").references(() => sites.id, { onDelete: "set null" }),
   siteWide: boolean("site_wide").notNull().default(false),
   tokenHash: text("token_hash").notNull().unique(),
+  tokenCiphertext: text("token_ciphertext"),
+  tokenIv: text("token_iv"),
+  tokenAuthTag: text("token_auth_tag"),
   routePolicyId: uuid("route_policy_id").references(() => routePolicies.id, {
     onDelete: "set null",
   }),

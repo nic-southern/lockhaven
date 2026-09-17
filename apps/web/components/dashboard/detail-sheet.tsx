@@ -20,8 +20,8 @@ import { useIsDesktop } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 
 /**
- * Renders detail content in a card on desktop, or a bottom sheet on mobile.
- * Only one copy mounts at a time so form field ids stay unique.
+ * `inline` (default): card on desktop, bottom sheet on mobile.
+ * `overlay`: right-side sheet on every breakpoint so list pages stay full-width.
  */
 export function DetailSheet({
   open,
@@ -31,6 +31,7 @@ export function DetailSheet({
   children,
   className,
   contentClassName,
+  variant = "inline",
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -39,8 +40,38 @@ export function DetailSheet({
   children: React.ReactNode
   className?: string
   contentClassName?: string
+  variant?: "inline" | "overlay"
 }) {
   const isDesktop = useIsDesktop()
+
+  if (variant === "overlay") {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="right"
+          className={cn(
+            "flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl",
+            className
+          )}
+        >
+          <SheetHeader className="sticky top-0 z-10 border-b bg-popover/95 px-6 py-5 text-left backdrop-blur-md">
+            <SheetTitle>{title}</SheetTitle>
+            {description ? (
+              <SheetDescription>{description}</SheetDescription>
+            ) : null}
+          </SheetHeader>
+          <div
+            className={cn(
+              "flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]",
+              contentClassName
+            )}
+          >
+            {children}
+          </div>
+        </SheetContent>
+      </Sheet>
+    )
+  }
 
   // Treat SSR / pre-hydration as desktop to keep the admin layout stable.
   // On mobile, hide the card until the media query resolves, then use a sheet.

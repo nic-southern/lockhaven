@@ -1,7 +1,17 @@
 import { createHash, randomUUID } from "node:crypto"
 
 import { TRPCError } from "@trpc/server"
-import { and, count, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm"
+import {
+  and,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm"
 import { z } from "zod"
 
 import {
@@ -113,6 +123,55 @@ function hashEnrollmentToken(token: string) {
 
 function makeEnrollmentToken() {
   return `nms_enroll_${randomUUID().replaceAll("-", "")}`
+}
+
+function issueEnrollmentTokenSecret() {
+  const token = makeEnrollmentToken()
+  const encrypted = encryptRemoteSecret(token)
+  return {
+    token,
+    tokenHash: hashEnrollmentToken(token),
+    tokenCiphertext: encrypted.ciphertext,
+    tokenIv: encrypted.iv,
+    tokenAuthTag: encrypted.authTag,
+  }
+}
+
+function decryptEnrollmentTokenSecret(row: {
+  tokenCiphertext: string | null
+  tokenIv: string | null
+  tokenAuthTag: string | null
+}) {
+  if (!row.tokenCiphertext || !row.tokenIv || !row.tokenAuthTag) {
+    return null
+  }
+
+  try {
+    return decryptRemoteSecret({
+      ciphertext: row.tokenCiphertext,
+      iv: row.tokenIv,
+      authTag: row.tokenAuthTag,
+    })
+  } catch {
+    return null
+  }
+}
+
+function publicEnrollmentTokenRecord(
+  record: typeof enrollmentTokens.$inferSelect
+) {
+  return {
+    id: record.id,
+    organizationId: record.organizationId,
+    siteId: record.siteId,
+    siteWide: record.siteWide,
+    routePolicyId: record.routePolicyId,
+    expiresAt: record.expiresAt,
+    maxUses: record.maxUses,
+    uses: record.uses,
+    createdByUserId: record.createdByUserId,
+    createdAt: record.createdAt,
+  }
 }
 
 function getCredentialSecret() {
@@ -1997,6 +2056,10 @@ export const appRouter = createTRPCRouter({
           maxUses: enrollmentTokens.maxUses,
           uses: enrollmentTokens.uses,
           createdAt: enrollmentTokens.createdAt,
+          secretStored:
+            sql<boolean>`(${enrollmentTokens.tokenCiphertext} is not null)`.mapWith(
+              Boolean
+            ),
           organizationName: organizations.name,
           siteName: sites.name,
           routePolicyName: routePolicies.name,
@@ -2065,8 +2128,7 @@ export const appRouter = createTRPCRouter({
           }
         }
 
-        const rawToken = makeEnrollmentToken()
-        const tokenHash = hashEnrollmentToken(rawToken)
+        const issued = issueEnrollmentTokenSecret()
         const expiresAt = input.siteId ? (input.expiresAt ?? null) : null
 
         if (!input.siteId) {
@@ -2091,7 +2153,10 @@ export const appRouter = createTRPCRouter({
             routePolicyId: input.routePolicyId ?? null,
             expiresAt,
             maxUses: input.maxUses,
-            tokenHash,
+            tokenHash: issued.tokenHash,
+            tokenCiphertext: issued.tokenCiphertext,
+            tokenIv: issued.tokenIv,
+            tokenAuthTag: issued.tokenAuthTag,
             createdByUserId: ctx.actor?.id ?? null,
           })
           .returning()
@@ -2103,8 +2168,73 @@ export const appRouter = createTRPCRouter({
         })
 
         return {
-          token: rawToken,
-          enrollmentToken: record,
+          token: issued.token,
+          enrollmentToken: publicEnrollmentTokenRecord(record),
+        }
+      }),
+    reveal: permissionProcedure("device:enroll")
+      .input(z.object({ id: z.string().uuid() }))
+      .query(async ({ ctx, input }) => {
+        const [existing] = await ctx.db
+          .select()
+          .from(enrollmentTokens)
+          .where(eq(enrollmentTokens.id, input.id))
+
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        assertAuthorized(ctx.actor, "device:enroll", {
+          kind: "enrollmentToken",
+          organizationId: existing.organizationId,
+          siteId: existing.siteId,
+        })
+
+        const token = decryptEnrollmentTokenSecret(existing)
+        return {
+          token,
+          recoverable: token !== null,
+        }
+      }),
+    rotateSecret: permissionProcedure("device:enroll")
+      .input(z.object({ id: z.string().uuid() }))
+      .mutation(async ({ ctx, input }) => {
+        const [existing] = await ctx.db
+          .select()
+          .from(enrollmentTokens)
+          .where(eq(enrollmentTokens.id, input.id))
+
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        assertAuthorized(ctx.actor, "device:enroll", {
+          kind: "enrollmentToken",
+          organizationId: existing.organizationId,
+          siteId: existing.siteId,
+        })
+
+        const issued = issueEnrollmentTokenSecret()
+        const [record] = await ctx.db
+          .update(enrollmentTokens)
+          .set({
+            tokenHash: issued.tokenHash,
+            tokenCiphertext: issued.tokenCiphertext,
+            tokenIv: issued.tokenIv,
+            tokenAuthTag: issued.tokenAuthTag,
+          })
+          .where(eq(enrollmentTokens.id, input.id))
+          .returning()
+
+        await writeAuditEvent(ctx, {
+          organizationId: existing.organizationId,
+          eventType: "enrollment_token_secret_rotated",
+          eventData: { tokenId: existing.id },
+        })
+
+        return {
+          token: issued.token,
+          enrollmentToken: publicEnrollmentTokenRecord(record),
         }
       }),
     update: permissionProcedure("device:enroll")
@@ -2204,7 +2334,7 @@ export const appRouter = createTRPCRouter({
           },
         })
 
-        return record
+        return publicEnrollmentTokenRecord(record)
       }),
     revoke: permissionProcedure("device:enroll")
       .input(z.object({ id: z.string().uuid() }))
@@ -2237,7 +2367,7 @@ export const appRouter = createTRPCRouter({
           },
         })
 
-        return record ?? existing
+        return publicEnrollmentTokenRecord(record ?? existing)
       }),
   }),
   audit: auditRouter,
