@@ -99,7 +99,9 @@ import {
   remoteSessionRequestSchema,
   siteBusinessHoursSchema,
   siteContactSchema,
+  siteHoursHaveContent,
   siteRoles,
+  isValidTimeZone,
   type ServiceType,
 } from "@nms/shared"
 import { recordingPathForConnection } from "@nms/shared/session-recording"
@@ -609,6 +611,23 @@ const siteUpdateInput = z.object({
   requireAccessReason: z.boolean().optional(),
   requireApproval: z.boolean().optional(),
 })
+
+function siteHoursPayload(
+  timezone: string | null | undefined,
+  businessHours: z.infer<typeof siteBusinessHoursSchema> | null | undefined
+) {
+  const trimmedZone = timezone?.trim() || null
+  if (!businessHours || !siteHoursHaveContent(businessHours)) {
+    return { timezone: trimmedZone, businessHours: null }
+  }
+  if (!trimmedZone || !isValidTimeZone(trimmedZone)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Set a timezone before saving hours.",
+    })
+  }
+  return { timezone: trimmedZone, businessHours }
+}
 
 const managementServiceCreateInput = z.object({
   deviceId: z.string().uuid(),
@@ -1141,16 +1160,17 @@ export const appRouter = createTRPCRouter({
           organizationId: input.organizationId,
         })
 
+        const hours = siteHoursPayload(input.timezone, input.businessHours)
         const [record] = await ctx.db
           .insert(sites)
           .values({
             organizationId: input.organizationId,
             name: input.name,
-            timezone: input.timezone ?? null,
+            timezone: hours.timezone,
             notes: input.notes ?? null,
             address: input.address ?? null,
             contacts: input.contacts ?? [],
-            businessHours: input.businessHours ?? null,
+            businessHours: hours.businessHours,
             requireAccessReason: input.requireAccessReason ?? false,
             requireApproval: input.requireApproval ?? false,
           })
@@ -1196,15 +1216,16 @@ export const appRouter = createTRPCRouter({
           organizationId: existing.organizationId,
         })
 
+        const hours = siteHoursPayload(input.timezone, input.businessHours)
         const [record] = await ctx.db
           .update(sites)
           .set({
             name: input.name,
-            timezone: input.timezone ?? null,
+            timezone: hours.timezone,
             notes: input.notes ?? null,
             address: input.address ?? null,
             contacts: input.contacts ?? [],
-            businessHours: input.businessHours ?? null,
+            businessHours: hours.businessHours,
             ...(input.requireAccessReason === undefined
               ? {}
               : { requireAccessReason: input.requireAccessReason }),

@@ -10,6 +10,7 @@ import {
   parseIsoDate,
   parseMoney,
   parseSiteBulkCsv,
+  siteBusinessHoursSchema,
   warrantyState,
 } from "./assets"
 
@@ -125,4 +126,22 @@ test("parseIsoDate and parseMoney reject garbage", () => {
   )
   assert.equal(parseMoney("n/a"), null)
   assert.equal(parseMoney("(12.5)"), "-12.50")
+})
+
+test("site hours accept holidays and overnight windows", () => {
+  const parsed = siteBusinessHoursSchema.parse({
+    weekdays: { open: "10:00", close: "02:00" },
+    saturday: { open: "10:00", close: "22:00" },
+    holidays: [
+      { date: "2026-12-25", closed: true },
+      { date: "2026-12-24", open: "10:00", close: "16:00" },
+    ],
+  })
+  assert.equal(parsed.holidays?.length, 2)
+  assert.equal(
+    siteBusinessHoursSchema.safeParse({
+      holidays: [{ date: "2026-12-25", open: "10:00" }],
+    }).success,
+    false
+  )
 })

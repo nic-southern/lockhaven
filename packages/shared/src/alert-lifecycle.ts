@@ -65,7 +65,7 @@ export type EscalationCandidate = {
   inMaintenanceWindow?: boolean
 }
 
-type ZonedParts = {
+export type ZonedParts = {
   year: number
   month: number
   day: number
@@ -111,7 +111,7 @@ export function isValidMaintenanceWindowSpan(
   return true
 }
 
-function zonedParts(date: Date, timeZone: string): ZonedParts {
+export function getZonedParts(date: Date, timeZone: string): ZonedParts {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
     weekday: "short",
@@ -140,7 +140,7 @@ function zonedParts(date: Date, timeZone: string): ZonedParts {
 
 /** Milliseconds to add to UTC to get wall time in `timeZone` at `date`. */
 function timeZoneOffsetMs(date: Date, timeZone: string) {
-  const parts = zonedParts(date, timeZone)
+  const parts = getZonedParts(date, timeZone)
   const asUtc = Date.UTC(
     parts.year,
     parts.month - 1,
@@ -227,8 +227,8 @@ export function isMaintenanceWindowActive(
   }
 
   const durationMs = window.endsAt.getTime() - window.startsAt.getTime()
-  const startParts = zonedParts(window.startsAt, window.timeZone)
-  const nowParts = zonedParts(now, window.timeZone)
+  const startParts = getZonedParts(window.startsAt, window.timeZone)
+  const nowParts = getZonedParts(now, window.timeZone)
   let dayDelta = nowParts.weekday - startParts.weekday
   if (dayDelta < 0) dayDelta += 7
 

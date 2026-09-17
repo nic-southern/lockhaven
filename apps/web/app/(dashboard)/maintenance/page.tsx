@@ -26,28 +26,12 @@ import { SectionCard } from "@/components/dashboard/section-card"
 import { SelectField } from "@/components/dashboard/select-field"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDate } from "@/lib/dashboard"
+import { timeZoneOptions } from "@/lib/time-zones"
 import { trpc } from "@/lib/trpc"
 import type { RouterOutputs } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
 
 type WindowRow = RouterOutputs["maintenance"]["list"][number]
-
-function timeZoneOptions() {
-  if (typeof Intl !== "undefined" && "supportedValuesOf" in Intl) {
-    return Intl.supportedValuesOf("timeZone")
-  }
-  return [
-    "UTC",
-    "America/New_York",
-    "America/Chicago",
-    "America/Denver",
-    "America/Los_Angeles",
-    "Europe/London",
-    "Europe/Paris",
-    "Asia/Tokyo",
-    "Australia/Sydney",
-  ]
-}
 
 function toZonedInput(date: Date, timeZone: string) {
   const parts = Object.fromEntries(
@@ -382,7 +366,7 @@ export default function MaintenancePage() {
       <PageHeader
         badge="Alerts"
         title="Maintenance"
-        description="Hold new alerts during planned work. They stay quiet until the window ends, then open if the condition is still true."
+        description="Hold new alerts during planned work. They stay quiet until the window ends, then open if the condition is still true. Open and close hours live on each location."
         actions={
           canManage ? (
             <Button

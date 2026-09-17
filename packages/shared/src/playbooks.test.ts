@@ -151,6 +151,37 @@ test("unknown actions are refused before any command is queued", () => {
   }
 })
 
+test("reboot and update wait while the floor is open", () => {
+  const base = {
+    requireApproval: false,
+    alertStatus: "open" as const,
+    snoozedUntil: null as Date | null,
+    deviceId: "device-1",
+    now,
+    lastQueuedAt: null as Date | null,
+    cooldownMinutes: 0,
+    hasOpenCommand: false,
+    existingRunStatus: null as null,
+    holdForVenueHours: true,
+  }
+  assert.deepEqual(decidePlaybookAction({ ...base, action: "reboot" }), {
+    kind: "skip",
+    reason: "floor_open",
+  })
+  assert.deepEqual(decidePlaybookAction({ ...base, action: "update" }), {
+    kind: "skip",
+    reason: "floor_open",
+  })
+  assert.deepEqual(
+    decidePlaybookAction({
+      ...base,
+      action: "reboot",
+      holdForVenueHours: false,
+    }),
+    { kind: "queue" }
+  )
+})
+
 test("alerts without a device are skipped", () => {
   const decision = decidePlaybookAction({
     action: "reboot",

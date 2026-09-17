@@ -29,6 +29,7 @@ export const playbookSkipReasons = [
   "open_command",
   "not_open",
   "already_handled",
+  "floor_open",
 ] as const
 export type PlaybookSkipReason = (typeof playbookSkipReasons)[number]
 export const playbookSkipReasonSchema = z.enum(playbookSkipReasons)
@@ -70,6 +71,7 @@ export const playbookSkipReasonLabels: Record<PlaybookSkipReason, string> = {
   open_command: "The same action is already waiting",
   not_open: "Alert is not open",
   already_handled: "Already handled",
+  floor_open: "The location is still open",
 }
 
 export function isPlaybookAction(value: string): value is PlaybookAction {
@@ -176,6 +178,7 @@ export function decidePlaybookAction(input: {
   cooldownMinutes: number
   hasOpenCommand: boolean
   existingRunStatus: PlaybookRunStatus | null | undefined
+  holdForVenueHours?: boolean
 }): PlaybookDecision {
   if (
     input.existingRunStatus &&
@@ -197,6 +200,9 @@ export function decidePlaybookAction(input: {
   }
   if (!input.deviceId) {
     return { kind: "skip", reason: "no_device" }
+  }
+  if (input.holdForVenueHours) {
+    return { kind: "skip", reason: "floor_open" }
   }
   if (
     isPlaybookInCooldown(input.lastQueuedAt, input.cooldownMinutes, input.now)

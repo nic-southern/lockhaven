@@ -12,7 +12,11 @@ import {
 } from "@nms/shared"
 
 import { enqueueAlertNotifications } from "./alert-deliveries"
-import { activeMaintenanceWindowFor, resolveAlertPolicy } from "./alert-runtime"
+import {
+  activeMaintenanceWindowFor,
+  resolveAlertPolicy,
+  shouldSkipQuietAlertForClosedHours,
+} from "./alert-runtime"
 
 export type RaiseAlertInput = {
   kind: AlertKind
@@ -66,7 +70,9 @@ async function recordSystemEvent(
  * repeat. Acknowledged alerts keep their acknowledgement; only a resolved
  * alert followed by a repeat opens a fresh row. Alerts raised inside an
  * active maintenance window are created `suppressed` and do not enqueue
- * deliveries until they are promoted.
+ * deliveries until they are promoted. Offline and flap alerts that begin
+ * while the site is closed are not opened; they are re-evaluated when the
+ * floor opens.
  */
 export async function raiseAlert(input: RaiseAlertInput) {
   const now = new Date()
@@ -92,6 +98,11 @@ export async function raiseAlert(input: RaiseAlertInput) {
     },
     now
   )
+  const floorClosedQuiet = await shouldSkipQuietAlertForClosedHours(
+    input.kind,
+    input.siteId,
+    now
+  )
 
   const [existing] = await db
     .select({
@@ -110,6 +121,9 @@ export async function raiseAlert(input: RaiseAlertInput) {
 
   if (existing) {
     if (existing.status === "suppressed" && !window) {
+      if (floorClosedQuiet) {
+        return { id: existing.id, created: false as const }
+      }
       const promoted = await db.transaction(async (tx) => {
         const [row] = await tx
           .update(alerts)
@@ -155,6 +169,10 @@ export async function raiseAlert(input: RaiseAlertInput) {
       })
       .where(eq(alerts.id, existing.id))
     return { id: existing.id, created: false as const }
+  }
+
+  if (floorClosedQuiet) {
+    return { id: "", created: false as const }
   }
 
   const status: AlertStatus = window ? "suppressed" : "open"

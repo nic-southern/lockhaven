@@ -7,6 +7,7 @@ import {
   devices,
   playbookRuns,
   playbooks,
+  sites,
 } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
@@ -16,6 +17,7 @@ import {
   pickMatchingPlaybook,
   playbookApprovalExpiresAt,
   severityForEvent,
+  shouldHoldPlaybookForVenueHours,
   type AgentCommandKind,
   type AlertKind,
   type AlertStatus,
@@ -187,7 +189,7 @@ export async function evaluatePlaybooks(client: PlaybookDb, now = new Date()) {
   await expirePendingPlaybookRuns(client, now)
   await cancelDisabledPendingRuns(client, now)
 
-  const [playbookRows, alertRows] = await Promise.all([
+  const [playbookRows, alertRows, siteRows] = await Promise.all([
     client.select().from(playbooks),
     client
       .select({
@@ -203,6 +205,13 @@ export async function evaluatePlaybooks(client: PlaybookDb, now = new Date()) {
       })
       .from(alerts)
       .where(inArray(alerts.status, ["open", "acknowledged"])),
+    client
+      .select({
+        id: sites.id,
+        timezone: sites.timezone,
+        businessHours: sites.businessHours,
+      })
+      .from(sites),
   ])
 
   if (alertRows.length === 0 || playbookRows.length === 0) {
@@ -225,6 +234,7 @@ export async function evaluatePlaybooks(client: PlaybookDb, now = new Date()) {
   const runByPlaybookAlert = new Map(
     existingRuns.map((row) => [`${row.playbookId}:${row.alertId}`, row])
   )
+  const siteById = new Map(siteRows.map((row) => [row.id, row]))
 
   const cooldownRows = await client
     .select({
@@ -280,6 +290,7 @@ export async function evaluatePlaybooks(client: PlaybookDb, now = new Date()) {
       hasOpenCommand = hasOpenCommandOfKind(open, action)
     }
 
+    const site = alert.siteId ? siteById.get(alert.siteId) : undefined
     const decision = decidePlaybookAction({
       action: playbook.action,
       requireApproval: playbook.requireApproval,
@@ -291,6 +302,12 @@ export async function evaluatePlaybooks(client: PlaybookDb, now = new Date()) {
       cooldownMinutes: playbook.cooldownMinutes,
       hasOpenCommand,
       existingRunStatus: existing?.status ?? null,
+      holdForVenueHours: shouldHoldPlaybookForVenueHours({
+        action: playbook.action,
+        hours: site?.businessHours ?? null,
+        timeZone: site?.timezone ?? null,
+        now,
+      }),
     })
 
     if (decision.kind === "skip") {

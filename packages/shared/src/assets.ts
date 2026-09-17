@@ -84,10 +84,31 @@ const hoursWindowSchema = z.object({
   close: timeOfDaySchema,
 })
 
+export const siteHolidaySchema = z
+  .object({
+    date: isoDateSchema,
+    closed: z.boolean().optional(),
+    open: timeOfDaySchema.optional(),
+    close: timeOfDaySchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasOpen = Boolean(value.open)
+    const hasClose = Boolean(value.close)
+    if (hasOpen !== hasClose) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Set both open and close times.",
+      })
+    }
+  })
+
+export type SiteHoliday = z.infer<typeof siteHolidaySchema>
+
 export const siteBusinessHoursSchema = z.object({
   weekdays: hoursWindowSchema.nullable().optional(),
   saturday: hoursWindowSchema.nullable().optional(),
   sunday: hoursWindowSchema.nullable().optional(),
+  holidays: z.array(siteHolidaySchema).max(100).optional(),
 })
 
 export type SiteBusinessHours = z.infer<typeof siteBusinessHoursSchema>

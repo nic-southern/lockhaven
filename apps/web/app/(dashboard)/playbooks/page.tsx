@@ -182,7 +182,7 @@ export default function PlaybooksPage() {
       <PageHeader
         badge="Operate"
         title="Playbooks"
-        description="Map an alert to an allowed device action. Playbooks never run custom scripts."
+        description="Map an alert to an allowed device action. Never custom scripts. Device restarts and agent updates wait until a location is closed when hours are set."
         actions={
           canManage && organizations[0] ? (
             <Button
@@ -231,7 +231,7 @@ export default function PlaybooksPage() {
 
           <SectionCard
             title="Playbooks"
-            description="When a matching alert opens, Lockhaven queues one allowed action on the device."
+            description="When a matching alert opens, Lockhaven queues one allowed action on the device. Device restarts and agent updates wait until the location is closed."
           >
             {(playbooksQuery.data?.length ?? 0) === 0 ? (
               <EmptyState
@@ -479,7 +479,7 @@ export default function PlaybooksPage() {
               <FormField
                 label="Action"
                 htmlFor="playbook-action"
-                description="Only restart device, restart agent, or update agent."
+                description="Only restart device, restart agent, or update agent. Device restart and agent update wait until the location is closed."
               >
                 <SelectField
                   id="playbook-action"
