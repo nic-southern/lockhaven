@@ -2,17 +2,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import { PlusIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -28,7 +22,6 @@ import { EmptyState } from "@/components/dashboard/empty-state"
 import { EnrollmentInstallCommands } from "@/components/dashboard/enrollment-install-commands"
 import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
-import { SectionCard } from "@/components/dashboard/section-card"
 import { SelectField } from "@/components/dashboard/select-field"
 import { formatDate, formatRelativeTime, statusLabel } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
@@ -120,7 +113,8 @@ export default function EnrollmentTokensPage() {
   const tokens = React.useMemo(() => tokensQuery.data ?? [], [tokensQuery.data])
 
   const [selectedTokenId, setSelectedTokenId] = React.useState("")
-  const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)
+  const [detailOpen, setDetailOpen] = React.useState(false)
+  const [createOpen, setCreateOpen] = React.useState(false)
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
   const [createSiteId, setCreateSiteId] = React.useState("")
   // `null` means the user hasn't chosen, so the organization default applies.
@@ -137,7 +131,10 @@ export default function EnrollmentTokensPage() {
   const [createSiteWide, setCreateSiteWide] = React.useState(true)
   const [createExpiresAt, setCreateExpiresAt] = React.useState("")
   const [createMaxUses, setCreateMaxUses] = React.useState("1")
-  const [createdToken, setCreatedToken] = React.useState("")
+  const [createdSecret, setCreatedSecret] = React.useState<{
+    id: string
+    token: string
+  } | null>(null)
   const [revokeOpen, setRevokeOpen] = React.useState(false)
   const [rotateOpen, setRotateOpen] = React.useState(false)
 
@@ -150,8 +147,13 @@ export default function EnrollmentTokensPage() {
 
   const createToken = trpc.enrollmentTokens.create.useMutation({
     async onSuccess(result) {
-      setCreatedToken(result.token)
+      setCreatedSecret({
+        id: result.enrollmentToken.id,
+        token: result.token,
+      })
       setSelectedTokenId(result.enrollmentToken.id)
+      setCreateOpen(false)
+      setDetailOpen(true)
       await Promise.all([
         utils.enrollmentTokens.list.invalidate(),
         utils.enrollmentTokens.reveal.invalidate({
@@ -178,6 +180,8 @@ export default function EnrollmentTokensPage() {
     async onSuccess() {
       await utils.enrollmentTokens.list.invalidate()
       setRevokeOpen(false)
+      setDetailOpen(false)
+      setSelectedTokenId("")
       toast.success("Token revoked")
     },
     onError() {
@@ -185,7 +189,11 @@ export default function EnrollmentTokensPage() {
     },
   })
   const rotateSecret = trpc.enrollmentTokens.rotateSecret.useMutation({
-    async onSuccess() {
+    async onSuccess(result) {
+      setCreatedSecret({
+        id: result.enrollmentToken.id,
+        token: result.token,
+      })
       await Promise.all([
         utils.enrollmentTokens.list.invalidate(),
         selectedTokenId
@@ -201,13 +209,12 @@ export default function EnrollmentTokensPage() {
   })
 
   React.useEffect(() => {
-    if (tokens.length === 0) {
+    if (
+      selectedTokenId &&
+      !tokens.some((token) => token.id === selectedTokenId)
+    ) {
       setSelectedTokenId("")
-      return
-    }
-
-    if (!tokens.some((token) => token.id === selectedTokenId)) {
-      setSelectedTokenId(tokens[0].id)
+      setDetailOpen(false)
     }
   }, [selectedTokenId, tokens])
 
@@ -217,8 +224,11 @@ export default function EnrollmentTokensPage() {
   )
   const secretQuery = trpc.enrollmentTokens.reveal.useQuery(
     { id: selectedTokenId },
-    { enabled: Boolean(selectedTokenId) }
+    { enabled: Boolean(selectedTokenId && detailOpen) }
   )
+  const plaintextToken =
+    secretQuery.data?.token ??
+    (createdSecret?.id === selectedTokenId ? createdSecret.token : "")
 
   const imagingOrganizationId =
     createSiteId === "" && createOrganizationId
@@ -229,7 +239,7 @@ export default function EnrollmentTokensPage() {
 
   const imagingSshQuery = trpc.organizations.imagingSsh.useQuery(
     { organizationId: imagingOrganizationId },
-    { enabled: Boolean(imagingOrganizationId) }
+    { enabled: Boolean(imagingOrganizationId && createOpen) }
   )
 
   React.useEffect(() => {
@@ -277,9 +287,16 @@ export default function EnrollmentTokensPage() {
   )
 
   const openToken = React.useCallback((id: string) => {
+    setCreateOpen(false)
     setSelectedTokenId(id)
-    setMobileDetailOpen(true)
+    setDetailOpen(true)
   }, [])
+
+  const openCreate = React.useCallback(() => {
+    setDetailOpen(false)
+    setCreateOpen(true)
+    setCreateOrganizationId((current) => current || organizations[0]?.id || "")
+  }, [organizations])
 
   const columns = React.useMemo<ColumnDef<TokenRow>[]>(
     () => [
@@ -391,7 +408,7 @@ export default function EnrollmentTokensPage() {
           <DataTableRowActions
             actions={[
               {
-                label: "Edit token",
+                label: "Open token",
                 onSelect: () => openToken(row.original.id),
               },
               {
@@ -415,212 +432,216 @@ export default function EnrollmentTokensPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         badge="Enrollment tokens"
-        title="Token workspace"
-        description="Create a token, then copy the install commands. Selecting a token shows the same commands again."
+        title="Enrollment tokens"
+        description="Create a token, then copy the install commands. Open a token anytime to copy them again."
+        actions={
+          <Button onClick={openCreate}>
+            <PlusIcon />
+            New token
+          </Button>
+        }
       />
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-        <SectionCard
-          className="order-2 lg:order-1"
-          title="New token"
-          description="Set the organization, optional site, policy, and use limit. Leave site empty for imaging tokens that never expire until revoked."
-          collapsibleOnMobile
-          contentClassName="flex flex-col gap-4"
+      <DataTable
+        columns={columns}
+        data={rows}
+        isLoading={tokensQuery.isLoading}
+        getRowId={(row) => row.id}
+        searchPlaceholder="Search tokens"
+        facets={[
+          {
+            columnId: "status",
+            title: "Status",
+            options: [
+              { value: "active", label: "Active" },
+              { value: "expired", label: "Expired" },
+              { value: "exhausted", label: "Exhausted" },
+            ],
+          },
+          {
+            columnId: "scope",
+            title: "Scope",
+            options: [
+              { value: "Shared site", label: "Shared site" },
+              { value: "Shared imaging", label: "Shared imaging" },
+              { value: "Standard", label: "Standard" },
+            ],
+          },
+          {
+            columnId: "organizationName",
+            title: "Organization",
+            options: organizations.map((organization) => ({
+              value: organization.name,
+              label: organization.name,
+            })),
+          },
+        ]}
+        initialSorting={[{ id: "createdAt", desc: true }]}
+        initialColumnVisibility={{ createdAt: false }}
+        onRowClick={(row) => openToken(row.id)}
+        isRowActive={(row) => detailOpen && row.id === selectedTokenId}
+        emptyTitle="No tokens yet"
+        emptyDescription="Create a token to enroll the first device."
+        emptyAction={
+          <Button onClick={openCreate}>
+            <PlusIcon />
+            New token
+          </Button>
+        }
+      />
+
+      <DetailSheet
+        variant="overlay"
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        title="New token"
+        description="Set the organization, optional site, policy, and use limit. Leave site empty for imaging tokens that never expire until revoked."
+        className="sm:max-w-2xl"
+        contentClassName="gap-4"
+      >
+        <FormField label="Organization" htmlFor="token-create-organization">
+          <SelectField
+            id="token-create-organization"
+            value={createOrganizationId}
+            onValueChange={(value) => {
+              setCreateOrganizationId(value)
+              setCreateSiteId("")
+            }}
+            placeholder="Choose an organization"
+            options={organizations.map((organization) => ({
+              value: organization.id,
+              label: organization.name,
+            }))}
+          />
+        </FormField>
+        <FormField
+          label="Site"
+          htmlFor="token-create-site"
+          description="Optional. Use no site for mass imaging, then assign the location after install."
         >
-          <FormField label="Organization" htmlFor="token-create-organization">
-            <SelectField
-              id="token-create-organization"
-              value={createOrganizationId}
-              onValueChange={(value) => {
-                setCreateOrganizationId(value)
-                setCreateSiteId("")
-              }}
-              placeholder="Choose an organization"
-              options={organizations.map((organization) => ({
-                value: organization.id,
-                label: organization.name,
-              }))}
-            />
-          </FormField>
-          <FormField
-            label="Site"
-            htmlFor="token-create-site"
-            description="Optional. Use no site for mass imaging, then assign the location after install."
+          <SelectField
+            id="token-create-site"
+            value={createSiteId}
+            onValueChange={setCreateSiteId}
+            emptyLabel="No site (imaging)"
+            options={createSites.map((site) => ({
+              value: site.id,
+              label: site.name,
+            }))}
+          />
+        </FormField>
+        <FormField label="Route policy" htmlFor="token-create-policy">
+          <SelectField
+            id="token-create-policy"
+            value={createRoutePolicyId}
+            onValueChange={setChosenCreateRoutePolicyId}
+            emptyLabel="No policy"
+            options={routePolicies.map((policy) => ({
+              value: policy.id,
+              label: policy.isDefault
+                ? `${policy.name} (default)`
+                : policy.name,
+            }))}
+          />
+        </FormField>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="token-create-site-wide"
+            checked={createSiteWide}
+            onCheckedChange={(checked) => setCreateSiteWide(checked === true)}
+          />
+          <Label
+            htmlFor="token-create-site-wide"
+            className="text-sm font-normal"
           >
-            <SelectField
-              id="token-create-site"
-              value={createSiteId}
-              onValueChange={setCreateSiteId}
-              emptyLabel="No site (imaging)"
-              options={createSites.map((site) => ({
-                value: site.id,
-                label: site.name,
-              }))}
-            />
-          </FormField>
-          <FormField label="Route policy" htmlFor="token-create-policy">
-            <SelectField
-              id="token-create-policy"
-              value={createRoutePolicyId}
-              onValueChange={setChosenCreateRoutePolicyId}
-              emptyLabel="No policy"
-              options={routePolicies.map((policy) => ({
-                value: policy.id,
-                label: policy.isDefault
-                  ? `${policy.name} (default)`
-                  : policy.name,
-              }))}
-            />
-          </FormField>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="token-create-site-wide"
-              checked={createSiteWide}
-              onCheckedChange={(checked) => setCreateSiteWide(checked === true)}
-            />
-            <Label
-              htmlFor="token-create-site-wide"
-              className="text-sm font-normal"
-            >
-              Reusable shared token
-            </Label>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {createSiteId ? (
-              <FormField label="Expires" htmlFor="token-create-expires">
-                <Input
-                  id="token-create-expires"
-                  type="datetime-local"
-                  value={createExpiresAt}
-                  onChange={(event) => setCreateExpiresAt(event.target.value)}
-                />
-              </FormField>
-            ) : (
-              <p className="text-sm text-muted-foreground sm:col-span-2">
-                Imaging tokens do not expire. Revoke them when they should stop
-                working.
-              </p>
-            )}
-            <FormField label="Max uses" htmlFor="token-create-max-uses">
+            Reusable shared token
+          </Label>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {createSiteId ? (
+            <FormField label="Expires" htmlFor="token-create-expires">
               <Input
-                id="token-create-max-uses"
-                type="number"
-                min={1}
-                value={createMaxUses}
-                onChange={(event) => setCreateMaxUses(event.target.value)}
-                disabled={createSiteWide}
+                id="token-create-expires"
+                type="datetime-local"
+                value={createExpiresAt}
+                onChange={(event) => setCreateExpiresAt(event.target.value)}
               />
             </FormField>
-          </div>
-          {createSiteWide ? (
-            <p className="text-sm text-muted-foreground">
-              {createSiteId
-                ? "Shared for this site until it expires or is revoked."
-                : "Shared imaging token for this organization until it is revoked. All Linux hosts get the same SSH key so you can reach every imaged device."}
+          ) : (
+            <p className="text-sm text-muted-foreground sm:col-span-2">
+              Imaging tokens do not expire. Revoke them when they should stop
+              working.
             </p>
-          ) : null}
-          {!createSiteId && createOrganizationId && !createSiteWide ? (
-            <p className="text-sm text-muted-foreground">
-              Imaging enrollments still use the organization SSH key so every
-              Linux host can be reached after install.
-            </p>
-          ) : null}
-          {!createSiteId && imagingSshQuery.data?.sshPublicKey ? (
-            <CodeBlock
-              label="Imaging SSH public key"
-              value={imagingSshQuery.data.sshPublicKey}
+          )}
+          <FormField label="Max uses" htmlFor="token-create-max-uses">
+            <Input
+              id="token-create-max-uses"
+              type="number"
+              min={1}
+              value={createMaxUses}
+              onChange={(event) => setCreateMaxUses(event.target.value)}
+              disabled={createSiteWide}
             />
-          ) : null}
-          <Button
-            className="w-full sm:w-fit"
-            onClick={() => {
-              void createToken.mutateAsync({
-                organizationId: createOrganizationId,
-                siteId: createSiteId || null,
-                siteWide: createSiteWide,
-                routePolicyId: createRoutePolicyId || null,
-                expiresAt: createSiteId
-                  ? fromDatetimeLocal(createExpiresAt)
-                  : null,
-                maxUses: createSiteWide ? 1 : Number(createMaxUses),
-              })
-            }}
-            disabled={
-              !createOrganizationId ||
-              (!!createSiteId && !createExpiresAt) ||
-              createToken.isPending
-            }
-          >
-            Create token
-          </Button>
-          {createdToken ? (
-            <div className="flex flex-col gap-3">
-              <CodeBlock label="Enrollment token" value={createdToken} />
-              <EnrollmentInstallCommands token={createdToken} />
-            </div>
-          ) : null}
-        </SectionCard>
-
-        <Card className="order-1 lg:order-2">
-          <CardHeader>
-            <CardTitle>Tokens</CardTitle>
-            <CardDescription>
-              Sort and filter tokens, then pick one to copy install commands,
-              edit, or revoke it.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              columns={columns}
-              data={rows}
-              isLoading={tokensQuery.isLoading}
-              getRowId={(row) => row.id}
-              searchPlaceholder="Search tokens"
-              facets={[
-                {
-                  columnId: "status",
-                  title: "Status",
-                  options: [
-                    { value: "active", label: "Active" },
-                    { value: "expired", label: "Expired" },
-                    { value: "exhausted", label: "Exhausted" },
-                  ],
-                },
-                {
-                  columnId: "scope",
-                  title: "Scope",
-                  options: [
-                    { value: "Shared site", label: "Shared site" },
-                    { value: "Shared imaging", label: "Shared imaging" },
-                    { value: "Standard", label: "Standard" },
-                  ],
-                },
-                {
-                  columnId: "organizationName",
-                  title: "Organization",
-                  options: organizations.map((organization) => ({
-                    value: organization.name,
-                    label: organization.name,
-                  })),
-                },
-              ]}
-              initialSorting={[{ id: "createdAt", desc: true }]}
-              initialColumnVisibility={{ createdAt: false }}
-              onRowClick={(row) => openToken(row.id)}
-              isRowActive={(row) => row.id === selectedTokenId}
-              emptyTitle="No tokens yet"
-              emptyDescription="Create a token to enroll the first device."
-            />
-          </CardContent>
-        </Card>
-      </div>
+          </FormField>
+        </div>
+        {createSiteWide ? (
+          <p className="text-sm text-muted-foreground">
+            {createSiteId
+              ? "Shared for this site until it expires or is revoked."
+              : "Shared imaging token for this organization until it is revoked. All Linux hosts get the same SSH key so you can reach every imaged device."}
+          </p>
+        ) : null}
+        {!createSiteId && createOrganizationId && !createSiteWide ? (
+          <p className="text-sm text-muted-foreground">
+            Imaging enrollments still use the organization SSH key so every
+            Linux host can be reached after install.
+          </p>
+        ) : null}
+        {!createSiteId && imagingSshQuery.data?.sshPublicKey ? (
+          <CodeBlock
+            label="Imaging SSH public key"
+            value={imagingSshQuery.data.sshPublicKey}
+          />
+        ) : null}
+        <Button
+          className="w-full sm:w-fit"
+          onClick={() => {
+            void createToken.mutateAsync({
+              organizationId: createOrganizationId,
+              siteId: createSiteId || null,
+              siteWide: createSiteWide,
+              routePolicyId: createRoutePolicyId || null,
+              expiresAt: createSiteId
+                ? fromDatetimeLocal(createExpiresAt)
+                : null,
+              maxUses: createSiteWide ? 1 : Number(createMaxUses),
+            })
+          }}
+          disabled={
+            !createOrganizationId ||
+            (!!createSiteId && !createExpiresAt) ||
+            createToken.isPending
+          }
+        >
+          Create token
+        </Button>
+      </DetailSheet>
 
       {selectedToken ? (
         <DetailSheet
-          open={mobileDetailOpen}
-          onOpenChange={setMobileDetailOpen}
-          title="Edit token"
+          variant="overlay"
+          open={detailOpen}
+          onOpenChange={(open) => {
+            setDetailOpen(open)
+            if (!open && !revokeOpen && !rotateOpen) {
+              setSelectedTokenId("")
+            }
+          }}
+          title={
+            selectedToken.siteName ? selectedToken.siteName : "Imaging token"
+          }
           description="Copy install commands, update settings, or revoke this token when it should no longer work."
+          className="sm:max-w-2xl"
           contentClassName="gap-6"
         >
           <div className="flex flex-col gap-4">
@@ -631,12 +652,15 @@ export default function EnrollmentTokensPage() {
                 only sets up private access without the agent.
               </p>
             </div>
-            {secretQuery.isLoading ? (
+            {secretQuery.isLoading && !plaintextToken ? (
               <p className="text-sm text-muted-foreground">
                 Loading install commands…
               </p>
-            ) : secretQuery.data?.token ? (
-              <EnrollmentInstallCommands token={secretQuery.data.token} />
+            ) : plaintextToken ? (
+              <>
+                <CodeBlock label="Enrollment token" value={plaintextToken} />
+                <EnrollmentInstallCommands token={plaintextToken} />
+              </>
             ) : (
               <EmptyState
                 title="Install commands unavailable"

@@ -41,10 +41,11 @@ that includes `LOCKHAVEN_DEVICE_ID` so attach binds that listing even when
 hostname or serial would be ambiguous. The tab also links the Linux agent
 downloads from `/install/lockhaven-agent-linux-amd64` and `…-arm64`.
 
-The Enrollment tokens page shows the same Linux agent command (and the older
-tunnel-only `enroll-linux.sh` command) after create **and** when you select an
-existing token. Hub stores the token hash for auth plus an encrypted copy of
-the secret so those commands can be copied later. Tokens created before that
+The Enrollment tokens page is a full-width list. **New token** is in the
+header. After create, and whenever you open a token, a side panel shows the
+same Linux agent command (and the older tunnel-only `enroll-linux.sh` command)
+plus the raw token. Hub stores the token hash for auth plus an encrypted copy
+of the secret so those commands can be copied later. Tokens created before that
 storage need a new secret issued once.
 
 `POST /api/agent/attach` issues a new check-in secret for the matched device.

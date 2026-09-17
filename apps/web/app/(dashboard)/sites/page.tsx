@@ -2,16 +2,10 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import { PlusIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
@@ -26,7 +20,6 @@ import { DetailSheet } from "@/components/dashboard/detail-sheet"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
-import { SectionCard } from "@/components/dashboard/section-card"
 import { SelectField } from "@/components/dashboard/select-field"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
@@ -49,7 +42,8 @@ export default function SitesPage() {
   const sitesQuery = trpc.sites.list.useQuery()
   const devicesQuery = trpc.devices.list.useQuery()
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
-  const [mobileDetailOpen, setMobileDetailOpen] = React.useState(false)
+  const [detailOpen, setDetailOpen] = React.useState(false)
+  const [createOpen, setCreateOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
 
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
@@ -76,7 +70,7 @@ export default function SitesPage() {
   const [importOrgId, setImportOrgId] = React.useState("")
 
   const createSite = trpc.sites.create.useMutation({
-    async onSuccess() {
+    async onSuccess(result) {
       await Promise.all([
         utils.sites.list.invalidate(),
         utils.devices.list.invalidate(),
@@ -88,6 +82,9 @@ export default function SitesPage() {
       setCreateContactName("")
       setCreateContactEmail("")
       setCreateContactPhone("")
+      setCreateOpen(false)
+      setSelectedSiteId(result.id)
+      setDetailOpen(true)
       toast.success("Site created")
     },
     onError() {
@@ -115,6 +112,8 @@ export default function SitesPage() {
         utils.devices.list.invalidate(),
       ])
       setDeleteOpen(false)
+      setDetailOpen(false)
+      setSelectedSiteId("")
       toast.success("Site removed")
     },
     onError() {
@@ -136,13 +135,9 @@ export default function SitesPage() {
   )
 
   React.useEffect(() => {
-    if (sites.length === 0) {
+    if (selectedSiteId && !sites.some((site) => site.id === selectedSiteId)) {
       setSelectedSiteId("")
-      return
-    }
-
-    if (!sites.some((site) => site.id === selectedSiteId)) {
-      setSelectedSiteId(sites[0].id)
+      setDetailOpen(false)
     }
   }, [selectedSiteId, sites])
 
@@ -198,9 +193,16 @@ export default function SitesPage() {
   )
 
   const openSite = React.useCallback((id: string) => {
+    setCreateOpen(false)
     setSelectedSiteId(id)
-    setMobileDetailOpen(true)
+    setDetailOpen(true)
   }, [])
+
+  const openCreate = React.useCallback(() => {
+    setDetailOpen(false)
+    setCreateOpen(true)
+    setCreateOrganizationId((current) => current || organizations[0]?.id || "")
+  }, [organizations])
 
   const columns = React.useMemo<ColumnDef<SiteRow>[]>(
     () => [
@@ -266,7 +268,7 @@ export default function SitesPage() {
           <DataTableRowActions
             label={row.original.name}
             actions={[
-              { label: "Edit site", onSelect: () => openSite(row.original.id) },
+              { label: "Open site", onSelect: () => openSite(row.original.id) },
               {
                 label: "Remove site",
                 destructive: true,
@@ -298,157 +300,166 @@ export default function SitesPage() {
       <PageHeader
         badge="Sites"
         title="Locations"
-        description="Create and update sites, then assign devices to the right location."
+        description="Add a location, then open it to update details, hours, and access rules."
         actions={
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            Import
+          <>
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              Import
+            </Button>
+            <Button onClick={openCreate}>
+              <PlusIcon />
+              New site
+            </Button>
+          </>
+        }
+      />
+
+      <DataTable
+        columns={columns}
+        data={rows}
+        isLoading={sitesQuery.isLoading}
+        getRowId={(row) => row.id}
+        searchPlaceholder="Search sites"
+        facets={[
+          {
+            columnId: "organizationName",
+            title: "Organization",
+            options: organizationFacetOptions,
+          },
+          {
+            columnId: "ssh",
+            title: "SSH",
+            options: [
+              { value: "Ready", label: "Ready" },
+              { value: "None", label: "None" },
+            ],
+          },
+        ]}
+        initialSorting={[{ id: "name", desc: false }]}
+        onRowClick={(row) => openSite(row.id)}
+        isRowActive={(row) => detailOpen && row.id === selectedSiteId}
+        emptyTitle="No sites yet"
+        emptyDescription="Create a site to start assigning devices to a location."
+        emptyAction={
+          <Button onClick={openCreate}>
+            <PlusIcon />
+            New site
           </Button>
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-        <SectionCard
-          className="order-2 lg:order-1"
-          title="New site"
-          description="Add a location for devices to live under. An SSH key is created automatically."
-          collapsibleOnMobile
-          contentClassName="flex flex-col gap-4"
+      <DetailSheet
+        variant="overlay"
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        title="New site"
+        description="Add a location for devices to live under. An SSH key is created automatically."
+        className="sm:max-w-xl"
+        contentClassName="gap-4"
+      >
+        <FormField label="Organization" htmlFor="site-create-organization">
+          <SelectField
+            id="site-create-organization"
+            value={createOrganizationId}
+            onValueChange={setCreateOrganizationId}
+            placeholder="Choose an organization"
+            options={organizations.map((organization) => ({
+              value: organization.id,
+              label: organization.name,
+            }))}
+          />
+        </FormField>
+        <FormField label="Name" htmlFor="site-create-name">
+          <Input
+            id="site-create-name"
+            value={createName}
+            onChange={(event) => setCreateName(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Timezone" htmlFor="site-create-timezone">
+          <Input
+            id="site-create-timezone"
+            value={createTimezone}
+            onChange={(event) => setCreateTimezone(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Notes" htmlFor="site-create-notes">
+          <Textarea
+            id="site-create-notes"
+            value={createNotes}
+            onChange={(event) => setCreateNotes(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Address" htmlFor="site-create-address">
+          <Textarea
+            id="site-create-address"
+            value={createAddress}
+            onChange={(event) => setCreateAddress(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Contact" htmlFor="site-create-contact">
+          <Input
+            id="site-create-contact"
+            value={createContactName}
+            onChange={(event) => setCreateContactName(event.target.value)}
+            placeholder="Name"
+          />
+        </FormField>
+        <FormField label="Contact email" htmlFor="site-create-email">
+          <Input
+            id="site-create-email"
+            value={createContactEmail}
+            onChange={(event) => setCreateContactEmail(event.target.value)}
+          />
+        </FormField>
+        <FormField label="Contact phone" htmlFor="site-create-phone">
+          <Input
+            id="site-create-phone"
+            value={createContactPhone}
+            onChange={(event) => setCreateContactPhone(event.target.value)}
+          />
+        </FormField>
+        <Button
+          className="w-full sm:w-fit"
+          onClick={() => {
+            void createSite.mutateAsync({
+              organizationId: createOrganizationId,
+              name: createName,
+              timezone: createTimezone || null,
+              notes: createNotes || null,
+              address: createAddress || null,
+              contacts: createContactName
+                ? [
+                    {
+                      name: createContactName,
+                      email: createContactEmail || null,
+                      phone: createContactPhone || null,
+                    },
+                  ]
+                : [],
+            })
+          }}
+          disabled={
+            !createOrganizationId || !createName || createSite.isPending
+          }
         >
-          <FormField label="Organization" htmlFor="site-create-organization">
-            <SelectField
-              id="site-create-organization"
-              value={createOrganizationId}
-              onValueChange={setCreateOrganizationId}
-              placeholder="Choose an organization"
-              options={organizations.map((organization) => ({
-                value: organization.id,
-                label: organization.name,
-              }))}
-            />
-          </FormField>
-          <FormField label="Name" htmlFor="site-create-name">
-            <Input
-              id="site-create-name"
-              value={createName}
-              onChange={(event) => setCreateName(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Timezone" htmlFor="site-create-timezone">
-            <Input
-              id="site-create-timezone"
-              value={createTimezone}
-              onChange={(event) => setCreateTimezone(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Notes" htmlFor="site-create-notes">
-            <Textarea
-              id="site-create-notes"
-              value={createNotes}
-              onChange={(event) => setCreateNotes(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Address" htmlFor="site-create-address">
-            <Textarea
-              id="site-create-address"
-              value={createAddress}
-              onChange={(event) => setCreateAddress(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Contact" htmlFor="site-create-contact">
-            <Input
-              id="site-create-contact"
-              value={createContactName}
-              onChange={(event) => setCreateContactName(event.target.value)}
-              placeholder="Name"
-            />
-          </FormField>
-          <FormField label="Contact email" htmlFor="site-create-email">
-            <Input
-              id="site-create-email"
-              value={createContactEmail}
-              onChange={(event) => setCreateContactEmail(event.target.value)}
-            />
-          </FormField>
-          <FormField label="Contact phone" htmlFor="site-create-phone">
-            <Input
-              id="site-create-phone"
-              value={createContactPhone}
-              onChange={(event) => setCreateContactPhone(event.target.value)}
-            />
-          </FormField>
-          <Button
-            className="w-full sm:w-fit"
-            onClick={() => {
-              void createSite.mutateAsync({
-                organizationId: createOrganizationId,
-                name: createName,
-                timezone: createTimezone || null,
-                notes: createNotes || null,
-                address: createAddress || null,
-                contacts: createContactName
-                  ? [
-                      {
-                        name: createContactName,
-                        email: createContactEmail || null,
-                        phone: createContactPhone || null,
-                      },
-                    ]
-                  : [],
-              })
-            }}
-            disabled={
-              !createOrganizationId || !createName || createSite.isPending
-            }
-          >
-            Create site
-          </Button>
-        </SectionCard>
-
-        <Card className="order-1 lg:order-2">
-          <CardHeader>
-            <CardTitle>Sites</CardTitle>
-            <CardDescription>
-              Sort, filter, and pick a site to edit it.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              columns={columns}
-              data={rows}
-              isLoading={sitesQuery.isLoading}
-              getRowId={(row) => row.id}
-              searchPlaceholder="Search sites"
-              facets={[
-                {
-                  columnId: "organizationName",
-                  title: "Organization",
-                  options: organizationFacetOptions,
-                },
-                {
-                  columnId: "ssh",
-                  title: "SSH",
-                  options: [
-                    { value: "Ready", label: "Ready" },
-                    { value: "None", label: "None" },
-                  ],
-                },
-              ]}
-              initialSorting={[{ id: "name", desc: false }]}
-              onRowClick={(row) => openSite(row.id)}
-              isRowActive={(row) => row.id === selectedSiteId}
-              emptyTitle="No sites yet"
-              emptyDescription="Create a site to start assigning devices to a location."
-            />
-          </CardContent>
-        </Card>
-      </div>
+          Create site
+        </Button>
+      </DetailSheet>
 
       {selectedSite ? (
         <DetailSheet
-          open={mobileDetailOpen}
-          onOpenChange={setMobileDetailOpen}
-          title="Edit site"
-          description="Update the selected location or remove it."
+          variant="overlay"
+          open={detailOpen}
+          onOpenChange={(open) => {
+            setDetailOpen(open)
+            if (!open && !deleteOpen) {
+              setSelectedSiteId("")
+            }
+          }}
+          title={selectedSite.name}
+          description="Update this location or remove it."
+          className="sm:max-w-xl"
           contentClassName="gap-6"
         >
           <div className="grid gap-4 md:grid-cols-2">
