@@ -182,7 +182,7 @@ export default function PlaybooksPage() {
       <PageHeader
         badge="Operate"
         title="Playbooks"
-        description="Map an alert to an allowed device action. Playbooks never run custom scripts."
+        description="Map an alert to an allowed device action. Reboot and agent update wait until the location is closed when hours are set. Playbooks never run custom scripts."
         actions={
           canManage && organizations[0] ? (
             <Button

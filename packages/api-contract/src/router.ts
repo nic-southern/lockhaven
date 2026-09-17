@@ -95,6 +95,8 @@ import {
   BROWSER_CONNECTION_METHOD,
   enrollmentTokenCreateSchema,
   enrollmentTokenUpdateSchema,
+  hasConfiguredSiteHours,
+  isValidTimeZone,
   membershipStatuses,
   organizationRoles,
   parseSiteBulkCsv,
@@ -611,6 +613,19 @@ const siteUpdateInput = z.object({
   requireAccessReason: z.boolean().optional(),
   requireApproval: z.boolean().optional(),
 })
+
+function requireTimezoneForSiteHours(
+  timezone: string | null | undefined,
+  hours: z.infer<typeof siteBusinessHoursSchema> | null | undefined
+) {
+  if (!hasConfiguredSiteHours(hours)) return
+  if (!timezone?.trim() || !isValidTimeZone(timezone.trim())) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Set a timezone before saving site hours.",
+    })
+  }
+}
 
 const managementServiceCreateInput = z.object({
   deviceId: z.string().uuid(),
@@ -1144,6 +1159,7 @@ export const appRouter = createTRPCRouter({
           kind: "organization",
           organizationId: input.organizationId,
         })
+        requireTimezoneForSiteHours(input.timezone, input.businessHours)
 
         const [record] = await ctx.db
           .insert(sites)
@@ -1199,6 +1215,7 @@ export const appRouter = createTRPCRouter({
           kind: "organization",
           organizationId: existing.organizationId,
         })
+        requireTimezoneForSiteHours(input.timezone, input.businessHours)
 
         const [record] = await ctx.db
           .update(sites)

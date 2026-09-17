@@ -6,12 +6,18 @@ import {
   findActiveMaintenanceWindow,
   selectAlertsToEscalate,
   shouldAutoResolveConcentratorProbe,
+  shouldHoldAlertForClosedHours,
   type EscalationCandidate,
 } from "@nms/shared"
 
 import { resolveAlert } from "./alerts"
 import { recordEvent } from "./audit"
-import { effectivePolicyFor, loadAlertLifecycleState } from "./lifecycle"
+import {
+  alertIsHeld,
+  effectivePolicyFor,
+  loadAlertLifecycleState,
+  siteOpenFor,
+} from "./lifecycle"
 import { enqueueAlertNotifications } from "./notify"
 
 async function promoteSuppressedAlerts(now: Date) {
@@ -23,8 +29,15 @@ async function promoteSuppressedAlerts(now: Date) {
 
   let promoted = 0
   for (const alert of suppressed) {
-    const active = findActiveMaintenanceWindow(state.windows, alert, now)
-    if (active) continue
+    if (alertIsHeld(state, alert, now)) continue
+    if (
+      shouldHoldAlertForClosedHours(
+        alert.kind,
+        siteOpenFor(state, alert.siteId, now)
+      )
+    ) {
+      continue
+    }
 
     const updated = await db.transaction(async (tx) => {
       const [row] = await tx
@@ -93,6 +106,10 @@ async function escalateOpenAlerts(now: Date) {
     inMaintenanceWindow: Boolean(
       findActiveMaintenanceWindow(state.windows, alert, now)
     ),
+    inClosedHours: shouldHoldAlertForClosedHours(
+      alert.kind,
+      siteOpenFor(state, alert.siteId, now)
+    ),
   }))
 
   const selected = selectAlertsToEscalate(
@@ -144,8 +161,9 @@ async function escalateOpenAlerts(now: Date) {
 }
 
 /**
- * Promotes held alerts whose window has ended, auto-resolves quiet
- * concentrator probes, and enqueues escalation deliveries for due open alerts.
+ * Promotes held alerts whose maintenance window or closed hours have ended,
+ * auto-resolves quiet concentrator probes, and enqueues escalation deliveries
+ * for due open alerts.
  */
 export async function runEscalateAlerts(now = new Date()) {
   await loadAlertLifecycleState(true)

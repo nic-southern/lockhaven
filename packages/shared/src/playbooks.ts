@@ -2,8 +2,9 @@ import { z } from "zod"
 
 import { alertKindSchema, type AlertKind, type AlertStatus } from "./events"
 import { agentCommandKindLabels, isAgentCommandKind } from "./fleet"
-import { agentCommandKinds, type AgentCommandKind } from "./telemetry"
 import { accessRequestTtlMs } from "./session-accountability"
+import { shouldWaitForSiteClose } from "./site-hours"
+import { agentCommandKinds, type AgentCommandKind } from "./telemetry"
 
 /** Hub playbooks may only dispatch the same closed command whitelist as fleet. */
 export const playbookActions = agentCommandKinds
@@ -128,6 +129,7 @@ export function pickMatchingPlaybook(
 
 export type PlaybookDecision =
   | { kind: "skip"; reason: PlaybookSkipReason }
+  | { kind: "wait"; reason: "floor_open" }
   | { kind: "queue" }
   | { kind: "approve" }
 
@@ -176,6 +178,7 @@ export function decidePlaybookAction(input: {
   cooldownMinutes: number
   hasOpenCommand: boolean
   existingRunStatus: PlaybookRunStatus | null | undefined
+  siteOpen?: boolean | null
 }): PlaybookDecision {
   if (
     input.existingRunStatus &&
@@ -197,6 +200,9 @@ export function decidePlaybookAction(input: {
   }
   if (!input.deviceId) {
     return { kind: "skip", reason: "no_device" }
+  }
+  if (shouldWaitForSiteClose(input.action, input.siteOpen)) {
+    return { kind: "wait", reason: "floor_open" }
   }
   if (
     isPlaybookInCooldown(input.lastQueuedAt, input.cooldownMinutes, input.now)

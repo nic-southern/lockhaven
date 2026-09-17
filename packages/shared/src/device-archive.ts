@@ -1,13 +1,13 @@
 import { DEVICE_ONLINE_WINDOW_MS } from "./domain"
 import type { AlertKind } from "./events"
+import {
+  quietOfflineAlertKinds,
+  type QuietOfflineAlertKind,
+} from "./site-hours"
 
 /** Offline/down kinds that must stay quiet while a device is archived. */
-export const archivedQuietAlertKinds = [
-  "device_offline",
-  "peer_flapping",
-] as const satisfies readonly AlertKind[]
-
-export type ArchivedQuietAlertKind = (typeof archivedQuietAlertKinds)[number]
+export const archivedQuietAlertKinds = quietOfflineAlertKinds
+export type ArchivedQuietAlertKind = QuietOfflineAlertKind
 
 function toMillis(value: Date | string | number | null | undefined) {
   if (value == null) {

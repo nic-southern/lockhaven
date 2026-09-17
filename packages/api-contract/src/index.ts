@@ -9,10 +9,14 @@ export {
 export { enqueueAlertNotifications } from "./alert-deliveries"
 export {
   activeMaintenanceWindowFor,
+  alertIsHeld,
+  alertIsHeldFor,
   effectivePolicyFor,
   loadAlertLifecycleState,
   offlineAlertHours,
   resolveAlertPolicy,
+  siteOpenFor,
+  siteOpenForTarget,
 } from "./alert-runtime"
 export * from "./context"
 export * from "./list"
