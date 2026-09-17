@@ -182,6 +182,9 @@ function DeviceDetail() {
               <Badge variant={statusVariant[device.status] ?? "secondary"}>
                 {statusLabel(device.status)}
               </Badge>
+              {device.archivedAt ? (
+                <Badge variant="outline">Archived</Badge>
+              ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
               {device.hostname && device.hostname !== device.displayName ? (

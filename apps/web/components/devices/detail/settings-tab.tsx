@@ -70,7 +70,9 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
   const [routePolicyId, setRoutePolicyId] = React.useState(
     device.vpnIdentity?.routePolicyId ?? ""
   )
-  const [confirm, setConfirm] = React.useState<"revoke" | "delete" | null>(null)
+  const [confirm, setConfirm] = React.useState<
+    "revoke" | "delete" | "archive" | "unarchive" | null
+  >(null)
 
   // Reset the form when the server record changes underneath it.
   const [baseline, setBaseline] = React.useState(device)
@@ -136,6 +138,18 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
     },
     onError() {
       toast.error("We couldn't revoke tunnel access.")
+    },
+  })
+  const setArchived = trpc.devices.setArchived.useMutation({
+    async onSuccess(_result, variables) {
+      await invalidate()
+      setConfirm(null)
+      toast.success(
+        variables.archived ? "Device archived" : "Device returned to service"
+      )
+    },
+    onError() {
+      toast.error("We couldn't update this device.")
     },
   })
   const deleteDevice = trpc.devices.delete.useMutation({
@@ -378,6 +392,30 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
         </SectionCard>
       ) : null}
 
+      {canUpdate ? (
+        <SectionCard
+          title="Archive"
+          description="Use this when the device is warehoused or otherwise not in service."
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              {device.archivedAt
+                ? "This device is archived. Offline alerts are paused. Return it to service when it is in use again."
+                : "Archived devices stay in inventory. Offline alerts are paused. If this device comes back online, we will raise an alert."}
+            </p>
+            <Button
+              variant={device.archivedAt ? "default" : "outline"}
+              disabled={setArchived.isPending}
+              onClick={() =>
+                setConfirm(device.archivedAt ? "unarchive" : "archive")
+              }
+            >
+              {device.archivedAt ? "Return to service" : "Archive device"}
+            </Button>
+          </div>
+        </SectionCard>
+      ) : null}
+
       <SectionCard
         title="Uninstall"
         description="Run this on the device to remove the tunnel and local files, then revoke access or remove the device below."
@@ -435,6 +473,24 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
         </SectionCard>
       ) : null}
 
+      <ConfirmDialog
+        open={confirm === "archive"}
+        onOpenChange={(open) => (!open ? setConfirm(null) : null)}
+        title="Archive device"
+        description={`Archive ${device.displayName}? It stays in inventory. Offline alerts will stop. If it checks in or its tunnel comes up, we will raise an alert.`}
+        confirmLabel="Archive device"
+        pending={setArchived.isPending}
+        onConfirm={() => setArchived.mutate({ id: device.id, archived: true })}
+      />
+      <ConfirmDialog
+        open={confirm === "unarchive"}
+        onOpenChange={(open) => (!open ? setConfirm(null) : null)}
+        title="Return to service"
+        description={`Return ${device.displayName} to service? Offline alerts will resume.`}
+        confirmLabel="Return to service"
+        pending={setArchived.isPending}
+        onConfirm={() => setArchived.mutate({ id: device.id, archived: false })}
+      />
       <ConfirmDialog
         open={confirm === "revoke"}
         onOpenChange={(open) => (!open ? setConfirm(null) : null)}

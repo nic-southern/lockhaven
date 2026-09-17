@@ -30,6 +30,8 @@ const titles: Record<BulkActionKind, string> = {
   add_tags: "Add tags",
   remove_tags: "Remove tags",
   revoke_vpn: "Revoke tunnel access",
+  archive: "Archive devices",
+  unarchive: "Return to service",
   delete: "Remove from inventory",
 }
 
@@ -81,6 +83,8 @@ export function BulkActionDialog({
         onConfirm({ action, tags })
         break
       case "revoke_vpn":
+      case "archive":
+      case "unarchive":
       case "delete":
         onConfirm({ action })
         break
@@ -118,7 +122,11 @@ export function BulkActionDialog({
                         ? `These tags are removed from ${label} where present.`
                         : action === "revoke_vpn"
                           ? `${label} will lose tunnel access right away. Re-enrollment is required to restore it.`
-                          : `Remove ${label} from inventory. Related access entries are cleared. This cannot be undone.`}
+                          : action === "archive"
+                            ? `${label} will be marked not in service. Offline alerts will stop. If a device comes back online, we will raise an alert.`
+                            : action === "unarchive"
+                              ? `${label} will return to service. Offline alerts will resume.`
+                              : `Remove ${label} from inventory. Related access entries are cleared. This cannot be undone.`}
               </DialogDescription>
             </DialogHeader>
 

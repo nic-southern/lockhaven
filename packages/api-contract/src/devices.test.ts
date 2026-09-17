@@ -90,6 +90,14 @@ test("bulk action schema rejects empty selections and unknown actions", () => {
   assert.throws(() =>
     deviceBulkActionSchema.parse({ action: "add_tags", ids: [id], tags: [] })
   )
+  assert.equal(
+    deviceBulkActionSchema.parse({ action: "archive", ids: [id] }).action,
+    "archive"
+  )
+  assert.equal(
+    deviceBulkActionSchema.parse({ action: "unarchive", ids: [id] }).action,
+    "unarchive"
+  )
   assert.throws(() =>
     deviceBulkActionSchema.parse({ action: "explode", ids: [id] })
   )

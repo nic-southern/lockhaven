@@ -11,6 +11,7 @@ export const statusVariant: Record<
   enrolled: "secondary",
   pending: "outline",
   revoked: "destructive",
+  archived: "outline",
   ok: "default",
   Down: "destructive",
 }
@@ -24,6 +25,7 @@ export const statusTone: Record<string, StatusTone> = {
   pending: "warning",
   offline: "offline",
   revoked: "danger",
+  archived: "neutral",
   Down: "danger",
 }
 
@@ -35,7 +37,10 @@ const statusLabels: Record<string, string> = {
   enrolled: "Enrolled",
   pending: "Pending",
   revoked: "Revoked",
+  archived: "Archived",
   device_deleted: "Device removed",
+  device_archived: "Device archived",
+  device_unarchived: "Returned to service",
   ok: "Healthy",
   Down: "Down",
   winrm_https: "WinRM",

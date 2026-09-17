@@ -25,6 +25,7 @@ import {
 } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
+  archivedDeviceIsPresent,
   PEER_FLAP_THRESHOLD,
   PEER_FLAP_WINDOW_MS,
   PEER_SAMPLE_INTERVAL_MS,
@@ -53,7 +54,12 @@ import {
   type WgPeerStats,
 } from "@nms/vpn"
 
-import { alertKeys, raiseAlert, resolveAlert } from "./alerts"
+import {
+  alertKeys,
+  raiseAlert,
+  resolveAlert,
+  syncArchivedDeviceAlerts,
+} from "./alerts"
 import { recordEvent } from "./audit"
 import { runEscalateAlerts } from "./escalate"
 import {
@@ -165,6 +171,7 @@ type TrackedIdentity = {
   siteId: string | null
   displayName: string
   vpnIpv4: string
+  archivedAt: Date | null
 }
 
 async function writePeerSample(args: {
@@ -253,13 +260,15 @@ async function observePeer(args: {
     }
 
     if (transition.kind === "up") {
-      await resolveAlert(alertKeys.deviceOffline(identity.deviceId), {
-        resolvedReason: "peer_up",
-        endpoint: transition.endpoint,
-      })
+      if (!identity.archivedAt) {
+        await resolveAlert(alertKeys.deviceOffline(identity.deviceId), {
+          resolvedReason: "peer_up",
+          endpoint: transition.endpoint,
+        })
+      }
     }
 
-    if (transition.kind === "endpoint_changed") {
+    if (transition.kind === "endpoint_changed" && !identity.archivedAt) {
       await raiseAlert({
         kind: "new_endpoint",
         dedupeKey: alertKeys.newEndpoint(identity.deviceId),
@@ -297,7 +306,7 @@ async function observePeer(args: {
     PEER_FLAP_THRESHOLD,
     PEER_FLAP_WINDOW_MS
   )
-  if (flapping) {
+  if (flapping && !identity.archivedAt) {
     await raiseAlert({
       kind: "peer_flapping",
       mode: "condition",
@@ -313,6 +322,7 @@ async function observePeer(args: {
       },
     })
   } else if (
+    !identity.archivedAt &&
     recentTransitions.length === 0 &&
     previous?.recentTransitions.length
   ) {
@@ -329,6 +339,7 @@ async function observePeer(args: {
     identity.siteId
   )
   if (
+    !identity.archivedAt &&
     !evaluation.next.online &&
     lastOnlineAt &&
     now.getTime() - lastOnlineAt.getTime() >= offlineHours * 60 * 60 * 1000
@@ -424,6 +435,7 @@ async function reconcileVpnPeers() {
       hostname: devices.hostname,
       serialNumber: devices.serialNumber,
       assetId: devices.assetId,
+      archivedAt: devices.archivedAt,
     })
     .from(vpnIdentities)
     .innerJoin(devices, eq(devices.id, vpnIdentities.deviceId))
@@ -463,6 +475,7 @@ async function reconcileVpnPeers() {
       siteId: identity.siteId,
       displayName: identity.displayName || identity.hostname || "Device",
       vpnIpv4: String(identity.vpnIpv4),
+      archivedAt: identity.archivedAt,
     }
 
     if (!identity.serverPeerEnabled || identity.revokedAt) {
@@ -679,11 +692,55 @@ async function reconcileVpnPeers() {
       snatTo: vpnServerIp,
     })
   )
+
+  await evaluateArchivedDevices(now)
 }
 
 function ensureHostRoute(value: string) {
   const ip = normalizeVpnIpv4(value)
   return value.includes("/") ? value.trim() : `${ip}/32`
+}
+
+async function evaluateArchivedDevices(now = new Date()) {
+  const rows = await db
+    .select({
+      id: devices.id,
+      organizationId: devices.organizationId,
+      siteId: devices.siteId,
+      displayName: devices.displayName,
+      hostname: devices.hostname,
+      archivedAt: devices.archivedAt,
+      lastSeenAt: devices.lastSeenAt,
+      lastHandshakeAt: vpnIdentities.lastHandshakeAt,
+      latestEndpoint: vpnIdentities.latestEndpoint,
+    })
+    .from(devices)
+    .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+    .where(isNotNull(devices.archivedAt))
+
+  for (const row of rows) {
+    const present = archivedDeviceIsPresent({
+      archivedAt: row.archivedAt,
+      lastHandshakeAt: row.lastHandshakeAt,
+      lastSeenAt: row.lastSeenAt,
+      now,
+    })
+    const handshakeFresh = archivedDeviceIsPresent({
+      archivedAt: row.archivedAt,
+      lastHandshakeAt: row.lastHandshakeAt,
+      now,
+    })
+    await syncArchivedDeviceAlerts({
+      deviceId: row.id,
+      organizationId: row.organizationId,
+      siteId: row.siteId,
+      displayName: row.displayName || row.hostname || "Device",
+      archived: true,
+      present,
+      source: handshakeFresh ? "vpn_handshake" : "agent_check_in",
+      endpoint: handshakeFresh ? row.latestEndpoint : null,
+    })
+  }
 }
 
 /** How many service probes run at once. */

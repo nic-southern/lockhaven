@@ -37,13 +37,15 @@ import {
   deviceTagsSchema,
   entriesFromRoutes,
   parseDeviceBulkCsv,
+  archivedDeviceIsPresent,
   type DeviceConnectivity,
   type DeviceStatus,
 } from "@nms/shared"
 import { buildClientAllowedIps, normalizeVpnIpv4 } from "@nms/vpn"
 
 import { assertAuthorized } from "../access"
-import { writeAuditEvent, type AuditContext } from "../audit"
+import { writeAuditEvent } from "../audit"
+import { syncArchivedDeviceAlerts } from "../alerts"
 import type { ApiContext } from "../context"
 import {
   connectivityExpression,
@@ -107,6 +109,8 @@ function deviceRowSelection() {
     lastSeenAt: devices.lastSeenAt,
     createdAt: devices.createdAt,
     hostnameChangeAllowedAt: devices.hostnameChangeAllowedAt,
+    archivedAt: devices.archivedAt,
+    archivedByUserId: devices.archivedByUserId,
     vpnIpv4: vpnIdentities.vpnIpv4,
     vpnRoutePolicyId: vpnIdentities.routePolicyId,
     vpnRoutePolicyName: routePolicies.name,
@@ -140,6 +144,21 @@ function withNone(values: string[], column: AnyPgColumn) {
       : isNull(column)
   }
   return inArray(column, concrete)
+}
+
+function archivedFilter(values: string[] | undefined) {
+  const archived = (values ?? []).filter(
+    (value) => value === "yes" || value === "no"
+  )
+  const wantsArchived = archived.includes("yes")
+  const wantsActive = archived.includes("no")
+  if (wantsArchived && !wantsActive) {
+    return isNotNull(devices.archivedAt)
+  }
+  if (wantsActive && !wantsArchived) {
+    return isNull(devices.archivedAt)
+  }
+  return undefined
 }
 
 /** Translates a resolved list query into WHERE conditions for the devices join. */
@@ -197,6 +216,7 @@ function buildDeviceConditions(
     behindFilter && behindFilter.length === 1 && behindFilter[0] === "false"
       ? sql`not (${behindExpr})`
       : undefined,
+    archivedFilter(query.filters.archived),
     query.search
       ? or(
           ilike(devices.displayName, likePattern(query.search)),
@@ -295,6 +315,70 @@ function canActOn(
   }).allowed
 }
 
+async function applyDeviceArchive(
+  ctx: {
+    db: Pick<ApiContext["db"], "insert" | "select" | "update">
+    actor: ApiContext["actor"]
+    request?: ApiContext["request"]
+  },
+  device: typeof devices.$inferSelect,
+  archived: boolean,
+  now: Date,
+  bulk = false
+) {
+  const currentlyArchived = Boolean(device.archivedAt)
+  if (currentlyArchived === archived) {
+    return device
+  }
+
+  const [identity] = await ctx.db
+    .select({
+      lastHandshakeAt: vpnIdentities.lastHandshakeAt,
+      latestEndpoint: vpnIdentities.latestEndpoint,
+    })
+    .from(vpnIdentities)
+    .where(eq(vpnIdentities.deviceId, device.id))
+
+  const [record] = await ctx.db
+    .update(devices)
+    .set({
+      archivedAt: archived ? now : null,
+      archivedByUserId: archived ? (ctx.actor?.id ?? null) : null,
+      updatedAt: now,
+    })
+    .where(eq(devices.id, device.id))
+    .returning()
+
+  await writeAuditEvent(ctx, {
+    eventType: archived ? "device_archived" : "device_unarchived",
+    organizationId: device.organizationId,
+    deviceId: device.id,
+    eventData: {
+      deviceId: device.id,
+      archived,
+      bulk,
+    },
+  })
+
+  await syncArchivedDeviceAlerts({
+    deviceId: device.id,
+    organizationId: device.organizationId,
+    siteId: device.siteId,
+    displayName: device.displayName || device.hostname || "Device",
+    archived,
+    present: archivedDeviceIsPresent({
+      archivedAt: archived ? now : null,
+      lastHandshakeAt: identity?.lastHandshakeAt,
+      lastSeenAt: device.lastSeenAt,
+      now,
+    }),
+    source: "archive",
+    endpoint: identity?.latestEndpoint ?? null,
+  })
+
+  return record ?? device
+}
+
 export const devicesRouter = createTRPCRouter({
   list: permissionProcedure("device:view").query(async ({ ctx }) => {
     const scope = deviceScopeCondition(ctx.actor)
@@ -361,6 +445,7 @@ export const devicesRouter = createTRPCRouter({
       tags: [] as Array<{ value: string; count: number }>,
       agentVersion: [] as Array<{ value: string; count: number }>,
       behind: [] as Array<{ value: string; count: number }>,
+      archived: [] as Array<{ value: string; count: number }>,
     }
     if (scope.kind === "none") {
       return empty
@@ -389,6 +474,7 @@ export const devicesRouter = createTRPCRouter({
       tagRows,
       agentRows,
       behindRows,
+      archivedRows,
     ] = await Promise.all([
       grouped(sql<string>`${devices.status}::text`),
       grouped(connectivityExpression()),
@@ -435,6 +521,9 @@ export const devicesRouter = createTRPCRouter({
       grouped(
         sql<string>`case when ${behindExpr} then 'true' else 'false' end`
       ),
+      grouped(
+        sql<string>`case when ${devices.archivedAt} is not null then 'yes' else 'no' end`
+      ),
     ])
 
     const plain = (rows: Array<{ value: string; total: number }>) =>
@@ -461,6 +550,7 @@ export const devicesRouter = createTRPCRouter({
       tags: plain(tagRows),
       agentVersion: plain(agentRows),
       behind: plain(behindRows),
+      archived: plain(archivedRows),
     }
   }),
   /** Same filters as `page`, capped, for CSV download. */
@@ -842,6 +932,22 @@ export const devicesRouter = createTRPCRouter({
 
       return record
     }),
+  setArchived: permissionProcedure("device:update")
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        archived: z.boolean(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const device = await loadDevice(ctx, input.id)
+      assertAuthorized(ctx.actor, "device:update", {
+        kind: "device",
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+      })
+      return applyDeviceArchive(ctx, device, input.archived, new Date())
+    }),
   revokeVpn: permissionProcedure("device:revoke_vpn")
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -961,7 +1067,7 @@ export const devicesRouter = createTRPCRouter({
       const now = new Date()
 
       await ctx.db.transaction(async (tx) => {
-        const scoped: AuditContext = { db: tx, actor: ctx.actor }
+        const scoped = { db: tx, actor: ctx.actor }
 
         switch (input.action) {
           case "assign_site": {
@@ -1055,6 +1161,19 @@ export const devicesRouter = createTRPCRouter({
                 deviceId: device.id,
                 eventData: { revoked: true, bulk: true },
               })
+            }
+            break
+          }
+          case "archive":
+          case "unarchive": {
+            for (const device of allowed) {
+              await applyDeviceArchive(
+                scoped,
+                device,
+                input.action === "archive",
+                now,
+                true
+              )
             }
             break
           }
