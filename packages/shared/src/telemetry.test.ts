@@ -163,6 +163,42 @@ test("check-in payload parses titles and treats a null items list as empty", () 
   }
 })
 
+test("check-in payload treats a null titles block as absent", () => {
+  const withNull = checkInSchema.safeParse({ ...validCheckIn, titles: null })
+  assert.equal(withNull.success, true)
+  if (withNull.success) {
+    assert.equal(withNull.data.titles, undefined)
+  }
+
+  const withUndefined = checkInSchema.safeParse({
+    ...validCheckIn,
+    titles: undefined,
+  })
+  assert.equal(withUndefined.success, true)
+  if (withUndefined.success) {
+    assert.equal(withUndefined.data.titles, undefined)
+  }
+
+  const withObject = checkInSchema.safeParse({
+    ...validCheckIn,
+    titles: { items: [{ title: "Cabinet A", build: "2026.04.11" }] },
+  })
+  assert.equal(withObject.success, true)
+  if (withObject.success) {
+    assert.equal(withObject.data.titles?.items.length, 1)
+    assert.equal(withObject.data.titles?.items[0]?.title, "Cabinet A")
+  }
+
+  const withWrongType = checkInSchema.safeParse({
+    ...validCheckIn,
+    titles: "cabinet",
+  })
+  assert.equal(withWrongType.success, false)
+  if (!withWrongType.success) {
+    assert.deepEqual(checkInIssuePaths(withWrongType.error), ["titles"])
+  }
+})
+
 test("check-in payload rejects more than 64 titles", () => {
   const parsed = checkInSchema.safeParse({
     ...validCheckIn,
