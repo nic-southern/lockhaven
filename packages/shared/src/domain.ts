@@ -269,7 +269,11 @@ export const checkInSchema = z.object({
   ),
   metrics: checkInMetricsSchema.optional(),
   packages: checkInPackagesSchema.optional(),
-  titles: checkInTitlesSchema.optional(),
+  // Agents without a titles watch list send `titles: null`; treat it as absent.
+  titles: z.preprocess(
+    (value) => (value === null ? undefined : value),
+    checkInTitlesSchema.optional()
+  ),
   modules: checkInModulesSchema.optional(),
   command_results: checkInCommandResultsSchema.optional(),
 })

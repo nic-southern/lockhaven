@@ -132,7 +132,7 @@ func run(args []string) error {
 		if err := agent.MustBeEnrolled(); err != nil {
 			return err
 		}
-		agent.RunLoop(nil)
+		agent.RunLoop(nil, nil)
 		return nil
 	case "install-service":
 		path, err := service.Install()
