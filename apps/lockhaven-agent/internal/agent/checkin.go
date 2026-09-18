@@ -29,6 +29,16 @@ func fromCommandResults(rows []commands.Result) []config.CommandResult {
 	return out
 }
 
+// titlesPayload keeps the `titles` key out of the request when no watch list
+// exists. A typed-nil *collect.Titles stored in an `any` field is not empty
+// to encoding/json, so it would otherwise serialize as `"titles": null`.
+func titlesPayload(titles *collect.Titles) any {
+	if titles == nil {
+		return nil
+	}
+	return titles
+}
+
 func CheckIn(state *config.State) (CheckInResult, error) {
 	if state == nil {
 		loaded, _, err := config.Load()
@@ -57,7 +67,7 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 		Services:       services,
 		Metrics:        metrics,
 		Packages:       packages,
-		Titles:         titles,
+		Titles:         titlesPayload(titles),
 		Modules:        moduleReports,
 		CommandResults: toHubResults(state.PendingCommandResults),
 	})
