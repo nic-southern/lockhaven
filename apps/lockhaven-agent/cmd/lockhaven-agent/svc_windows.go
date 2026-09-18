@@ -3,19 +3,36 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/agent"   // pragma: allowlist secret
 	"github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/service" // pragma: allowlist secret
 	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/eventlog"
 )
 
 type agentService struct{}
+
+// serviceLogger writes check-in failures to the Windows event log (the
+// source is registered by install-service) and mirrors them to stderr.
+func serviceLogger() func(string) {
+	elog, err := eventlog.Open(service.Name)
+	if err != nil {
+		return nil
+	}
+	return func(msg string) {
+		_ = elog.Warning(1, msg)
+		fmt.Fprintln(os.Stderr, msg)
+	}
+}
 
 func (m *agentService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (bool, uint32) {
 	changes <- svc.Status{State: svc.StartPending}
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		agent.RunLoop(stop)
+		agent.RunLoop(stop, serviceLogger())
 		close(done)
 	}()
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}

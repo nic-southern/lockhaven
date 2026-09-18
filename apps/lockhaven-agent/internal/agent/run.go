@@ -21,10 +21,16 @@ func CheckInInterval() time.Duration {
 	return interval
 }
 
-func RunLoop(stop <-chan struct{}) {
+// RunLoop checks in immediately and then on every interval until stop is
+// closed. Failures are reported through logf (stderr when nil) so the
+// service log shows the Hub's refusal reason, never the request payload.
+func RunLoop(stop <-chan struct{}, logf func(string)) {
+	if logf == nil {
+		logf = func(msg string) { fmt.Fprintln(os.Stderr, msg) }
+	}
 	tick := func() {
 		if _, err := CheckIn(nil); err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
+			logf(err.Error())
 		}
 	}
 	tick()

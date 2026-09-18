@@ -60,6 +60,27 @@ type ErrorBody struct {
 	Code  string `json:"code"`
 }
 
+// CheckInError is returned when the Hub answers a check-in with an HTTP
+// status >= 400. It carries the status plus whatever product-language
+// message and machine-readable code the Hub included in its JSON body so
+// callers (CLI, service loop) can show operators the actual reason.
+type CheckInError struct {
+	Status  int
+	Code    string
+	Message string
+}
+
+func (e *CheckInError) Error() string {
+	label := fmt.Sprintf("%d", e.Status)
+	if e.Code != "" {
+		label += " " + e.Code
+	}
+	if e.Message == "" {
+		return fmt.Sprintf("Check-in refused (%s)", label)
+	}
+	return fmt.Sprintf("Check-in refused (%s): %s", label, e.Message)
+}
+
 type CommandResult struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
@@ -204,7 +225,8 @@ func (c *Client) CheckIn(req CheckInRequest) (*CheckInResponse, error) {
 		return nil, err
 	}
 	if status >= 400 {
-		return nil, fmt.Errorf("check-in was refused")
+		body := decodeError(raw)
+		return nil, &CheckInError{Status: status, Code: body.Code, Message: body.Error}
 	}
 	var out CheckInResponse
 	if err := json.Unmarshal(raw, &out); err != nil {
