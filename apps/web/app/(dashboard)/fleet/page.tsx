@@ -74,6 +74,7 @@ const commandHelp: Record<AgentCommandKind, string> = {
   restart: "The agent on this device will restart.",
   update:
     "The device will install the published agent version for its channel.",
+  restart_service: "The assigned service will restart.",
 }
 
 export default function FleetPage() {
@@ -380,22 +381,24 @@ export default function FleetPage() {
                       {canUpdate ? (
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
-                            {agentCommandKinds.map((kind) => (
-                              <Button
-                                key={kind}
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  setPendingAction({
-                                    deviceId: device.id,
-                                    deviceName: device.displayName,
-                                    kind,
-                                  })
-                                }
-                              >
-                                {agentCommandKindLabels[kind]}
-                              </Button>
-                            ))}
+                            {agentCommandKinds
+                              .filter((kind) => kind !== "restart_service")
+                              .map((kind) => (
+                                <Button
+                                  key={kind}
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() =>
+                                    setPendingAction({
+                                      deviceId: device.id,
+                                      deviceName: device.displayName,
+                                      kind,
+                                    })
+                                  }
+                                >
+                                  {agentCommandKindLabels[kind]}
+                                </Button>
+                              ))}
                           </div>
                         </TableCell>
                       ) : null}

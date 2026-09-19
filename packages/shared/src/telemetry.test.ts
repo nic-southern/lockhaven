@@ -471,6 +471,22 @@ test("agent command schema accepts only the closed whitelist", () => {
     true
   )
   assert.equal(
+    agentCommandSchema.safeParse({
+      id,
+      kind: "restart_service",
+      name: "Web",
+    }).success,
+    true
+  )
+  assert.equal(
+    agentCommandSchema.safeParse({ id, kind: "restart_service" }).success,
+    false
+  )
+  assert.equal(
+    agentCommandSchema.safeParse({ id, kind: "reboot", name: "Web" }).success,
+    false
+  )
+  assert.equal(
     agentCommandSchema.safeParse({ id, kind: "shutdown" }).success,
     false
   )

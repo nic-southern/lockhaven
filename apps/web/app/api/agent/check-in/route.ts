@@ -1,5 +1,6 @@
 import {
   requestInfoFromHeaders,
+  loadAssignedServices,
   syncArchivedDeviceAlerts,
   tryLinkDeviceToAsset,
 } from "@nms/api-contract"
@@ -271,29 +272,35 @@ export async function POST(request: Request) {
       : "vpn_online"
     : "offline"
 
-  const [[organization], siteRows, releaseRows, assignedModules] =
-    await Promise.all([
-      db
-        .select({ agentChannel: organizations.agentChannel })
-        .from(organizations)
-        .where(eq(organizations.id, device.organizationId)),
-      device.siteId
-        ? db
-            .select({ agentChannel: sites.agentChannel })
-            .from(sites)
-            .where(eq(sites.id, device.siteId))
-        : Promise.resolve([] as Array<{ agentChannel: string | null }>),
-      db
-        .select({
-          version: agentReleases.version,
-          channel: agentReleases.channel,
-          platform: agentReleases.platform,
-          downloadUrl: agentReleases.downloadUrl,
-          sha256: agentReleases.sha256,
-        })
-        .from(agentReleases),
-      loadAssignedModules(db, device),
-    ])
+  const [
+    [organization],
+    siteRows,
+    releaseRows,
+    assignedModules,
+    assignedServices,
+  ] = await Promise.all([
+    db
+      .select({ agentChannel: organizations.agentChannel })
+      .from(organizations)
+      .where(eq(organizations.id, device.organizationId)),
+    device.siteId
+      ? db
+          .select({ agentChannel: sites.agentChannel })
+          .from(sites)
+          .where(eq(sites.id, device.siteId))
+      : Promise.resolve([] as Array<{ agentChannel: string | null }>),
+    db
+      .select({
+        version: agentReleases.version,
+        channel: agentReleases.channel,
+        platform: agentReleases.platform,
+        downloadUrl: agentReleases.downloadUrl,
+        sha256: agentReleases.sha256,
+      })
+      .from(agentReleases),
+    loadAssignedModules(db, device),
+    loadAssignedServices(db, device),
+  ])
 
   const moduleDecision = validateReportedModules(assignedModules, input.modules)
   if (!moduleDecision.ok) {
@@ -411,6 +418,8 @@ export async function POST(request: Request) {
 
     return settleDeviceCommands(tx, {
       deviceId: input.device_id,
+      organizationId: device.organizationId,
+      siteId: device.siteId,
       results: input.command_results,
       now,
     })
@@ -435,6 +444,7 @@ export async function POST(request: Request) {
       sha256: desired?.sha256,
       commands,
       modules: assignedModules,
+      assignedServices,
     })
   )
 }

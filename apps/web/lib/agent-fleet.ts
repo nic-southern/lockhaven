@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm"
 
-import { deviceCommands } from "@nms/db"
+import { auditEvents, deviceCommands } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
   applyCommandAcks,
@@ -10,6 +10,7 @@ import {
   normalizeAgentPlatform,
   pickDesiredRelease,
   resolveAgentChannel,
+  severityForEvent,
   type AgentChannel,
   type AgentCommandResult,
   type AgentReleasePick,
@@ -29,6 +30,8 @@ export async function settleDeviceCommands(
   tx: TransactionClient,
   args: {
     deviceId: string
+    organizationId?: string | null
+    siteId?: string | null
     results: AgentCommandResult[] | undefined
     now: Date
   }
@@ -38,6 +41,7 @@ export async function settleDeviceCommands(
       id: deviceCommands.id,
       kind: deviceCommands.kind,
       status: deviceCommands.status,
+      serviceName: deviceCommands.serviceName,
     })
     .from(deviceCommands)
     .where(
@@ -63,6 +67,21 @@ export async function settleDeviceCommands(
         resultDetail: result?.detail ?? null,
       })
       .where(eq(deviceCommands.id, row.id))
+
+    await tx.insert(auditEvents).values({
+      organizationId: args.organizationId ?? null,
+      siteId: args.siteId ?? null,
+      deviceId: args.deviceId,
+      eventType: "device_command_completed",
+      severity: severityForEvent("device_command_completed"),
+      eventData: {
+        commandId: row.id,
+        kind: row.kind,
+        status: row.status,
+        serviceName: row.serviceName ?? null,
+        detail: result?.detail ?? null,
+      },
+    })
   }
 
   const stillOpen = acked.filter((row) => row.status === "pending")

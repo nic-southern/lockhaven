@@ -86,9 +86,10 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 		SHA256:       response.SHA256,
 		DeferRestart: true,
 	}
+	rt.Services = servicesFromHub(response.AssignedServices)
 	restartAfterUpdate := false
 	for _, command := range accepted {
-		if command.Kind == "reboot" || command.Kind == "restart" {
+		if command.Kind == "reboot" || command.Kind == "restart" || commands.DeferOwnServiceRestart(command, rt) {
 			later = append(later, command)
 			results = append(results, commands.Result{ID: command.ID, Status: "succeeded"})
 			continue
@@ -116,6 +117,17 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 	}
 
 	return CheckInResult{Accepted: len(accepted), Refused: len(refused)}, nil
+}
+
+func servicesFromHub(rows []hub.AssignedService) []commands.ServiceAllow {
+	out := make([]commands.ServiceAllow, 0, len(rows))
+	for _, row := range rows {
+		if row.Name == "" || row.Target == "" {
+			continue
+		}
+		out = append(out, commands.ServiceAllow{Name: row.Name, Target: row.Target})
+	}
+	return out
 }
 
 func assignedModulesFromHub(rows []hub.ModuleDefinition) []config.AssignedModule {

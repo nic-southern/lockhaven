@@ -3,9 +3,10 @@ package commands
 import "encoding/json"
 
 var allowedKinds = map[string]struct{}{
-	"reboot":  {},
-	"restart": {},
-	"update":  {},
+	"reboot":          {},
+	"restart":         {},
+	"update":          {},
+	"restart_service": {},
 }
 
 func Resolve(input any) (Command, Result, bool) {
@@ -21,12 +22,25 @@ func Resolve(input any) (Command, Result, bool) {
 	if id == "" {
 		id = "00000000-0000-0000-0000-000000000000"
 	}
-	if len(obj) != 2 {
-		return Command{}, Result{ID: id, Status: "refused", Detail: "This command included unsupported fields."}, false
-	}
 	kind, _ := obj["kind"].(string)
 	if _, ok := allowedKinds[kind]; !ok {
 		return Command{}, Result{ID: id, Status: "refused", Detail: "This command is not allowed."}, false
+	}
+	if kind == "restart_service" {
+		if len(obj) != 3 {
+			return Command{}, Result{ID: id, Status: "refused", Detail: "This command included unsupported fields."}, false
+		}
+		name, _ := obj["name"].(string)
+		if !validServiceName(name) {
+			return Command{}, Result{ID: id, Status: "refused", Detail: "This command is not allowed."}, false
+		}
+		if _, hasID := obj["id"]; !hasID {
+			return Command{}, Result{ID: id, Status: "refused", Detail: "This command was not recognized."}, false
+		}
+		return Command{ID: id, Kind: kind, Name: name}, Result{}, true
+	}
+	if len(obj) != 2 {
+		return Command{}, Result{ID: id, Status: "refused", Detail: "This command included unsupported fields."}, false
 	}
 	if _, hasID := obj["id"]; !hasID {
 		return Command{}, Result{ID: id, Status: "refused", Detail: "This command was not recognized."}, false

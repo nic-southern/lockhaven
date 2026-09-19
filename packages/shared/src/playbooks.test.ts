@@ -42,6 +42,7 @@ test("playbook actions are the closed fleet whitelist only", () => {
   assert.equal(isPlaybookAction("reboot"), true)
   assert.equal(isPlaybookAction("restart"), true)
   assert.equal(isPlaybookAction("update"), true)
+  assert.equal(isPlaybookAction("restart_service"), false)
   assert.equal(isPlaybookAction("ssh"), false)
   assert.equal(isPlaybookAction("shell"), false)
   assert.equal(isPlaybookAction("script"), false)

@@ -274,6 +274,13 @@
       "when": 1783000000000,
       "tag": "0048_agent_release_arch",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1783100000000,
+      "tag": "0049_agent_services",
+      "breakpoints": true
     }
   ]
 }

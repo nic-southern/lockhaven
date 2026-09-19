@@ -91,6 +91,7 @@ export const agentCommandKindLabels: Record<AgentCommandKind, string> = {
   reboot: "Restart device",
   restart: "Restart agent",
   update: "Update agent",
+  restart_service: "Restart service",
 }
 
 export const deviceCommandStatusLabels: Record<DeviceCommandStatus, string> = {
@@ -361,6 +362,7 @@ export type DeviceCommandRecord = {
   id: string
   kind: string
   status: DeviceCommandStatus
+  serviceName?: string | null
 }
 
 /** Hub only delivers waiting commands. Sent items wait for the next check-in ack. */
@@ -370,10 +372,19 @@ export function commandsForCheckIn(commands: DeviceCommandRecord[]) {
       (command) =>
         command.status === "pending" && isAgentCommandKind(command.kind)
     )
-    .map((command) => ({
-      id: command.id,
-      kind: command.kind as AgentCommandKind,
-    }))
+    .map((command) => {
+      if (command.kind === "restart_service") {
+        return {
+          id: command.id,
+          kind: "restart_service" as const,
+          name: command.serviceName ?? "",
+        }
+      }
+      return {
+        id: command.id,
+        kind: command.kind as AgentCommandKind,
+      }
+    })
 }
 
 export function statusAfterCommandResult(
@@ -419,10 +430,14 @@ const OPEN_COMMAND_STATUSES: ReadonlySet<DeviceCommandStatus> = new Set([
 /** True when another open command of the same allowlisted kind is already queued. */
 export function hasOpenCommandOfKind(
   commands: DeviceCommandRecord[],
-  kind: AgentCommandKind
+  kind: AgentCommandKind,
+  serviceName?: string | null
 ) {
-  return commands.some(
-    (command) =>
-      command.kind === kind && OPEN_COMMAND_STATUSES.has(command.status)
-  )
+  return commands.some((command) => {
+    if (command.kind !== kind || !OPEN_COMMAND_STATUSES.has(command.status)) {
+      return false
+    }
+    if (kind !== "restart_service" || !serviceName) return true
+    return command.serviceName === serviceName
+  })
 }
