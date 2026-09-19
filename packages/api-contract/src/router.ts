@@ -45,6 +45,7 @@ import { cancelAfterHoursRun } from "./after-hours-engine"
 import { afterHoursRouter } from "./routers/after-hours"
 import { playbooksRouter } from "./routers/playbooks"
 import { agentModulesRouter } from "./routers/agent-modules"
+import { agentServicesRouter } from "./routers/agent-services"
 import { routePoliciesRouter } from "./routers/route-policies"
 import { sessionsPage } from "./routers/sessions-page"
 import { sessionsTerminate } from "./routers/sessions-terminate"
@@ -1057,6 +1058,7 @@ export const appRouter = createTRPCRouter({
   playbooks: playbooksRouter,
   afterHours: afterHoursRouter,
   agentModules: agentModulesRouter,
+  agentServices: agentServicesRouter,
   assets: assetsRouter,
   customFields: customFieldsRouter,
   accessRequests: accessRequestsRouter,

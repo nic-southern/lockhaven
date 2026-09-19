@@ -1,14 +1,16 @@
 import { z } from "zod"
 
 import { alertKindSchema, type AlertKind, type AlertStatus } from "./events"
-import { agentCommandKindLabels, isAgentCommandKind } from "./fleet"
+import { agentCommandKindLabels } from "./fleet"
 import { accessRequestTtlMs } from "./session-accountability"
 import { shouldWaitForSiteClose } from "./site-hours"
-import { agentCommandKinds, type AgentCommandKind } from "./telemetry"
 
-/** Hub playbooks may only dispatch the same closed command whitelist as fleet. */
-export const playbookActions = agentCommandKinds
-export type PlaybookAction = AgentCommandKind
+/**
+ * Playbooks dispatch reboot, restart, and update only. Named service restart
+ * needs an assigned service, so it is not a playbook action.
+ */
+export const playbookActions = ["reboot", "restart", "update"] as const
+export type PlaybookAction = (typeof playbookActions)[number]
 export const playbookActionSchema = z.enum(playbookActions)
 
 export const playbookRunStatuses = [
@@ -74,7 +76,7 @@ export const playbookSkipReasonLabels: Record<PlaybookSkipReason, string> = {
 }
 
 export function isPlaybookAction(value: string): value is PlaybookAction {
-  return isAgentCommandKind(value)
+  return (playbookActions as readonly string[]).includes(value)
 }
 
 /**

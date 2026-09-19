@@ -153,6 +153,12 @@ type CheckInResponse struct {
 	SHA256              string             `json:"sha256"`
 	Commands            []any              `json:"commands"`
 	Modules             []ModuleDefinition `json:"modules"`
+	AssignedServices    []AssignedService  `json:"assigned_services"`
+}
+
+type AssignedService struct {
+	Name   string `json:"name"`
+	Target string `json:"target"`
 }
 
 type Client struct {

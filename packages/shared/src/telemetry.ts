@@ -5,6 +5,11 @@ import {
   hubModulesResponseSchema,
   type HubModuleDefinition,
 } from "./agent-modules"
+import {
+  encodeAssignedServices,
+  assignedAgentServicesSchema,
+  type AssignedAgentService,
+} from "./agent-services"
 
 /** How long Hub keeps per-check-in metric samples. */
 export const DEVICE_METRICS_SAMPLE_RETENTION_DAYS = 14
@@ -13,7 +18,12 @@ export const DEVICE_METRICS_SAMPLE_RETENTION_DAYS = 14
  * Hub→agent commands are a closed whitelist. Expanding this list is a
  * contract change on both Hub and the client. Never a free-form shell string.
  */
-export const agentCommandKinds = ["reboot", "restart", "update"] as const
+export const agentCommandKinds = [
+  "reboot",
+  "restart",
+  "update",
+  "restart_service",
+] as const
 export type AgentCommandKind = (typeof agentCommandKinds)[number]
 
 export const agentCommandResultStatuses = [
@@ -32,8 +42,28 @@ export const agentCommandSchema = z
   .object({
     id: z.string().uuid(),
     kind: z.enum(agentCommandKinds),
+    name: z.string().trim().min(1).max(64).optional(),
   })
   .strict()
+  .superRefine((value, ctx) => {
+    if (value.kind === "restart_service") {
+      if (!value.name) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["name"],
+          message: "Choose a service.",
+        })
+      }
+      return
+    }
+    if (value.name !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["name"],
+        message: "This command included unsupported fields.",
+      })
+    }
+  })
 
 export type AgentCommand = z.infer<typeof agentCommandSchema>
 
@@ -154,6 +184,7 @@ export const checkInResponseSchema = z.object({
     .trim()
     .regex(/^[a-fA-F0-9]{64}$/)
     .optional(),
+  assigned_services: assignedAgentServicesSchema.optional(),
   commands: z.array(z.unknown()).max(32).optional(),
   modules: hubModulesResponseSchema.optional(),
 })
@@ -376,7 +407,10 @@ export function resolveAgentCommand(input: unknown): ResolvedAgentCommand {
     commandIdFromUnknown(input) ?? "00000000-0000-0000-0000-000000000000"
   const issues = parsed.error.issues
   const hasUnsupportedFields = issues.some(
-    (issue) => issue.code === "unrecognized_keys"
+    (issue) =>
+      issue.code === "unrecognized_keys" ||
+      (issue.path.includes("name") &&
+        issues.some((item) => item.message.includes("unsupported")))
   )
   const kindIssue = issues.find((issue) => issue.path.includes("kind"))
   const idIssue = issues.find((issue) => issue.path.includes("id"))
@@ -460,10 +494,12 @@ export function hubCheckInResponse(args?: {
   sha256?: string
   commands?: unknown[]
   modules?: HubModuleDefinition[]
+  assignedServices?: AssignedAgentService[]
 }) {
   const modules = encodeHubModules(args?.modules)
   const checksum = args?.sha256?.trim().toLowerCase()
   const checksumOk = Boolean(checksum && /^[a-f0-9]{64}$/.test(checksum))
+  const assignedServices = encodeAssignedServices(args?.assignedServices ?? [])
   return {
     ok: true as const,
     ...(args?.desiredAgentVersion
@@ -473,5 +509,8 @@ export function hubCheckInResponse(args?: {
     ...(checksumOk ? { sha256: checksum } : {}),
     commands: encodeHubCommands(args?.commands),
     ...(modules.length > 0 ? { modules } : {}),
+    ...(assignedServices.length > 0
+      ? { assigned_services: assignedServices }
+      : {}),
   }
 }

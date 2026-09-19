@@ -104,6 +104,12 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   agent_module_assigned: "notice",
   agent_module_unassigned: "notice",
   device_module_payload_rejected: "warning",
+  agent_service_created: "notice",
+  agent_service_updated: "notice",
+  agent_service_deleted: "notice",
+  agent_service_assigned: "notice",
+  agent_service_unassigned: "notice",
+  device_command_completed: "notice",
 }
 
 /** Default severity for an event type; explicit overrides win at write time. */

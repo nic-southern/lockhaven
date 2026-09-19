@@ -1369,6 +1369,7 @@ export const deviceCommands = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     resultDetail: text("result_detail"),
+    serviceName: text("service_name"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1793,6 +1794,73 @@ export const agentModuleAssignments = pgTable(
       .on(table.moduleId, table.deviceId)
       .where(sql`${table.deviceId} is not null`),
     organizationIdx: index("agent_module_assignments_organization_idx").on(
+      table.organizationId
+    ),
+  })
+)
+
+export const agentServices = pgTable(
+  "agent_services",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    target: text("target").notNull(),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationNameIdx: uniqueIndex("agent_services_organization_name_idx").on(
+      table.organizationId,
+      table.name
+    ),
+    organizationIdx: index("agent_services_organization_idx").on(
+      table.organizationId
+    ),
+  })
+)
+
+export const agentServiceAssignments = pgTable(
+  "agent_service_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serviceId: uuid("service_id")
+      .notNull()
+      .references(() => agentServices.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, { onDelete: "cascade" }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "cascade",
+    }),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    orgWideIdx: uniqueIndex("agent_service_assignments_org_idx")
+      .on(table.serviceId)
+      .where(sql`${table.siteId} is null and ${table.deviceId} is null`),
+    siteIdx: uniqueIndex("agent_service_assignments_site_idx")
+      .on(table.serviceId, table.siteId)
+      .where(sql`${table.siteId} is not null and ${table.deviceId} is null`),
+    deviceIdx: uniqueIndex("agent_service_assignments_device_idx")
+      .on(table.serviceId, table.deviceId)
+      .where(sql`${table.deviceId} is not null`),
+    organizationIdx: index("agent_service_assignments_organization_idx").on(
       table.organizationId
     ),
   })

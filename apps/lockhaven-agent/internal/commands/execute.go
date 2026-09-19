@@ -10,6 +10,7 @@ import (
 type Command struct {
 	ID   string
 	Kind string
+	Name string
 }
 
 type Result struct {
@@ -57,9 +58,16 @@ func RestartSpec(goos string) Spec {
 }
 
 type Runtime struct {
-	GOOS          string
-	SpawnDetached func(file string, args []string) error
-	Update        *UpdateOffer
+	GOOS           string
+	SpawnDetached  func(file string, args []string) error
+	Update         *UpdateOffer
+	Services       []ServiceAllow
+	RestartService func(target string) error
+}
+
+type ServiceAllow struct {
+	Name   string
+	Target string
 }
 
 func spawnDetached(file string, args []string) error {
@@ -94,6 +102,8 @@ func Execute(command Command, rt Runtime) Result {
 		return Result{ID: command.ID, Status: "succeeded"}
 	case "update":
 		return executeUpdate(command, rt)
+	case "restart_service":
+		return executeRestartService(command, rt)
 	default:
 		return Result{ID: command.ID, Status: "refused", Detail: "This command is not allowed."}
 	}

@@ -74,10 +74,23 @@ function observationSummary(payload: unknown) {
 export function AgentTab({ device }: { device: DeviceDetail }) {
   const { can } = usePermissions()
   const canEnroll = can("device:enroll")
+  const canUpdate = can("device:update")
   const observationsQuery = trpc.agentModules.observations.useQuery(
     { deviceId: device.id },
     { enabled: can("device:view") }
   )
+  const servicesQuery = trpc.agentServices.forDevice.useQuery(
+    { deviceId: device.id },
+    { enabled: can("device:view") }
+  )
+  const enqueueService = trpc.fleet.enqueueCommand.useMutation({
+    onSuccess() {
+      toast.success("Restart requested")
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't restart that service.")
+    },
+  })
   const createToken = trpc.enrollmentTokens.create.useMutation()
   const [token, setToken] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
@@ -223,6 +236,46 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
           />
         </SectionCard>
       ) : null}
+
+      <SectionCard
+        title="Services"
+        description="Restart a service that has been assigned to this device."
+      >
+        {(servicesQuery.data?.length ?? 0) === 0 ? (
+          <EmptyState
+            title="No services"
+            description="Assigned services appear here."
+            bordered
+          />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {servicesQuery.data!.map((service) => (
+              <div
+                key={service.name}
+                className="flex items-center justify-between gap-3"
+              >
+                <span className="text-sm">{service.name}</span>
+                {canUpdate ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={enqueueService.isPending}
+                    onClick={() =>
+                      enqueueService.mutate({
+                        deviceId: device.id,
+                        kind: "restart_service",
+                        serviceName: service.name,
+                      })
+                    }
+                  >
+                    Restart service
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
 
       <SectionCard
         title="Install on this device"

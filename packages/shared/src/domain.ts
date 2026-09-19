@@ -524,6 +524,12 @@ export const auditEventTypeSchema = z.enum([
   "agent_module_assigned",
   "agent_module_unassigned",
   "device_module_payload_rejected",
+  "agent_service_created",
+  "agent_service_updated",
+  "agent_service_deleted",
+  "agent_service_assigned",
+  "agent_service_unassigned",
+  "device_command_completed",
 ])
 
 export type AuditEventType = z.infer<typeof auditEventTypeSchema>

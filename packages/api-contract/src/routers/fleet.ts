@@ -15,6 +15,7 @@ import {
   agentCommandKinds,
   agentDownloadUrlSchema,
   agentReleasePlatformSchema,
+  agentServiceNameSchema,
   agentVersionSchema,
   DEFAULT_AGENT_CHANNEL,
   hasOpenCommandOfKind,
@@ -38,6 +39,7 @@ import { writeAuditEvent } from "../audit"
 import type { ApiContext } from "../context"
 import { combineConditions, deviceScopeCondition } from "../scope"
 import { adminProcedure, createTRPCRouter, permissionProcedure } from "../trpc"
+import { loadAssignedServices } from "./agent-services"
 
 const releaseCreateInput = z.object({
   platform: agentReleasePlatformSchema,
@@ -490,10 +492,28 @@ export const fleetRouter = createTRPCRouter({
     }),
   enqueueCommand: permissionProcedure("device:update")
     .input(
-      z.object({
-        deviceId: z.string().uuid(),
-        kind: z.enum(agentCommandKinds),
-      })
+      z
+        .object({
+          deviceId: z.string().uuid(),
+          kind: z.enum(agentCommandKinds),
+          serviceName: agentServiceNameSchema.optional(),
+        })
+        .superRefine((value, ctx) => {
+          if (value.kind === "restart_service" && !value.serviceName) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["serviceName"],
+              message: "Choose a service.",
+            })
+          }
+          if (value.kind !== "restart_service" && value.serviceName) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["serviceName"],
+              message: "That action is not allowed.",
+            })
+          }
+        })
     )
     .mutation(async ({ ctx, input }) => {
       if (!isAgentCommandKind(input.kind)) {
@@ -527,6 +547,7 @@ export const fleetRouter = createTRPCRouter({
           id: deviceCommands.id,
           kind: deviceCommands.kind,
           status: deviceCommands.status,
+          serviceName: deviceCommands.serviceName,
         })
         .from(deviceCommands)
         .where(
@@ -536,11 +557,27 @@ export const fleetRouter = createTRPCRouter({
           )
         )
 
-      if (hasOpenCommandOfKind(open, input.kind as AgentCommandKind)) {
+      if (
+        hasOpenCommandOfKind(
+          open,
+          input.kind as AgentCommandKind,
+          input.serviceName
+        )
+      ) {
         throw new TRPCError({
           code: "CONFLICT",
           message: `${agentCommandKindLabels[input.kind]} is already waiting for this device.`,
         })
+      }
+
+      if (input.kind === "restart_service") {
+        const assigned = await loadAssignedServices(ctx.db, device)
+        if (!assigned.some((service) => service.name === input.serviceName)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "That service is not assigned to this device.",
+          })
+        }
       }
 
       const [record] = await ctx.db
@@ -548,6 +585,7 @@ export const fleetRouter = createTRPCRouter({
         .values({
           deviceId: device.id,
           kind: input.kind,
+          serviceName: input.serviceName ?? null,
           status: "pending",
           createdByUserId: ctx.actor?.id ?? null,
         })
@@ -560,6 +598,7 @@ export const fleetRouter = createTRPCRouter({
         eventData: {
           commandId: record.id,
           kind: record.kind,
+          serviceName: record.serviceName,
           deviceName: device.displayName,
         },
       })
@@ -661,6 +700,7 @@ export const fleetRouter = createTRPCRouter({
           sentAt: deviceCommands.sentAt,
           completedAt: deviceCommands.completedAt,
           resultDetail: deviceCommands.resultDetail,
+          serviceName: deviceCommands.serviceName,
         })
         .from(deviceCommands)
         .where(eq(deviceCommands.deviceId, input.deviceId))

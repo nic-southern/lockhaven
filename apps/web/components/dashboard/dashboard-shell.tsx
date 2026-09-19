@@ -144,6 +144,12 @@ const navSections: NavSection[] = [
         permissions: ["device:view"],
       },
       {
+        href: "/services",
+        label: "Services",
+        icon: ServerIcon,
+        permissions: ["device:view"],
+      },
+      {
         href: "/maintenance",
         label: "Maintenance",
         icon: CalendarClockIcon,
