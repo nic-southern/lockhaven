@@ -26,6 +26,7 @@ export async function evaluateAgentVersions() {
         displayName: devices.displayName,
         agentVersion: devices.agentVersion,
         osFamily: devices.osFamily,
+        architecture: devices.architecture,
         status: devices.status,
         archivedAt: devices.archivedAt,
         organizationChannel: organizations.agentChannel,
@@ -69,7 +70,7 @@ export async function evaluateAgentVersions() {
     const desired = pickDesiredRelease(
       releaseRows,
       channel,
-      normalizeAgentPlatform(device.osFamily)
+      normalizeAgentPlatform(device.osFamily, device.architecture)
     )
 
     if (!desired || !isAgentBehind(device.agentVersion, desired.version)) {

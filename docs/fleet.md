@@ -10,9 +10,13 @@ Platform administrators publish rows in `agent_releases` (version, channel,
 platform, download link, checksum). Organizations default to the **Stable**
 channel. A site can follow the organization or choose **Beta**.
 
-On check-in, Hub returns `desired_agent_version` and `download_url` for the
-resolved channel and platform, plus any waiting `commands`. The Linux Go
-agent acknowledges those commands on the next check-in.
+On check-in, Hub returns `desired_agent_version`, `download_url`, and
+`sha256` for the resolved channel and the device's platform (Linux or Windows,
+Intel/AMD or ARM). A shipped Hub image upserts those rows from checksum files
+written next to the binaries at image build. The Go agent verifies the
+checksum, replaces its own binary, and restarts its service. It will not
+download from another host. Agents already in the field need one reinstall
+before that command can run.
 
 ## Alerts
 

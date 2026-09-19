@@ -13,6 +13,8 @@ import {
   parseSemver,
   pickDesiredRelease,
   resolveAgentChannel,
+  resolveAgentDownloadUrl,
+  parseSha256Sidecar,
   sha256HexSchema,
 } from "./fleet"
 
@@ -68,6 +70,10 @@ test("platform mapping follows the reported operating system family", () => {
   assert.equal(normalizeAgentPlatform("Android 14"), "android")
   assert.equal(normalizeAgentPlatform("FreeBSD"), "all")
   assert.equal(normalizeAgentPlatform(null), "all")
+  assert.equal(normalizeAgentPlatform("linux", "x86_64"), "linux-amd64")
+  assert.equal(normalizeAgentPlatform("linux", "aarch64"), "linux-arm64")
+  assert.equal(normalizeAgentPlatform("windows", "amd64"), "windows-amd64")
+  assert.equal(normalizeAgentPlatform("windows", "arm64"), "windows-arm64")
 })
 
 test("desired release picks the newest version for the channel and platform", () => {
@@ -109,6 +115,58 @@ test("desired release picks the newest version for the channel and platform", ()
   assert.equal(linuxBeta?.version, "2.0.0-beta")
 
   assert.equal(pickDesiredRelease(releases, "beta", "windows"), null)
+})
+
+test("an architecture-specific release wins over a family build", () => {
+  const releases = [
+    {
+      version: "0.2.0",
+      channel: "stable" as const,
+      platform: "linux" as const,
+      downloadUrl: "/install/generic",
+      sha256: "a".repeat(64),
+    },
+    {
+      version: "0.3.0",
+      channel: "stable" as const,
+      platform: "linux-amd64" as const,
+      downloadUrl: "/install/lockhaven-agent-linux-amd64",
+      sha256: "b".repeat(64),
+    },
+  ]
+  const desired = pickDesiredRelease(releases, "stable", "linux-amd64")
+  assert.equal(desired?.version, "0.3.0")
+  assert.equal(desired?.sha256, "b".repeat(64))
+  assert.equal(
+    pickDesiredRelease(releases, "stable", "linux")?.version,
+    "0.2.0"
+  )
+})
+
+test("shipped install paths resolve on this Hub and reject other shapes", () => {
+  assert.equal(
+    resolveAgentDownloadUrl(
+      "https://console.example",
+      "/install/lockhaven-agent-linux-amd64"
+    ),
+    "https://console.example/install/lockhaven-agent-linux-amd64"
+  )
+  assert.equal(
+    resolveAgentDownloadUrl(
+      "https://console.example",
+      "https://downloads.example/agent"
+    ),
+    "https://downloads.example/agent"
+  )
+  assert.equal(
+    resolveAgentDownloadUrl("https://console.example", "/install/../secret"),
+    null
+  )
+  assert.equal(
+    parseSha256Sidecar("ab".repeat(32) + "  binary\n"),
+    "ab".repeat(32)
+  )
+  assert.equal(parseSha256Sidecar("nope"), null)
 })
 
 test("check-in delivery includes only pending allowlisted commands", () => {

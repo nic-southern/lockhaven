@@ -63,6 +63,7 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 		Hostname:       state.Hostname,
 		OSFamily:       host.OSFamily,
 		OSVersion:      host.OSVersion,
+		Architecture:   host.Architecture,
 		VPN:            vpn,
 		Services:       services,
 		Metrics:        metrics,
@@ -79,13 +80,24 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 	results := append([]commands.Result{}, refused...)
 	var later []commands.Command
 	rt := commands.DefaultRuntime()
+	rt.Update = &commands.UpdateOffer{
+		BaseURL:      state.BaseURL,
+		DownloadURL:  response.DownloadURL,
+		SHA256:       response.SHA256,
+		DeferRestart: true,
+	}
+	restartAfterUpdate := false
 	for _, command := range accepted {
 		if command.Kind == "reboot" || command.Kind == "restart" {
 			later = append(later, command)
 			results = append(results, commands.Result{ID: command.ID, Status: "succeeded"})
 			continue
 		}
-		results = append(results, commands.Execute(command, rt))
+		result := commands.Execute(command, rt)
+		results = append(results, result)
+		if command.Kind == "update" && result.Status == "succeeded" {
+			restartAfterUpdate = true
+		}
 	}
 
 	next := *state
@@ -95,6 +107,10 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 		return CheckInResult{}, err
 	}
 
+	if restartAfterUpdate {
+		spec := commands.RestartSpec(rt.GOOS)
+		_ = rt.SpawnDetached(spec.File, spec.Args)
+	}
 	for _, command := range later {
 		_ = commands.Execute(command, rt)
 	}

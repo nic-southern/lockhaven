@@ -17,11 +17,23 @@ export function resolvedAgentChannelSql() {
   return sql<string>`coalesce(${sites.agentChannel}, ${organizations.agentChannel}, ${DEFAULT_AGENT_CHANNEL})`
 }
 
+function cpuArchitectureSql() {
+  return sql`case
+    when lower(coalesce(${devices.architecture}, '')) in ('amd64', 'x86_64', 'x64') then 'amd64'
+    when lower(coalesce(${devices.architecture}, '')) in ('arm64', 'aarch64') then 'arm64'
+    else ''
+  end`
+}
+
 export function agentPlatformSql() {
   return sql<string>`case
+    when ${devices.osFamily} ilike ${"%windows%"} and (${cpuArchitectureSql()}) = 'amd64' then 'windows-amd64'
+    when ${devices.osFamily} ilike ${"%windows%"} and (${cpuArchitectureSql()}) = 'arm64' then 'windows-arm64'
     when ${devices.osFamily} ilike ${"%windows%"} then 'windows'
     when ${devices.osFamily} ilike ${"%android%"} then 'android'
     when ${devices.osFamily} ilike ${"%mac%"} or ${devices.osFamily} ilike ${"%darwin%"} then 'macos'
+    when ${devices.osFamily} ilike ${"%linux%"} and (${cpuArchitectureSql()}) = 'amd64' then 'linux-amd64'
+    when ${devices.osFamily} ilike ${"%linux%"} and (${cpuArchitectureSql()}) = 'arm64' then 'linux-arm64'
     when ${devices.osFamily} ilike ${"%linux%"} then 'linux'
     else 'all'
   end`

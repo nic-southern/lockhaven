@@ -1,10 +1,14 @@
 FROM golang:1.22-alpine AS agent
 WORKDIR /src
 COPY apps/lockhaven-agent ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-linux-amd64 ./cmd/lockhaven-agent
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-linux-arm64 ./cmd/lockhaven-agent
-RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-windows-amd64.exe ./cmd/lockhaven-agent
-RUN CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o /out/lockhaven-agent-windows-arm64.exe ./cmd/lockhaven-agent
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.0" -o /out/lockhaven-agent-linux-amd64 ./cmd/lockhaven-agent
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.0" -o /out/lockhaven-agent-linux-arm64 ./cmd/lockhaven-agent
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.0" -o /out/lockhaven-agent-windows-amd64.exe ./cmd/lockhaven-agent
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.0" -o /out/lockhaven-agent-windows-arm64.exe ./cmd/lockhaven-agent
+RUN set -eu; \
+  for bin in /out/lockhaven-agent-linux-amd64 /out/lockhaven-agent-linux-arm64 /out/lockhaven-agent-windows-amd64.exe /out/lockhaven-agent-windows-arm64.exe; do \
+    sha256sum "$bin" | awk '{print $1}' > "$bin.sha256"; \
+  done
 
 FROM node:22-alpine AS base
 WORKDIR /repo
@@ -37,6 +41,10 @@ COPY --from=agent /out/lockhaven-agent-linux-amd64 apps/web/public/install/lockh
 COPY --from=agent /out/lockhaven-agent-linux-arm64 apps/web/public/install/lockhaven-agent-linux-arm64
 COPY --from=agent /out/lockhaven-agent-windows-amd64.exe apps/web/public/install/lockhaven-agent-windows-amd64.exe
 COPY --from=agent /out/lockhaven-agent-windows-arm64.exe apps/web/public/install/lockhaven-agent-windows-arm64.exe
+COPY --from=agent /out/lockhaven-agent-linux-amd64.sha256 apps/web/public/install/lockhaven-agent-linux-amd64.sha256
+COPY --from=agent /out/lockhaven-agent-linux-arm64.sha256 apps/web/public/install/lockhaven-agent-linux-arm64.sha256
+COPY --from=agent /out/lockhaven-agent-windows-amd64.exe.sha256 apps/web/public/install/lockhaven-agent-windows-amd64.exe.sha256
+COPY --from=agent /out/lockhaven-agent-windows-arm64.exe.sha256 apps/web/public/install/lockhaven-agent-windows-arm64.exe.sha256
 RUN pnpm --dir /repo build:packages && pnpm --filter @nms/web build
 
 FROM node:22-alpine AS runner

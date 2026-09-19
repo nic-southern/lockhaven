@@ -256,6 +256,7 @@ export const checkInSchema = z.object({
   hostname: z.string().min(1),
   os_family: z.string().min(1),
   os_version: z.string().min(1),
+  architecture: z.string().trim().min(1).max(64).optional(),
   vpn: z.object({
     interface_up: z.boolean(),
     vpn_ipv4: z.string().min(1),

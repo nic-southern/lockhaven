@@ -1,7 +1,7 @@
 {
   "name": "@nms/lockhaven-agent",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.3.0",
   "scripts": {
     "build": "CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o dist/lockhaven-agent ./cmd/lockhaven-agent",
     "test": "go test ./... && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o dist/lockhaven-agent-windows-amd64.exe ./cmd/lockhaven-agent",
