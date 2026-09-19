@@ -368,6 +368,10 @@ export default function FleetPage() {
                           <Badge variant="destructive" className="ml-2">
                             Behind
                           </Badge>
+                        ) : device.agentVersion && device.desiredVersion ? (
+                          <Badge variant="secondary" className="ml-2">
+                            Up to date
+                          </Badge>
                         ) : null}
                       </TableCell>
                       <TableCell className="hidden font-mono text-xs md:table-cell">

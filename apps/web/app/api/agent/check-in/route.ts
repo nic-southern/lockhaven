@@ -24,6 +24,7 @@ import {
   hubCheckInResponse,
   normalizeHostname,
   requestedDeviceIdFromUnknown,
+  resolveAgentDownloadUrl,
   severityForEvent,
   validateReportedModules,
   type AuditEventType,
@@ -35,6 +36,7 @@ import {
   loadAssignedModules,
 } from "@/lib/agent-modules"
 import { desiredCheckInRelease, settleDeviceCommands } from "@/lib/agent-fleet"
+import { requestOrigin } from "@/lib/request-origin"
 
 import { agentSecretMatches } from "@/lib/agent-secret"
 import {
@@ -287,6 +289,7 @@ export async function POST(request: Request) {
           channel: agentReleases.channel,
           platform: agentReleases.platform,
           downloadUrl: agentReleases.downloadUrl,
+          sha256: agentReleases.sha256,
         })
         .from(agentReleases),
       loadAssignedModules(db, device),
@@ -308,7 +311,14 @@ export async function POST(request: Request) {
     siteChannel: siteRows[0]?.agentChannel,
     organizationChannel: organization?.agentChannel,
     osFamily: input.os_family,
+    architecture: input.architecture ?? device.architecture,
   })
+  const downloadUrl = desired
+    ? (resolveAgentDownloadUrl(
+        requestOrigin(request.headers),
+        desired.downloadUrl
+      ) ?? undefined)
+    : undefined
 
   const commands = await db.transaction(async (tx: TransactionClient) => {
     await tx
@@ -319,6 +329,7 @@ export async function POST(request: Request) {
           : {}),
         osFamily: input.os_family,
         osVersion: input.os_version,
+        ...(input.architecture ? { architecture: input.architecture } : {}),
         agentVersion: input.agent_version,
         lastSeenAt: now,
         agentLastCheckInAt: now,
@@ -420,7 +431,8 @@ export async function POST(request: Request) {
   return Response.json(
     hubCheckInResponse({
       desiredAgentVersion: desired?.version,
-      downloadUrl: desired?.downloadUrl,
+      downloadUrl,
+      sha256: desired?.sha256,
       commands,
       modules: assignedModules,
     })

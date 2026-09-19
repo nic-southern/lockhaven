@@ -149,6 +149,11 @@ export const checkInResponseSchema = z.object({
   ok: z.boolean().optional(),
   desired_agent_version: z.string().trim().min(1).max(64).optional(),
   download_url: z.string().url().optional(),
+  sha256: z
+    .string()
+    .trim()
+    .regex(/^[a-fA-F0-9]{64}$/)
+    .optional(),
   commands: z.array(z.unknown()).max(32).optional(),
   modules: hubModulesResponseSchema.optional(),
 })
@@ -452,16 +457,20 @@ export function encodeHubCommands(
 export function hubCheckInResponse(args?: {
   desiredAgentVersion?: string
   downloadUrl?: string
+  sha256?: string
   commands?: unknown[]
   modules?: HubModuleDefinition[]
 }) {
   const modules = encodeHubModules(args?.modules)
+  const checksum = args?.sha256?.trim().toLowerCase()
+  const checksumOk = Boolean(checksum && /^[a-f0-9]{64}$/.test(checksum))
   return {
     ok: true as const,
     ...(args?.desiredAgentVersion
       ? { desired_agent_version: args.desiredAgentVersion }
       : {}),
     ...(args?.downloadUrl ? { download_url: args.downloadUrl } : {}),
+    ...(checksumOk ? { sha256: checksum } : {}),
     commands: encodeHubCommands(args?.commands),
     ...(modules.length > 0 ? { modules } : {}),
   }

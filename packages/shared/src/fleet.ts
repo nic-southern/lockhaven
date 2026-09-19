@@ -10,6 +10,10 @@ export type AgentChannel = (typeof agentChannels)[number]
 export const agentChannelSchema = z.enum(agentChannels)
 
 export const agentReleasePlatforms = [
+  "linux-amd64",
+  "linux-arm64",
+  "windows-amd64",
+  "windows-arm64",
   "linux",
   "windows",
   "macos",
@@ -37,12 +41,51 @@ export const agentChannelLabels: Record<AgentChannel, string> = {
 
 export const agentReleasePlatformLabels: Record<AgentReleasePlatform, string> =
   {
+    "linux-amd64": "Linux (Intel or AMD)",
+    "linux-arm64": "Linux (ARM)",
+    "windows-amd64": "Windows (Intel or AMD)",
+    "windows-arm64": "Windows (ARM)",
     linux: "Linux",
     windows: "Windows",
     macos: "macOS",
     android: "Android",
     all: "All platforms",
   }
+
+/** Version baked into the Hub image's agent binaries. */
+export const SHIPPED_AGENT_VERSION = "0.3.0"
+
+export const shippedAgentBinaries = [
+  {
+    platform: "linux-amd64",
+    fileName: "lockhaven-agent-linux-amd64",
+  },
+  {
+    platform: "linux-arm64",
+    fileName: "lockhaven-agent-linux-arm64",
+  },
+  {
+    platform: "windows-amd64",
+    fileName: "lockhaven-agent-windows-amd64.exe",
+  },
+  {
+    platform: "windows-arm64",
+    fileName: "lockhaven-agent-windows-arm64.exe",
+  },
+] as const satisfies ReadonlyArray<{
+  platform: AgentReleasePlatform
+  fileName: string
+}>
+
+export function shippedAgentDownloadPath(fileName: string) {
+  return `/install/${fileName}`
+}
+
+/** Sidecar written next to a shipped binary. Accepts a bare hash or `sha256sum` output. */
+export function parseSha256Sidecar(contents: string) {
+  const token = contents.trim().split(/\s+/)[0]?.toLowerCase() ?? ""
+  return /^[a-f0-9]{64}$/.test(token) ? token : null
+}
 
 export const agentCommandKindLabels: Record<AgentCommandKind, string> = {
   reboot: "Restart device",
@@ -178,7 +221,16 @@ export function resolveAgentChannel(
   return DEFAULT_AGENT_CHANNEL
 }
 
-export function normalizeAgentPlatform(
+export function normalizeCpuArchitecture(
+  architecture: string | null | undefined
+): "amd64" | "arm64" | null {
+  const value = (architecture ?? "").trim().toLowerCase().replaceAll("-", "_")
+  if (value === "amd64" || value === "x86_64" || value === "x64") return "amd64"
+  if (value === "arm64" || value === "aarch64") return "arm64"
+  return null
+}
+
+function agentFamilyPlatform(
   osFamily: string | null | undefined
 ): AgentReleasePlatform {
   const family = (osFamily ?? "").toLowerCase()
@@ -187,6 +239,93 @@ export function normalizeAgentPlatform(
   if (family.includes("mac") || family.includes("darwin")) return "macos"
   if (family.includes("linux")) return "linux"
   return "all"
+}
+
+export function normalizeAgentPlatform(
+  osFamily: string | null | undefined,
+  architecture?: string | null
+): AgentReleasePlatform {
+  const family = agentFamilyPlatform(osFamily)
+  const arch = normalizeCpuArchitecture(architecture)
+  if (family === "linux" && arch === "amd64") return "linux-amd64"
+  if (family === "linux" && arch === "arm64") return "linux-arm64"
+  if (family === "windows" && arch === "amd64") return "windows-amd64"
+  if (family === "windows" && arch === "arm64") return "windows-arm64"
+  return family
+}
+
+const releaseFamily: Partial<
+  Record<AgentReleasePlatform, AgentReleasePlatform>
+> = {
+  "linux-amd64": "linux",
+  "linux-arm64": "linux",
+  "windows-amd64": "windows",
+  "windows-arm64": "windows",
+}
+
+function newestRelease<T extends AgentReleasePick>(pool: T[]) {
+  return pool.reduce((latest, candidate) =>
+    compareSemver(candidate.version, latest.version) > 0 ? candidate : latest
+  )
+}
+
+const installPathPattern = /^\/install\/[A-Za-z0-9._-]+$/
+
+export function isAgentDownloadLocation(value: string) {
+  const raw = value.trim()
+  if (
+    !raw ||
+    raw.includes("..") ||
+    raw.includes("\\") ||
+    raw.includes("\0") ||
+    raw.includes("@")
+  ) {
+    return false
+  }
+  if (raw.startsWith("/install/")) {
+    return installPathPattern.test(raw)
+  }
+  try {
+    const url = new URL(raw)
+    return (
+      (url.protocol === "https:" || url.protocol === "http:") &&
+      url.username.length === 0 &&
+      url.password.length === 0
+    )
+  } catch {
+    return false
+  }
+}
+
+export const agentDownloadUrlSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2000)
+  .refine(isAgentDownloadLocation, "Enter a download link.")
+
+/**
+ * Turn a shipped `/install/…` path into an absolute link on this Hub.
+ * Absolute links are returned unchanged so the agent can reject other hosts.
+ */
+export function resolveAgentDownloadUrl(
+  origin: string | null | undefined,
+  downloadUrl: string | null | undefined
+) {
+  const raw = downloadUrl?.trim()
+  if (!raw || !isAgentDownloadLocation(raw)) return null
+  if (raw.startsWith("/install/")) {
+    if (!origin) return null
+    let base: URL
+    try {
+      base = new URL(origin)
+    } catch {
+      return null
+    }
+    if (base.protocol !== "https:" && base.protocol !== "http:") return null
+    return `${base.origin}${raw}`
+  }
+  return raw
 }
 
 export type AgentReleasePick = {
@@ -198,8 +337,8 @@ export type AgentReleasePick = {
 }
 
 /**
- * Latest release on `channel` for `platform`, falling back to an `all`
- * platform build on the same channel.
+ * Newest release on `channel` for this platform. An architecture build wins,
+ * then a family build (`linux`, `windows`), then `all`.
  */
 export function pickDesiredRelease<T extends AgentReleasePick>(
   releases: T[],
@@ -207,13 +346,15 @@ export function pickDesiredRelease<T extends AgentReleasePick>(
   platform: AgentReleasePlatform
 ): T | null {
   const onChannel = releases.filter((release) => release.channel === channel)
-  const exact = onChannel.filter((release) => release.platform === platform)
-  const any = onChannel.filter((release) => release.platform === "all")
-  const pool = exact.length > 0 ? exact : any
-  if (pool.length === 0) return null
-  return pool.reduce((latest, candidate) =>
-    compareSemver(candidate.version, latest.version) > 0 ? candidate : latest
-  )
+  const tiers: AgentReleasePlatform[] = [platform]
+  const family = releaseFamily[platform]
+  if (family) tiers.push(family)
+  if (platform !== "all") tiers.push("all")
+  for (const tier of tiers) {
+    const pool = onChannel.filter((release) => release.platform === tier)
+    if (pool.length > 0) return newestRelease(pool)
+  }
+  return null
 }
 
 export type DeviceCommandRecord = {

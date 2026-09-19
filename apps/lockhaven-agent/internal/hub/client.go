@@ -94,6 +94,7 @@ type CheckInRequest struct {
 	Hostname       string          `json:"hostname"`
 	OSFamily       string          `json:"os_family"`
 	OSVersion      string          `json:"os_version"`
+	Architecture   string          `json:"architecture,omitempty"`
 	VPN            any             `json:"vpn"`
 	Services       any             `json:"services"`
 	Metrics        any             `json:"metrics,omitempty"`
@@ -149,6 +150,7 @@ type CheckInResponse struct {
 	OK                  bool               `json:"ok"`
 	DesiredAgentVersion string             `json:"desired_agent_version"`
 	DownloadURL         string             `json:"download_url"`
+	SHA256              string             `json:"sha256"`
 	Commands            []any              `json:"commands"`
 	Modules             []ModuleDefinition `json:"modules"`
 }

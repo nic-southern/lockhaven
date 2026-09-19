@@ -157,9 +157,25 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
               ),
             },
             {
-              label: "Version",
-              value: device.agentVersion,
-              mono: true,
+              label: "Current",
+              value: device.agentVersion ?? "—",
+              mono: Boolean(device.agentVersion),
+            },
+            {
+              label: "Desired",
+              value: device.desiredAgentVersion ?? "—",
+              mono: Boolean(device.desiredAgentVersion),
+            },
+            {
+              label: "Release",
+              value: device.desiredAgentVersion ? (
+                <StatusIndicator
+                  tone={device.agentBehind ? "danger" : "online"}
+                  label={device.agentBehind ? "Behind" : "Up to date"}
+                />
+              ) : (
+                "—"
+              ),
             },
             {
               label: "Last check-in",

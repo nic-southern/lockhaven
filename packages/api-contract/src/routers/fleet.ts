@@ -13,6 +13,7 @@ import {
   agentChannelSchema,
   agentCommandKindLabels,
   agentCommandKinds,
+  agentDownloadUrlSchema,
   agentReleasePlatformSchema,
   agentVersionSchema,
   DEFAULT_AGENT_CHANNEL,
@@ -42,7 +43,7 @@ const releaseCreateInput = z.object({
   platform: agentReleasePlatformSchema,
   version: agentVersionSchema,
   channel: agentChannelSchema,
-  downloadUrl: z.string().trim().url().max(2000),
+  downloadUrl: agentDownloadUrlSchema,
   sha256: sha256HexSchema,
   notes: z.string().trim().max(2000).optional().nullable(),
 })
@@ -159,6 +160,7 @@ export const fleetRouter = createTRPCRouter({
         id: devices.id,
         agentVersion: devices.agentVersion,
         osFamily: devices.osFamily,
+        architecture: devices.architecture,
         organizationChannel: organizations.agentChannel,
         siteChannel: sites.agentChannel,
       })
@@ -186,7 +188,7 @@ export const fleetRouter = createTRPCRouter({
       const desired = pickDesiredRelease(
         releases,
         channel,
-        normalizeAgentPlatform(row.osFamily)
+        normalizeAgentPlatform(row.osFamily, row.architecture)
       )
       if (desired && isAgentBehind(row.agentVersion, desired.version)) {
         behindCount += 1
@@ -590,6 +592,7 @@ export const fleetRouter = createTRPCRouter({
           hostname: devices.hostname,
           siteName: sites.name,
           osFamily: devices.osFamily,
+          architecture: devices.architecture,
           agentVersion: devices.agentVersion,
           organizationChannel: organizations.agentChannel,
           siteChannel: sites.agentChannel,
@@ -609,7 +612,7 @@ export const fleetRouter = createTRPCRouter({
         const desired = pickDesiredRelease(
           releases,
           channel,
-          normalizeAgentPlatform(row.osFamily)
+          normalizeAgentPlatform(row.osFamily, row.architecture)
         )
         const behind = Boolean(
           desired && isAgentBehind(row.agentVersion, desired.version)

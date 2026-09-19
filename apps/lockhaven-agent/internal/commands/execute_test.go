@@ -98,8 +98,11 @@ func TestUpdateDoesNotSpawn(t *testing.T) {
 		},
 	}
 	result := Execute(Command{ID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", Kind: "update"}, rt)
-	if result.Status != "failed" || spawned != 0 {
+	if result.Status != "refused" || spawned != 0 {
 		t.Fatalf("result %+v spawned %d", result, spawned)
+	}
+	if result.Detail != "No signed update is available." {
+		t.Fatalf("detail %q", result.Detail)
 	}
 }
 

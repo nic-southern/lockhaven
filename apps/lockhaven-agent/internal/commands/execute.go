@@ -59,6 +59,7 @@ func RestartSpec(goos string) Spec {
 type Runtime struct {
 	GOOS          string
 	SpawnDetached func(file string, args []string) error
+	Update        *UpdateOffer
 }
 
 func spawnDetached(file string, args []string) error {
@@ -92,7 +93,7 @@ func Execute(command Command, rt Runtime) Result {
 		}
 		return Result{ID: command.ID, Status: "succeeded"}
 	case "update":
-		return Result{ID: command.ID, Status: "failed", Detail: "No signed update is available."}
+		return executeUpdate(command, rt)
 	default:
 		return Result{ID: command.ID, Status: "refused", Detail: "This command is not allowed."}
 	}

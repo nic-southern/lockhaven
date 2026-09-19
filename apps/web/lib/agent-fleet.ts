@@ -91,6 +91,7 @@ export function desiredCheckInRelease(args: {
   siteChannel: string | null | undefined
   organizationChannel: string | null | undefined
   osFamily: string | null | undefined
+  architecture?: string | null
 }) {
   const channel = resolveAgentChannel(
     args.siteChannel,
@@ -99,7 +100,7 @@ export function desiredCheckInRelease(args: {
   return pickDesiredRelease(
     args.releases,
     channel,
-    normalizeAgentPlatform(args.osFamily)
+    normalizeAgentPlatform(args.osFamily, args.architecture)
   )
 }
 

@@ -38,7 +38,12 @@ import {
   entriesFromRoutes,
   parseDeviceBulkCsv,
   archivedDeviceIsPresent,
+  isAgentBehind,
+  normalizeAgentPlatform,
+  pickDesiredRelease,
+  resolveAgentChannel,
   resolveDeviceArchiveScope,
+  type AgentReleasePick,
   type DeviceConnectivity,
   type DeviceStatus,
 } from "@nms/shared"
@@ -166,12 +171,7 @@ function archivedFilter(values: readonly string[] | undefined) {
 function buildDeviceConditions(
   query: ResolvedListQuery,
   scope: ReturnType<typeof deviceScopeCondition>,
-  releases: Array<{
-    version: string
-    channel: "stable" | "beta"
-    platform: "linux" | "windows" | "macos" | "android" | "all"
-    downloadUrl: string
-  }>
+  releases: AgentReleasePick[]
 ) {
   const statusFilter = query.filters.status?.filter((value) =>
     (deviceStatuses as readonly string[]).includes(value)
@@ -231,15 +231,51 @@ function buildDeviceConditions(
   ])
 }
 
-async function loadReleasePicks(ctx: ApiContext) {
+async function loadReleasePicks(ctx: ApiContext): Promise<AgentReleasePick[]> {
   return ctx.db
     .select({
       version: agentReleases.version,
       channel: agentReleases.channel,
       platform: agentReleases.platform,
       downloadUrl: agentReleases.downloadUrl,
+      sha256: agentReleases.sha256,
     })
     .from(agentReleases)
+}
+
+async function deviceReleaseTarget(
+  ctx: ApiContext,
+  record: {
+    id: string
+    osFamily: string | null
+    architecture: string | null
+    agentVersion: string | null
+  }
+) {
+  const [releases, [channels]] = await Promise.all([
+    loadReleasePicks(ctx),
+    ctx.db
+      .select({
+        organizationChannel: organizations.agentChannel,
+        siteChannel: sites.agentChannel,
+      })
+      .from(devices)
+      .innerJoin(organizations, eq(organizations.id, devices.organizationId))
+      .leftJoin(sites, eq(sites.id, devices.siteId))
+      .where(eq(devices.id, record.id))
+      .limit(1),
+  ])
+  const desired = pickDesiredRelease(
+    releases,
+    resolveAgentChannel(channels?.siteChannel, channels?.organizationChannel),
+    normalizeAgentPlatform(record.osFamily, record.architecture)
+  )
+  return {
+    desiredAgentVersion: desired?.version ?? null,
+    agentBehind: Boolean(
+      desired && isAgentBehind(record.agentVersion, desired.version)
+    ),
+  }
 }
 
 const sortColumns = {
@@ -626,6 +662,8 @@ export const devicesRouter = createTRPCRouter({
         .from(vpnIdentities)
         .where(eq(vpnIdentities.deviceId, record.id))
 
+      const releaseTarget = await deviceReleaseTarget(ctx, record)
+
       const services = await ctx.db
         .select({
           service: managementServices,
@@ -690,6 +728,7 @@ export const devicesRouter = createTRPCRouter({
 
       return {
         ...record,
+        ...releaseTarget,
         enrolledAt: enrollmentEvent?.createdAt ?? record.createdAt,
         lastTouched: lastTouched
           ? {
