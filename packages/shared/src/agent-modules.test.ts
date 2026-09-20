@@ -162,14 +162,27 @@ test("reported modules must match Hub-assigned ids and kinds", () => {
 
   const accepted = validateReportedModules([observationModule], [report])
   assert.equal(accepted.ok, true)
+  if (accepted.ok) assert.equal(accepted.reports.length, 1)
 
+  // Stale module ids after delete/re-add are dropped so check-in can heal.
   const unknown = validateReportedModules(
     [observationModule],
     [{ ...report, module_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }]
   )
-  assert.equal(unknown.ok, false)
-  if (!unknown.ok) assert.equal(unknown.reason, "unknown_module")
+  assert.equal(unknown.ok, true)
+  if (unknown.ok) assert.equal(unknown.reports.length, 0)
 
+  const mixed = validateReportedModules(
+    [observationModule],
+    [{ ...report, module_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }, report]
+  )
+  assert.equal(mixed.ok, true)
+  if (mixed.ok) {
+    assert.equal(mixed.reports.length, 1)
+    assert.equal(mixed.reports[0]?.module_id, moduleId)
+  }
+
+  // Unknown collector ids are dropped; known observations still ingest.
   const extraCollector = validateReportedModules(
     [observationModule],
     [
@@ -186,9 +199,23 @@ test("reported modules must match Hub-assigned ids and kinds", () => {
       },
     ]
   )
-  assert.equal(extraCollector.ok, false)
-  if (!extraCollector.ok)
-    assert.equal(extraCollector.reason, "unknown_collector")
+  assert.equal(extraCollector.ok, true)
+  if (extraCollector.ok) {
+    assert.equal(extraCollector.reports[0]?.observations.length, 2)
+  }
+
+  const typeMismatch = validateReportedModules(
+    [observationModule],
+    [
+      {
+        ...report,
+        observations: [{ id: collectorId, type: "file_exists", exists: true }],
+      },
+    ]
+  )
+  assert.equal(typeMismatch.ok, false)
+  if (!typeMismatch.ok)
+    assert.equal(typeMismatch.reason, "collector_type_mismatch")
 })
 
 test("omitting modules is allowed so older agents keep checking in", () => {
