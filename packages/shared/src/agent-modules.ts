@@ -415,8 +415,11 @@ function observationMatchesCollector(
 
 /**
  * Agents may only report modules Hub assigned, using the Hub-issued kind and
- * collector ids. Extra modules, kinds, or collector ids fail closed. Hub must
- * not eval, exec, or shell-out on this payload — callers only store JSON.
+ * collector ids. Poisoned shapes, kind spoofing, type mismatches, and
+ * duplicates fail closed. Reports for modules or collectors Hub no longer
+ * assigns are dropped so check-in can still succeed and return the current
+ * Hub definitions (agents heal after delete/re-add). Hub must not eval, exec,
+ * or shell-out on this payload — callers only store JSON.
  */
 export function validateReportedModules(
   assigned: HubModuleDefinition[],
@@ -435,6 +438,7 @@ export function validateReportedModules(
 
   const assignedById = new Map(assigned.map((module) => [module.id, module]))
   const seenModules = new Set<string>()
+  const accepted: CheckInModuleReport[] = []
 
   for (const report of reported) {
     if (seenModules.has(report.module_id)) {
@@ -447,12 +451,9 @@ export function validateReportedModules(
     seenModules.add(report.module_id)
 
     const definition = assignedById.get(report.module_id)
+    // Stale local agent state after delete/re-add: drop, do not reject check-in.
     if (!definition) {
-      return {
-        ok: false,
-        reason: "unknown_module",
-        detail: "This device is not assigned that module.",
-      }
+      continue
     }
     if (definition.kind !== report.kind) {
       return {
@@ -466,6 +467,7 @@ export function validateReportedModules(
       definition.collectors.map((collector) => [collector.id, collector])
     )
     const seenCollectors = new Set<string>()
+    const observations: CheckInModuleReport["observations"] = []
     for (const observation of report.observations) {
       if (seenCollectors.has(observation.id)) {
         return {
@@ -476,12 +478,9 @@ export function validateReportedModules(
       }
       seenCollectors.add(observation.id)
       const collector = collectorsById.get(observation.id)
+      // Collector ids reminted on Hub edit, or removed: drop observation only.
       if (!collector) {
-        return {
-          ok: false,
-          reason: "unknown_collector",
-          detail: "An observation used a collector Hub did not issue.",
-        }
+        continue
       }
       if (!observationMatchesCollector(observation, collector)) {
         return {
@@ -490,10 +489,17 @@ export function validateReportedModules(
           detail: "An observation did not match its collector.",
         }
       }
+      observations.push(observation)
     }
+
+    accepted.push({
+      module_id: report.module_id,
+      kind: report.kind,
+      observations,
+    })
   }
 
-  return { ok: true, reports: reported }
+  return { ok: true, reports: accepted }
 }
 
 export function encodeHubModules(

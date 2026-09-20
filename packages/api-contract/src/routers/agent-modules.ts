@@ -28,13 +28,37 @@ import type { ApiContext } from "../context"
 import { combineConditions } from "../scope"
 import { createTRPCRouter, permissionProcedure } from "../trpc"
 
+function collectorFingerprint(collector: {
+  type: string
+  process?: string
+  path?: string
+}) {
+  if (collector.type === "process_running") {
+    return `${collector.type}:${collector.process ?? ""}`
+  }
+  return `${collector.type}:${collector.path ?? ""}`
+}
+
 function withCollectorIds(
-  collectors: AgentModuleCollectorDraft[]
+  collectors: AgentModuleCollectorDraft[],
+  previous: AgentModuleCollector[] = []
 ): AgentModuleCollector[] {
-  return collectors.map((collector) => ({
-    ...collector,
-    id: randomUUID(),
-  }))
+  const unused = new Map<string, string[]>()
+  for (const collector of previous) {
+    const key = collectorFingerprint(collector)
+    const ids = unused.get(key) ?? []
+    ids.push(collector.id)
+    unused.set(key, ids)
+  }
+  return collectors.map((collector) => {
+    const key = collectorFingerprint(collector)
+    const ids = unused.get(key)
+    const reused = ids?.shift()
+    return {
+      ...collector,
+      id: reused ?? randomUUID(),
+    }
+  })
 }
 
 function publicModule(row: typeof agentModules.$inferSelect) {
@@ -230,7 +254,16 @@ export const agentModulesRouter = createTRPCRouter({
         kind: "organization",
         organizationId: existing.organizationId,
       })
-      const collectors = withCollectorIds(input.collectors)
+      const previousCollectors = hubModuleDefinitionSchema.safeParse({
+        id: existing.id,
+        kind: existing.kind,
+        name: existing.name,
+        collectors: existing.collectors,
+      })
+      const collectors = withCollectorIds(
+        input.collectors,
+        previousCollectors.success ? previousCollectors.data.collectors : []
+      )
       const [record] = await ctx.db
         .update(agentModules)
         .set({
