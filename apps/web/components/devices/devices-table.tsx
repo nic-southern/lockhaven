@@ -231,6 +231,9 @@ export function DevicesTable({
     pageSize,
   })
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+  // Local input updates immediately; URL + query wait for debounce so typing
+  // stays responsive (same pattern as alerts/sessions tables).
+  const [search, setSearch] = React.useState(view.search)
   const [debouncedSearch, setDebouncedSearch] = React.useState(view.search)
   const [bulkAction, setBulkAction] = React.useState<BulkActionKind | null>(
     null
@@ -238,9 +241,19 @@ export function DevicesTable({
   const [bulkIds, setBulkIds] = React.useState<string[]>([])
 
   React.useEffect(() => {
-    const handle = window.setTimeout(() => setDebouncedSearch(view.search), 250)
-    return () => window.clearTimeout(handle)
+    setSearch(view.search)
+    setDebouncedSearch(view.search)
   }, [view.search])
+
+  React.useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedSearch(search), 250)
+    return () => window.clearTimeout(handle)
+  }, [search])
+
+  React.useEffect(() => {
+    if (debouncedSearch === view.search) return
+    onViewChange({ search: debouncedSearch })
+  }, [debouncedSearch, view.search, onViewChange])
 
   const resetToFirstPage = React.useCallback(() => {
     setPagination((current) =>
@@ -874,9 +887,9 @@ export function DevicesTable({
               : updater
           onViewChange({ columnVisibility: next })
         }}
-        search={view.search}
+        search={search}
         onSearchChange={(value) => {
-          onViewChange({ search: value })
+          setSearch(value)
           resetToFirstPage()
         }}
         searchPlaceholder="Search name, host, address, tag"
