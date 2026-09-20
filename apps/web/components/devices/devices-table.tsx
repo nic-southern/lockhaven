@@ -235,15 +235,22 @@ export function DevicesTable({
   // stays responsive (same pattern as alerts/sessions tables).
   const [search, setSearch] = React.useState(view.search)
   const [debouncedSearch, setDebouncedSearch] = React.useState(view.search)
+  const [syncedViewSearch, setSyncedViewSearch] = React.useState(view.search)
   const [bulkAction, setBulkAction] = React.useState<BulkActionKind | null>(
     null
   )
   const [bulkIds, setBulkIds] = React.useState<string[]>([])
 
-  React.useEffect(() => {
-    setSearch(view.search)
-    setDebouncedSearch(view.search)
-  }, [view.search])
+  // Reset local search when the URL / saved view changes underneath us.
+  // If view.search matches debouncedSearch, this is an echo of our own write —
+  // keep any newer draft still in the input.
+  if (view.search !== syncedViewSearch) {
+    setSyncedViewSearch(view.search)
+    if (view.search !== debouncedSearch) {
+      setSearch(view.search)
+      setDebouncedSearch(view.search)
+    }
+  }
 
   React.useEffect(() => {
     const handle = window.setTimeout(() => setDebouncedSearch(search), 250)
