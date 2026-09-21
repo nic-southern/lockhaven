@@ -495,6 +495,11 @@ export const devices = pgTable(
     archivedByUserId: text("archived_by_user_id").references(() => user.id, {
       onDelete: "set null",
     }),
+    /**
+     * Highest-security hosts. Remote access stays closed until a platform
+     * administrator requests a time-boxed allow.
+     */
+    infrastructure: boolean("infrastructure").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -827,6 +832,47 @@ export const accessRequests = pgTable(
     ),
     deviceIdx: index("access_requests_device_idx").on(
       table.deviceId,
+      table.status
+    ),
+  })
+)
+
+export const infrastructureAccessGrants = pgTable(
+  "infrastructure_access_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    requestedByUserId: text("requested_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    reason: text("reason"),
+    status: text("status").notNull().default("active"),
+    durationMinutes: integer("duration_minutes").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedByUserId: text("revoked_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    deviceIdx: index("infrastructure_access_grants_device_idx").on(
+      table.deviceId,
+      table.status,
+      table.expiresAt
+    ),
+    requesterIdx: index("infrastructure_access_grants_requester_idx").on(
+      table.requestedByUserId,
       table.status
     ),
   })
@@ -1504,6 +1550,8 @@ export type OrganizationSshCredential =
 export type EnrollmentToken = typeof enrollmentTokens.$inferSelect
 export type RemoteSession = typeof remoteSessions.$inferSelect
 export type AccessRequest = typeof accessRequests.$inferSelect
+export type InfrastructureAccessGrant =
+  typeof infrastructureAccessGrants.$inferSelect
 export type AuditEvent = typeof auditEvents.$inferSelect
 export type VpnPeerSample = typeof vpnPeerSamples.$inferSelect
 export type Alert = typeof alerts.$inferSelect

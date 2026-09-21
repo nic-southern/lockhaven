@@ -187,6 +187,9 @@ function DeviceDetail() {
               {device.archivedAt ? (
                 <Badge variant="outline">Archived</Badge>
               ) : null}
+              {device.infrastructure ? (
+                <Badge variant="outline">Infrastructure</Badge>
+              ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
               {device.hostname && device.hostname !== device.displayName ? (

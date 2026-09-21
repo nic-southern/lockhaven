@@ -16,6 +16,7 @@ import { enqueueAccessRequestNotifications } from "./access-request-notify"
 import { writeAuditEvent } from "./audit"
 import type { ApiContext } from "./context"
 import { requireActor } from "./access"
+import { assertInfrastructureSessionAllowed } from "./infrastructure-access"
 
 function asStatus(value: string): AccessRequestStatus {
   if (
@@ -35,6 +36,7 @@ export type SessionAccessGate =
       kind: "proceed"
       reason: string | null
       accessRequestId: string | null
+      infrastructureGrantId?: string | null
     }
   | {
       kind: "pending"
@@ -53,10 +55,29 @@ export async function resolveSessionAccessGate(
     reason?: string
     accessRequestId?: string
     deviceName: string
+    infrastructure?: boolean
+    infrastructureReason?: string | null
   }
 ): Promise<SessionAccessGate> {
   const actor = requireActor(ctx.actor)
   const now = new Date()
+
+  if (input.infrastructure) {
+    const access = await assertInfrastructureSessionAllowed(ctx, {
+      id: input.deviceId,
+      infrastructure: true,
+    })
+    const trimmed =
+      input.infrastructureReason?.trim() ||
+      input.reason?.trim() ||
+      access.reason?.trim()
+    return {
+      kind: "proceed",
+      reason: trimmed || null,
+      accessRequestId: null,
+      infrastructureGrantId: access.grantId,
+    }
+  }
 
   let site: typeof sites.$inferSelect | null = null
   if (input.siteId) {

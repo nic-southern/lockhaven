@@ -18,6 +18,7 @@ import {
   adminVpnProfiles,
   devices,
   eq,
+  infrastructureAccessGrants,
   isNull,
   and,
   managementServices,
@@ -30,6 +31,7 @@ import {
 import { db } from "@nms/db/client"
 import {
   archivedDeviceIsPresent,
+  adminForwardDeviceIps,
   PEER_FLAP_THRESHOLD,
   PEER_FLAP_WINDOW_MS,
   PEER_SAMPLE_INTERVAL_MS,
@@ -593,28 +595,47 @@ async function reconcileVpnPeers() {
 
   await peerStateStore.saveAll(nextStates, retiredStateKeys)
 
-  const deviceIpsByOrganization = new Map<string, string[]>()
+  await expireInfrastructureGrants(now)
+
   const deviceRows = await db
     .select({
       organizationId: devices.organizationId,
       vpnIpv4: vpnIdentities.vpnIpv4,
+      infrastructure: devices.infrastructure,
       revokedAt: vpnIdentities.revokedAt,
       serverPeerEnabled: vpnIdentities.serverPeerEnabled,
     })
     .from(devices)
     .innerJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
-    .where(
-      and(
-        eq(vpnIdentities.serverPeerEnabled, true),
-        isNull(vpnIdentities.revokedAt)
-      )
-    )
 
-  for (const row of deviceRows) {
-    const list = deviceIpsByOrganization.get(row.organizationId) ?? []
-    list.push(ensureHostRoute(String(row.vpnIpv4)))
-    deviceIpsByOrganization.set(row.organizationId, list)
-  }
+  const grantRows = await db
+    .select({
+      organizationId: infrastructureAccessGrants.organizationId,
+      vpnIpv4: vpnIdentities.vpnIpv4,
+      requestedByUserId: infrastructureAccessGrants.requestedByUserId,
+      status: infrastructureAccessGrants.status,
+      expiresAt: infrastructureAccessGrants.expiresAt,
+      revokedAt: infrastructureAccessGrants.revokedAt,
+    })
+    .from(infrastructureAccessGrants)
+    .innerJoin(devices, eq(devices.id, infrastructureAccessGrants.deviceId))
+    .innerJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
+    .where(eq(devices.infrastructure, true))
+
+  const forwardDevices = deviceRows.map((row) => ({
+    organizationId: row.organizationId,
+    vpnIpv4: String(row.vpnIpv4),
+    infrastructure: row.infrastructure,
+    reachable: row.serverPeerEnabled && !row.revokedAt,
+  }))
+  const forwardGrants = grantRows.map((row) => ({
+    organizationId: row.organizationId,
+    vpnIpv4: String(row.vpnIpv4),
+    requestedByUserId: row.requestedByUserId,
+    status: row.status,
+    expiresAt: row.expiresAt,
+    revokedAt: row.revokedAt,
+  }))
 
   const adminForwards: AdminForwardRule[] = []
 
@@ -649,7 +670,13 @@ async function reconcileVpnPeers() {
     )
 
     const destinations = [
-      ...(deviceIpsByOrganization.get(profile.organizationId) ?? []),
+      ...adminForwardDeviceIps({
+        devices: forwardDevices,
+        grants: forwardGrants,
+        adminUserId: profile.userId,
+        organizationId: profile.organizationId,
+        now,
+      }).map(ensureHostRoute),
       ...sameUserPeerDestinationIps(profile, adminProfiles),
     ]
     if (destinations.length > 0) {
@@ -701,6 +728,37 @@ async function reconcileVpnPeers() {
   )
 
   await evaluateArchivedDevices(now)
+}
+
+async function expireInfrastructureGrants(now: Date) {
+  const due = await db
+    .update(infrastructureAccessGrants)
+    .set({ status: "expired", updatedAt: now })
+    .where(
+      and(
+        eq(infrastructureAccessGrants.status, "active"),
+        isNull(infrastructureAccessGrants.revokedAt),
+        lte(infrastructureAccessGrants.expiresAt, now)
+      )
+    )
+    .returning({
+      id: infrastructureAccessGrants.id,
+      organizationId: infrastructureAccessGrants.organizationId,
+      deviceId: infrastructureAccessGrants.deviceId,
+      expiresAt: infrastructureAccessGrants.expiresAt,
+    })
+
+  for (const grant of due) {
+    await recordEvent({
+      eventType: "infrastructure_access_expired",
+      organizationId: grant.organizationId,
+      deviceId: grant.deviceId,
+      eventData: {
+        grantId: grant.id,
+        expiresAt: grant.expiresAt.toISOString(),
+      },
+    })
+  }
 }
 
 function ensureHostRoute(value: string) {

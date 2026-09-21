@@ -60,6 +60,7 @@ import {
   consumeAccessRequest,
   resolveSessionAccessGate,
 } from "./session-access-gate"
+import { liveInfrastructureAccessForActor } from "./infrastructure-access"
 import {
   buildOrderBy,
   likePattern,
@@ -2492,6 +2493,7 @@ export const appRouter = createTRPCRouter({
             id: devices.id,
             organizationId: devices.organizationId,
             siteId: devices.siteId,
+            infrastructure: devices.infrastructure,
             requireAccessReason: sites.requireAccessReason,
             requireApproval: sites.requireApproval,
           })
@@ -2509,9 +2511,23 @@ export const appRouter = createTRPCRouter({
           siteId: device.siteId,
         })
 
+        const infrastructureGrant = device.infrastructure
+          ? await liveInfrastructureAccessForActor(
+              ctx,
+              device.id,
+              ctx.actor?.id ?? ""
+            )
+          : null
+
         return {
-          requireAccessReason: Boolean(device.requireAccessReason),
-          requireApproval: Boolean(device.requireApproval),
+          requireAccessReason: device.infrastructure
+            ? false
+            : Boolean(device.requireAccessReason),
+          requireApproval: device.infrastructure
+            ? false
+            : Boolean(device.requireApproval),
+          infrastructure: device.infrastructure,
+          infrastructureAccessExpiresAt: infrastructureGrant?.expiresAt ?? null,
         }
       }),
     create: permissionProcedure("device:view")
@@ -2581,6 +2597,8 @@ export const appRouter = createTRPCRouter({
           reason: input.reason,
           accessRequestId: input.accessRequestId,
           deviceName: device.displayName,
+          infrastructure: device.infrastructure,
+          infrastructureReason: input.reason,
         })
 
         if (gate.kind === "pending") {
@@ -2601,6 +2619,7 @@ export const appRouter = createTRPCRouter({
 
         const accessReason = gate.reason
         const accessRequestId = gate.accessRequestId
+        const infrastructureGrantId = gate.infrastructureGrantId ?? null
 
         const [identity] = await ctx.db
           .select()
@@ -2721,6 +2740,7 @@ export const appRouter = createTRPCRouter({
                 nativePort: service.port,
                 reason: accessReason,
                 accessRequestId,
+                infrastructureGrantId,
               },
             })
             .returning()
@@ -2752,6 +2772,7 @@ export const appRouter = createTRPCRouter({
               connectionMethod: "native",
               reason: accessReason,
               accessRequestId,
+              infrastructureGrantId,
             },
           })
 
@@ -2819,6 +2840,7 @@ export const appRouter = createTRPCRouter({
               nativeRequested: input.connectionMethod === "native",
               reason: accessReason,
               accessRequestId,
+              infrastructureGrantId,
             },
           })
           .returning()
@@ -2834,6 +2856,7 @@ export const appRouter = createTRPCRouter({
             connectionMethod: BROWSER_CONNECTION_METHOD,
             reason: accessReason,
             accessRequestId,
+            infrastructureGrantId,
           },
         })
 

@@ -51,6 +51,11 @@ import { buildClientAllowedIps, normalizeVpnIpv4 } from "@nms/vpn"
 
 import { assertAuthorized } from "../access"
 import { writeAuditEvent } from "../audit"
+import {
+  requestDeviceInfrastructureAccess,
+  revokeDeviceInfrastructureAccess,
+  setDeviceInfrastructure,
+} from "../infrastructure-access"
 import { syncArchivedDeviceAlerts } from "../alerts"
 import type { ApiContext } from "../context"
 import {
@@ -117,6 +122,7 @@ function deviceRowSelection() {
     hostnameChangeAllowedAt: devices.hostnameChangeAllowedAt,
     archivedAt: devices.archivedAt,
     archivedByUserId: devices.archivedByUserId,
+    infrastructure: devices.infrastructure,
     vpnIpv4: vpnIdentities.vpnIpv4,
     vpnRoutePolicyId: vpnIdentities.routePolicyId,
     vpnRoutePolicyName: routePolicies.name,
@@ -1014,6 +1020,53 @@ export const devicesRouter = createTRPCRouter({
         siteId: device.siteId,
       })
       return applyDeviceArchive(ctx, device, input.archived, new Date())
+    }),
+  setInfrastructure: permissionProcedure("device:update")
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        infrastructure: z.boolean(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const device = await loadDevice(ctx, input.id)
+      assertAuthorized(ctx.actor, "device:update", {
+        kind: "device",
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+      })
+      return setDeviceInfrastructure(ctx, device, input.infrastructure)
+    }),
+  requestInfrastructureAccess: permissionProcedure("device:view")
+    .input(
+      z.object({
+        deviceId: z.string().uuid(),
+        minutes: z.number().int().optional(),
+        reason: z.string().trim().max(500).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const device = await loadDevice(ctx, input.deviceId)
+      assertAuthorized(ctx.actor, "device:view", {
+        kind: "device",
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+      })
+      return requestDeviceInfrastructureAccess(ctx, device, {
+        minutes: input.minutes,
+        reason: input.reason,
+      })
+    }),
+  revokeInfrastructureAccess: permissionProcedure("device:view")
+    .input(z.object({ deviceId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const device = await loadDevice(ctx, input.deviceId)
+      assertAuthorized(ctx.actor, "device:view", {
+        kind: "device",
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+      })
+      return revokeDeviceInfrastructureAccess(ctx, device)
     }),
   revokeVpn: permissionProcedure("device:revoke_vpn")
     .input(z.object({ id: z.string().uuid() }))

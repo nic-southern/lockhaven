@@ -288,6 +288,13 @@
       "when": 1783200000000,
       "tag": "0050_package_update_severity",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1783300000000,
+      "tag": "0051_infrastructure_access",
+      "breakpoints": true
     }
   ]
 }

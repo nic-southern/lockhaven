@@ -511,6 +511,11 @@ export function DevicesTable({
                   Archived
                 </Badge>
               ) : null}
+              {row.original.infrastructure ? (
+                <Badge variant="outline" className="font-normal">
+                  Infrastructure
+                </Badge>
+              ) : null}
             </span>
             {row.original.hostname &&
             row.original.hostname !== row.original.displayName ? (
