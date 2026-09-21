@@ -143,6 +143,11 @@ export const checkInPackageUpdateSchema = z.object({
   current_version: z.string().trim().min(1).max(128).optional(),
   available_version: z.string().trim().min(1).max(128),
   source: z.string().trim().min(1).max(64).default("unknown"),
+  /**
+   * OS-native category. Only `security` and `critical` (or those Windows
+   * Update category names) mean install now. Anything else is ignored.
+   */
+  severity: z.string().trim().max(64).optional(),
 })
 
 export const checkInPackagesSchema = z.object({
@@ -191,11 +196,47 @@ export const checkInResponseSchema = z.object({
 
 export type CheckInResponse = z.infer<typeof checkInResponseSchema>
 
+export type UpdateSeverity = "security" | "critical"
+
 export type PackageRecord = {
   name: string
   version: string
   source: string
   availableVersion: string | null
+  /** Set only for a pending update the OS marked security or critical. */
+  updateSeverity: UpdateSeverity | null
+  installImmediately: boolean
+}
+
+/**
+ * Map an agent-reported category to security or critical.
+ * Unknown, empty, and every other label return null. That is intentional:
+ * missing severity is not treated as critical.
+ */
+export function canonicalUpdateSeverity(
+  raw: string | null | undefined
+): UpdateSeverity | null {
+  if (!raw) return null
+  const value = raw.trim().toLowerCase().replace(/\s+/g, " ")
+  if (
+    value === "security" ||
+    value === "security update" ||
+    value === "security updates"
+  ) {
+    return "security"
+  }
+  if (
+    value === "critical" ||
+    value === "critical update" ||
+    value === "critical updates"
+  ) {
+    return "critical"
+  }
+  return null
+}
+
+export function isInstallNowSeverity(raw: string | null | undefined): boolean {
+  return canonicalUpdateSeverity(raw) !== null
 }
 
 export type PackageDiff = {
@@ -209,38 +250,69 @@ export function packageKey(pkg: { name: string; source: string }) {
   return `${pkg.source.toLowerCase()}::${pkg.name.toLowerCase()}`
 }
 
+function packageRecord(args: {
+  name: string
+  version: string
+  source: string
+  pending?: { availableVersion: string; severity?: string }
+}): PackageRecord {
+  const availableVersion = args.pending?.availableVersion ?? null
+  const pendingUpdate =
+    Boolean(availableVersion) && availableVersion !== args.version
+  const updateSeverity = pendingUpdate
+    ? canonicalUpdateSeverity(args.pending?.severity)
+    : null
+  return {
+    name: args.name,
+    version: args.version,
+    source: args.source,
+    availableVersion,
+    updateSeverity,
+    installImmediately: updateSeverity !== null,
+  }
+}
+
 export function inventoryFromCheckIn(
   payload: CheckInPackages
 ): PackageRecord[] {
-  const updates = new Map<string, string>()
+  const updates = new Map<
+    string,
+    { availableVersion: string; severity?: string }
+  >()
   for (const update of payload.available_updates) {
-    updates.set(
-      packageKey({ name: update.name, source: update.source }),
-      update.available_version
-    )
+    updates.set(packageKey({ name: update.name, source: update.source }), {
+      availableVersion: update.available_version,
+      severity: update.severity,
+    })
   }
 
   const inventory = new Map<string, PackageRecord>()
 
   for (const pkg of payload.installed) {
     const key = packageKey(pkg)
-    inventory.set(key, {
-      name: pkg.name,
-      version: pkg.version,
-      source: pkg.source,
-      availableVersion: updates.get(key) ?? null,
-    })
+    inventory.set(
+      key,
+      packageRecord({
+        name: pkg.name,
+        version: pkg.version,
+        source: pkg.source,
+        pending: updates.get(key),
+      })
+    )
   }
 
   for (const update of payload.available_updates) {
     const key = packageKey(update)
     if (inventory.has(key)) continue
-    inventory.set(key, {
-      name: update.name,
-      version: update.current_version ?? "",
-      source: update.source,
-      availableVersion: update.available_version,
-    })
+    inventory.set(
+      key,
+      packageRecord({
+        name: update.name,
+        version: update.current_version ?? "",
+        source: update.source,
+        pending: updates.get(key),
+      })
+    )
   }
 
   return [...inventory.values()].sort((left, right) =>
@@ -356,7 +428,9 @@ export function diffPackages(
     }
     if (
       prior.version !== pkg.version ||
-      prior.availableVersion !== pkg.availableVersion
+      prior.availableVersion !== pkg.availableVersion ||
+      (prior.updateSeverity ?? null) !== (pkg.updateSeverity ?? null) ||
+      (prior.installImmediately ?? false) !== (pkg.installImmediately ?? false)
     ) {
       updated.push({ previous: prior, next: pkg })
       continue

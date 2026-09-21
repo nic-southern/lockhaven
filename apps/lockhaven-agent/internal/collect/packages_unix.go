@@ -29,8 +29,29 @@ func platformPackages() ([]Pkg, []PkgUpdate, bool) {
 		rpm := proc.RunDefault("rpm", "-qa", "--queryformat", "%{NAME}\\t%{VERSION}-%{RELEASE}\\n")
 		if rpm.Code == 0 && strings.TrimSpace(rpm.Stdout) != "" {
 			installed = ParseRpmQa(rpm.Stdout)
+			updates = collectRpmSecurityUpdates()
 		}
 	}
 
 	return installed, updates, fileExists("/var/run/reboot-required")
+}
+
+func commandRan(code int) bool {
+	return code == 0 || code == 100
+}
+
+func collectRpmSecurityUpdates() []PkgUpdate {
+	for _, bin := range []string{"dnf", "yum"} {
+		result := proc.RunDefault(bin, "-q", "updateinfo", "list", "security")
+		if commandRan(result.Code) {
+			return ParseDnfSecurityUpdates(result.Stdout)
+		}
+	}
+	for _, bin := range []string{"dnf", "yum"} {
+		result := proc.RunDefault(bin, "-q", "check-update", "--security")
+		if commandRan(result.Code) {
+			return ParseDnfCheckUpdate(result.Stdout)
+		}
+	}
+	return []PkgUpdate{}
 }

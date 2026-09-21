@@ -52,8 +52,74 @@ func TestParseDpkgAndApt(t *testing.T) {
 		t.Fatalf("dpkg: %+v", pkgs)
 	}
 	updates := ParseAptUpgradable("curl/stable 8.1.0 amd64 [upgradable from: 8.0.0]\nWARNING: apt does not have a stable CLI interface.\n")
-	if len(updates) != 1 || updates[0].AvailableVersion != "8.1.0" || updates[0].CurrentVersion != "8.0.0" {
+	if len(updates) != 1 || updates[0].AvailableVersion != "8.1.0" || updates[0].CurrentVersion != "8.0.0" || updates[0].Severity != "" {
 		t.Fatalf("apt: %+v", updates)
+	}
+	security := ParseAptUpgradable("openssl/jammy-security,jammy-updates 3.0.2-1 amd64 [upgradable from: 3.0.2]\ncurl/jammy-updates 8.1.0 amd64 [upgradable from: 8.0.0]\n")
+	if len(security) != 2 {
+		t.Fatalf("security list: %+v", security)
+	}
+	if security[0].Name != "openssl" || security[0].Severity != "security" {
+		t.Fatalf("security pocket: %+v", security[0])
+	}
+	if security[1].Name != "curl" || security[1].Severity != "" {
+		t.Fatalf("updates pocket is not install-now: %+v", security[1])
+	}
+}
+
+func TestParseDnfSecurityUpdates(t *testing.T) {
+	updates := ParseDnfSecurityUpdates(`Last metadata expiration check: 0:01:00 ago
+RHSA-2024:0001 Critical/Sec. curl-7.76.1-1.el9.x86_64
+RHSA-2024:0002 Important/Sec. bash-5.1.8-2.el9.x86_64
+FEDORA-2024-abcd security openssl-3.0.7-1.fc40.x86_64
+RHBA-2024:0003 bugfix jq-1.6-1.el9.x86_64
+libseccomp is not an advisory
+`)
+	if len(updates) != 3 {
+		t.Fatalf("got %+v", updates)
+	}
+	if updates[0].Name != "curl" || updates[0].Severity != "critical" || updates[0].AvailableVersion != "7.76.1-1.el9" {
+		t.Fatalf("critical: %+v", updates[0])
+	}
+	if updates[1].Name != "bash" || updates[1].Severity != "security" {
+		t.Fatalf("important: %+v", updates[1])
+	}
+	if updates[2].Name != "openssl" || updates[2].Severity != "security" {
+		t.Fatalf("security label: %+v", updates[2])
+	}
+}
+
+func TestParseDnfCheckUpdateSkipsObsoleting(t *testing.T) {
+	updates := ParseDnfCheckUpdate(`curl.x86_64  7.76.1-1.el9  baseos
+Obsoleting Packages
+old.x86_64  new.x86_64
+`)
+	if len(updates) != 1 || updates[0].Name != "curl" || updates[0].Severity != "security" {
+		t.Fatalf("%+v", updates)
+	}
+}
+
+func TestWindowsUpdateCategoriesFailClosed(t *testing.T) {
+	if got := ClassifyWindowsUpdateCategories("Security Updates|Updates"); got != "security" {
+		t.Fatalf("security: %q", got)
+	}
+	if got := ClassifyWindowsUpdateCategories("Critical Updates"); got != "critical" {
+		t.Fatalf("critical: %q", got)
+	}
+	for _, raw := range []string{"", "Updates", "Definition Updates", "Security Intelligence Updates", "unknown", "important"} {
+		if got := ClassifyWindowsUpdateCategories(raw); got != "" {
+			t.Fatalf("%q classified as %q", raw, got)
+		}
+	}
+	rows := ParseWindowsUpdateList("Cumulative Update\t5034441\tSecurity Updates\nDriver pack\t\tDrivers\n")
+	if len(rows) != 2 {
+		t.Fatalf("%+v", rows)
+	}
+	if rows[0].Severity != "security" || rows[0].AvailableVersion != "KB5034441" || rows[0].Source != "windows-update" {
+		t.Fatalf("security row: %+v", rows[0])
+	}
+	if rows[1].Severity != "" || rows[1].AvailableVersion != "pending" {
+		t.Fatalf("unknown category: %+v", rows[1])
 	}
 }
 

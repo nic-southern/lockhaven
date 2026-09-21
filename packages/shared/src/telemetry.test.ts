@@ -4,6 +4,7 @@ import test from "node:test"
 import { checkInSchema } from "./domain"
 import {
   agentCommandSchema,
+  canonicalUpdateSeverity,
   checkInIssuePaths,
   checkInResponseSchema,
   diffPackages,
@@ -12,6 +13,7 @@ import {
   hubCheckInResponse,
   inventoryFromCheckIn,
   inventoryFromTitles,
+  isInstallNowSeverity,
   requestedDeviceIdFromUnknown,
   resolveAgentCommand,
   resolveAgentCommands,
@@ -274,6 +276,125 @@ test("package inventory merges installed rows with available updates", () => {
   )
 })
 
+test("check-in accepts unknown update severity instead of refusing the report", () => {
+  const parsed = checkInSchema.safeParse({
+    ...validCheckIn,
+    packages: {
+      reboot_required: false,
+      installed: [{ name: "curl", version: "8.0.0", source: "apt" }],
+      available_updates: [
+        {
+          name: "curl",
+          available_version: "8.1.0",
+          source: "apt",
+          severity: "banana",
+        },
+      ],
+    },
+  })
+  assert.equal(parsed.success, true)
+  if (!parsed.success) return
+  assert.ok(parsed.data.packages)
+  const [pkg] = inventoryFromCheckIn(parsed.data.packages)
+  assert.equal(pkg?.availableVersion, "8.1.0")
+  assert.equal(pkg?.updateSeverity, null)
+  assert.equal(pkg?.installImmediately, false)
+})
+
+test("unknown update severity is not install-now", () => {
+  for (const raw of [
+    undefined,
+    null,
+    "",
+    "   ",
+    "unknown",
+    "other",
+    "important",
+    "moderate",
+    "low",
+    "high",
+    "bugfix",
+    "definition updates",
+    "Critical/Sec.",
+    "not-security",
+    "security-proposed",
+    "my security tool",
+  ]) {
+    assert.equal(canonicalUpdateSeverity(raw), null)
+    assert.equal(isInstallNowSeverity(raw), false)
+  }
+})
+
+test("only security and critical categories install immediately", () => {
+  assert.equal(canonicalUpdateSeverity("security"), "security")
+  assert.equal(canonicalUpdateSeverity("SECURITY"), "security")
+  assert.equal(canonicalUpdateSeverity("Security Updates"), "security")
+  assert.equal(canonicalUpdateSeverity("security update"), "security")
+  assert.equal(canonicalUpdateSeverity("critical"), "critical")
+  assert.equal(canonicalUpdateSeverity("Critical Updates"), "critical")
+  assert.equal(isInstallNowSeverity("security"), true)
+  assert.equal(isInstallNowSeverity("critical"), true)
+  assert.equal(isInstallNowSeverity("Critical Updates"), true)
+})
+
+test("package inventory keeps unknown severity off the install-now flag", () => {
+  const inventory = inventoryFromCheckIn({
+    reboot_required: false,
+    installed: [
+      { name: "curl", version: "8.0.0", source: "apt" },
+      { name: "openssl", version: "3.0.0", source: "apt" },
+      { name: "bash", version: "5.2", source: "apt" },
+    ],
+    available_updates: [
+      {
+        name: "curl",
+        current_version: "8.0.0",
+        available_version: "8.1.0",
+        source: "apt",
+        severity: "security",
+      },
+      {
+        name: "openssl",
+        current_version: "3.0.0",
+        available_version: "3.0.1",
+        source: "apt",
+      },
+      {
+        name: "bash",
+        current_version: "5.2",
+        available_version: "5.2",
+        source: "apt",
+        severity: "critical",
+      },
+      {
+        name: "kernel",
+        available_version: "6.1.1",
+        source: "apt",
+        severity: "unknown",
+      },
+      {
+        name: "glibc",
+        available_version: "2.36",
+        source: "apt",
+        severity: "Critical Updates",
+      },
+    ],
+  })
+
+  const byName = new Map(inventory.map((pkg) => [pkg.name, pkg]))
+  assert.equal(byName.get("curl")?.installImmediately, true)
+  assert.equal(byName.get("curl")?.updateSeverity, "security")
+  assert.equal(byName.get("openssl")?.availableVersion, "3.0.1")
+  assert.equal(byName.get("openssl")?.installImmediately, false)
+  assert.equal(byName.get("openssl")?.updateSeverity, null)
+  assert.equal(byName.get("bash")?.installImmediately, false)
+  assert.equal(byName.get("bash")?.updateSeverity, null)
+  assert.equal(byName.get("kernel")?.installImmediately, false)
+  assert.equal(byName.get("kernel")?.updateSeverity, null)
+  assert.equal(byName.get("glibc")?.installImmediately, true)
+  assert.equal(byName.get("glibc")?.updateSeverity, "critical")
+})
+
 test("package diff reports added, removed, updated, and unchanged", () => {
   const previous: PackageRecord[] = [
     {
@@ -281,18 +402,24 @@ test("package diff reports added, removed, updated, and unchanged", () => {
       version: "8.0.0",
       source: "apt",
       availableVersion: null,
+      updateSeverity: null,
+      installImmediately: false,
     },
     {
       name: "bash",
       version: "5.2",
       source: "apt",
       availableVersion: null,
+      updateSeverity: null,
+      installImmediately: false,
     },
     {
       name: "gone",
       version: "1.0",
       source: "apt",
       availableVersion: null,
+      updateSeverity: null,
+      installImmediately: false,
     },
   ]
   const next: PackageRecord[] = [
@@ -301,18 +428,24 @@ test("package diff reports added, removed, updated, and unchanged", () => {
       version: "8.1.0",
       source: "apt",
       availableVersion: null,
+      updateSeverity: null,
+      installImmediately: false,
     },
     {
       name: "bash",
       version: "5.2",
       source: "apt",
       availableVersion: null,
+      updateSeverity: null,
+      installImmediately: false,
     },
     {
       name: "jq",
       version: "1.7",
       source: "apt",
       availableVersion: "1.7.1",
+      updateSeverity: null,
+      installImmediately: false,
     },
   ]
 
@@ -332,6 +465,33 @@ test("package diff reports added, removed, updated, and unchanged", () => {
     diff.unchanged.map((pkg) => pkg.name),
     ["bash"]
   )
+})
+
+test("package diff treats a new install-now flag as an update", () => {
+  const previous: PackageRecord[] = [
+    {
+      name: "curl",
+      version: "8.0.0",
+      source: "apt",
+      availableVersion: "8.1.0",
+      updateSeverity: null,
+      installImmediately: false,
+    },
+  ]
+  const next: PackageRecord[] = [
+    {
+      name: "curl",
+      version: "8.0.0",
+      source: "apt",
+      availableVersion: "8.1.0",
+      updateSeverity: "security",
+      installImmediately: true,
+    },
+  ]
+  const diff = diffPackages(previous, next)
+  assert.equal(diff.updated.length, 1)
+  assert.equal(diff.updated[0]?.next.installImmediately, true)
+  assert.equal(diff.added.length, 0)
 })
 
 test("title inventory keys by explicit key or normalized title", () => {
