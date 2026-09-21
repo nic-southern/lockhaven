@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -72,6 +73,23 @@ func WireGuardExe() string {
 		return ""
 	}
 	return lookInWireGuard("wireguard.exe")
+}
+
+// RequireInstalled fails early when the host cannot create or bring up a tunnel.
+func RequireInstalled() error {
+	if runtime.GOOS == "windows" {
+		if WireGuardExe() == "" {
+			return fmt.Errorf("WireGuard is not installed.")
+		}
+		return nil
+	}
+	if _, err := exec.LookPath("wg"); err != nil {
+		return fmt.Errorf("WireGuard tools are not installed.")
+	}
+	if _, err := exec.LookPath("wg-quick"); err != nil {
+		return fmt.Errorf("WireGuard tools are not installed.")
+	}
+	return nil
 }
 
 func PublicKeyFromInterface(tunnelName string) string {
@@ -173,10 +191,21 @@ func WriteWindowsTunnel(tunnelName, privateKey, address string, settings struct 
 	return nil
 }
 
-func EnableTunnel(tunnelName string) {
+func EnableTunnel(tunnelName string) error {
 	if proc.RunDefault("systemctl", "enable", "--now", "wg-quick@"+tunnelName).Code == 0 {
-		return
+		return nil
 	}
 	_ = proc.RunDefault("wg-quick", "down", tunnelName)
-	_ = proc.RunDefault("wg-quick", "up", tunnelName)
+	result := proc.RunDefault("wg-quick", "up", tunnelName)
+	if result.Code != 0 {
+		msg := strings.TrimSpace(result.Stderr)
+		if msg == "" {
+			msg = strings.TrimSpace(result.Stdout)
+		}
+		if msg == "" {
+			return fmt.Errorf("Could not start the private network tunnel.")
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
 }

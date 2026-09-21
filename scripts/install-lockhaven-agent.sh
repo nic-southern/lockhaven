@@ -54,10 +54,40 @@ tmp="$(mktemp)"
 cleanup() { rm -f "$tmp"; }
 trap cleanup EXIT
 
+ensure_wireguard_tools() {
+  if command -v wg >/dev/null 2>&1 && command -v wg-quick >/dev/null 2>&1; then
+    return
+  fi
+
+  echo "Installing WireGuard tools..."
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard-tools
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf install -y wireguard-tools
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y wireguard-tools
+  elif command -v apk >/dev/null 2>&1; then
+    apk add --no-cache wireguard-tools
+  elif command -v pacman >/dev/null 2>&1; then
+    pacman -Sy --noconfirm wireguard-tools
+  else
+    echo "Install wireguard-tools, then rerun this script." >&2
+    exit 1
+  fi
+
+  if ! command -v wg >/dev/null 2>&1 || ! command -v wg-quick >/dev/null 2>&1; then
+    echo "WireGuard tools were not found after installation." >&2
+    exit 1
+  fi
+}
+
 if ! command -v curl >/dev/null 2>&1; then
   echo "Install curl, then rerun this script." >&2
   exit 1
 fi
+
+ensure_wireguard_tools
 
 echo "Downloading the Lockhaven agent..."
 curl -fsSL "$binary_url" -o "$tmp"
