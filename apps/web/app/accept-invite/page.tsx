@@ -11,6 +11,11 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FormField } from "@/components/dashboard/form-field"
 import { signIn } from "@/lib/auth-client"
+import {
+  invitationAcceptErrorMessage,
+  inviteAcceptView,
+  inviteTokenIsWellFormed,
+} from "@/lib/invitation-link"
 import { getClientProductName } from "@/lib/product-name"
 import { trpc } from "@/lib/trpc"
 import { MIN_PASSWORD_LENGTH } from "@nms/shared"
@@ -22,7 +27,7 @@ function AcceptInviteForm() {
 
   const preview = trpc.users.invitationPreview.useQuery(
     { token },
-    { enabled: token.length >= 20, retry: false }
+    { enabled: inviteTokenIsWellFormed(token), retry: false }
   )
   const accept = trpc.users.acceptInvitation.useMutation()
 
@@ -35,7 +40,13 @@ function AcceptInviteForm() {
   const [error, setError] = React.useState<string | null>(null)
   const [pending, setPending] = React.useState(false)
 
-  if (!token || token.length < 20 || (preview.data && !preview.data.valid)) {
+  const view = inviteAcceptView({
+    token,
+    previewValid: preview.data ? preview.data.valid : null,
+    previewFailed: preview.isError,
+  })
+
+  if (view === "invalid") {
     return (
       <AuthShell
         title="This invitation isn't valid"
@@ -53,7 +64,7 @@ function AcceptInviteForm() {
     )
   }
 
-  if (!preview.data) {
+  if (view === "checking" || !preview.data?.valid) {
     return (
       <AuthShell title="Checking your invitation…">
         <Skeleton className="h-9 w-full" />
@@ -89,11 +100,7 @@ function AcceptInviteForm() {
       }
       window.location.assign("/setup-security")
     } catch (mutationError) {
-      setError(
-        mutationError instanceof Error && mutationError.message
-          ? mutationError.message
-          : "We couldn't finish setting up your account."
-      )
+      setError(invitationAcceptErrorMessage(mutationError))
     } finally {
       setPending(false)
     }

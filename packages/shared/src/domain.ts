@@ -87,8 +87,23 @@ export const userInviteSchema = z.object({
 })
 export type UserInviteInput = z.infer<typeof userInviteSchema>
 
+export const INVITATION_TOKEN_MIN_LENGTH = 20
+export const INVITATION_TOKEN_MAX_LENGTH = 200
+
+export const invitationInvalidMessage = "This invitation is no longer valid."
+export const invitationEmailTakenMessage =
+  "An account already exists for this email."
+export const invitationAlreadyPendingMessage =
+  "This email already has an invitation."
+export const invitationRoleDeniedMessage = "You can't assign that role."
+
+export const invitationTokenSchema = z
+  .string()
+  .min(INVITATION_TOKEN_MIN_LENGTH)
+  .max(INVITATION_TOKEN_MAX_LENGTH)
+
 export const invitationAcceptSchema = z.object({
-  token: z.string().min(20).max(200),
+  token: invitationTokenSchema,
   name: z.string().trim().min(1).max(120),
   password: passwordSchema,
 })
