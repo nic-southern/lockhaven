@@ -1694,6 +1694,8 @@ export const devicePackages = pgTable(
     version: text("version").notNull(),
     source: text("source").notNull().default("unknown"),
     availableVersion: text("available_version"),
+    updateSeverity: text("update_severity").$type<"security" | "critical">(),
+    installImmediately: boolean("install_immediately").notNull().default(false),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1703,6 +1705,9 @@ export const devicePackages = pgTable(
       "device_packages_device_name_source_idx"
     ).on(table.deviceId, table.name, table.source),
     deviceIdx: index("device_packages_device_idx").on(table.deviceId),
+    installImmediatelyIdx: index("device_packages_install_immediately_idx")
+      .on(table.installImmediately)
+      .where(sql`${table.installImmediately} = true`),
   })
 )
 

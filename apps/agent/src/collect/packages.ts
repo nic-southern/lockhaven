@@ -1,6 +1,13 @@
 import { access } from "node:fs/promises"
 
-import { parseAptUpgradable, parseDpkgQuery, parseRpmQa } from "./parse"
+import {
+  parseAptUpgradable,
+  parseDnfCheckUpdate,
+  parseDnfSecurityUpdates,
+  parseDpkgQuery,
+  parseRpmQa,
+  parseWindowsUpdateList,
+} from "./parse"
 import { runCommand } from "../process"
 
 async function fileExists(path: string) {
@@ -36,7 +43,7 @@ async function collectLinuxPackages() {
   if (rpm.code === 0 && rpm.stdout.trim()) {
     return {
       installed: parseRpmQa(rpm.stdout),
-      available_updates: [],
+      available_updates: await collectRpmSecurityUpdates(),
     }
   }
 
@@ -62,6 +69,62 @@ async function collectDarwinPackages() {
     })
   return { installed, available_updates: [] }
 }
+
+function commandRan(code: number) {
+  return code === 0 || code === 100
+}
+
+async function collectRpmSecurityUpdates() {
+  for (const bin of ["dnf", "yum"]) {
+    const result = await runCommand(bin, [
+      "-q",
+      "updateinfo",
+      "list",
+      "security",
+    ])
+    if (commandRan(result.code)) {
+      return parseDnfSecurityUpdates(result.stdout)
+    }
+  }
+  for (const bin of ["dnf", "yum"]) {
+    const result = await runCommand(bin, ["-q", "check-update", "--security"])
+    if (commandRan(result.code)) {
+      return parseDnfCheckUpdate(result.stdout)
+    }
+  }
+  return []
+}
+
+const WINDOWS_UPDATE_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+try {
+  $session = New-Object -ComObject Microsoft.Update.Session
+  $searcher = $session.CreateUpdateSearcher()
+  $result = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Software'")
+} catch {
+  exit 1
+}
+$count = 0
+foreach ($update in @($result.Updates)) {
+  if ($count -ge 200) { break }
+  $names = New-Object System.Collections.Generic.List[string]
+  if ($update.Categories) {
+    foreach ($cat in @($update.Categories)) { [void]$names.Add([string]$cat.Name) }
+  }
+  $kb = ''
+  if ($update.KBArticleIDs) {
+    foreach ($article in @($update.KBArticleIDs)) { if (-not $kb) { $kb = [string]$article } }
+  }
+  $title = [string]$update.Title
+  $joined = $names -join '|'
+  foreach ($ch in @([char]9, [char]10, [char]13)) {
+    $title = $title.Replace([string]$ch, ' ')
+    $joined = $joined.Replace([string]$ch, ' ')
+  }
+  Write-Output ($title + [char]9 + $kb + [char]9 + $joined)
+  $count++
+}
+`
 
 async function collectWindowsPackages() {
   const result = await runCommand("powershell.exe", [
@@ -89,7 +152,16 @@ async function collectWindowsPackages() {
     .filter((pkg): pkg is { name: string; version: string; source: string } =>
       Boolean(pkg?.name)
     )
-  return { installed, available_updates: [] }
+  const updates = await runCommand(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_UPDATE_SCRIPT],
+    20_000
+  )
+  return {
+    installed,
+    available_updates:
+      updates.code === 0 ? parseWindowsUpdateList(updates.stdout) : [],
+  }
 }
 
 export async function collectPackages(platform = process.platform) {

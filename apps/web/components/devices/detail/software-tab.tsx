@@ -31,9 +31,16 @@ function titleStatus(running: boolean | null | undefined) {
   return { label: "Not running", tone: "offline" as const, pulse: false }
 }
 
+function updateKindLabel(severity: string | null | undefined) {
+  if (severity === "security") return "Security"
+  if (severity === "critical") return "Critical"
+  return null
+}
+
 export function SoftwareTab({ device }: { device: DeviceDetail }) {
   const [search, setSearch] = React.useState("")
   const [updatesOnly, setUpdatesOnly] = React.useState(false)
+  const [installNowOnly, setInstallNowOnly] = React.useState(false)
   const [notRunningOnly, setNotRunningOnly] = React.useState(false)
   const trimmedSearch = search.trim() || undefined
 
@@ -50,6 +57,15 @@ export function SoftwareTab({ device }: { device: DeviceDetail }) {
       deviceId: device.id,
       search: trimmedSearch,
       updatesOnly,
+      installNowOnly,
+    },
+    { refetchInterval: 30_000 }
+  )
+  const installNowQuery = trpc.telemetry.packages.useQuery(
+    {
+      deviceId: device.id,
+      search: trimmedSearch,
+      installNowOnly: true,
     },
     { refetchInterval: 30_000 }
   )
@@ -58,6 +74,9 @@ export function SoftwareTab({ device }: { device: DeviceDetail }) {
   const titleItems = titles?.items ?? []
   const packages = packagesQuery.data
   const packageItems = packages?.items ?? []
+  const installNow = installNowQuery.data
+  const installNowItems = installNow?.items ?? []
+  const reported = installNow?.reported ?? false
   const updateCount = packageItems.filter(
     (pkg) => pkg.availableVersion && pkg.availableVersion !== pkg.version
   ).length
@@ -72,6 +91,90 @@ export function SoftwareTab({ device }: { device: DeviceDetail }) {
           <Badge variant="destructive">Restart required</Badge>
         </SectionCard>
       ) : null}
+
+      <Input
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="Search software"
+        aria-label="Search software"
+      />
+
+      <SectionCard
+        title="Install now"
+        description={
+          reported
+            ? "Security and critical updates that should be applied right away."
+            : "Updates that should be installed right away will show up here after the next check-in."
+        }
+        contentClassName="flex flex-col gap-4"
+      >
+        {installNowQuery.isLoading ? (
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-2/3" />
+          </div>
+        ) : !reported && !trimmedSearch ? (
+          <EmptyState
+            title="No software reported yet"
+            description="Installed software and updates will show up here after the next check-in."
+            bordered={false}
+          />
+        ) : installNowItems.length === 0 ? (
+          <EmptyState
+            title={
+              trimmedSearch
+                ? "Nothing matches the current filters."
+                : "Nothing needs to be installed right away."
+            }
+            description={
+              trimmedSearch
+                ? "Try a different search."
+                : "Security and critical updates will be listed here when a device reports them."
+            }
+            bordered={false}
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Installed</TableHead>
+                <TableHead>Available</TableHead>
+                <TableHead>Kind</TableHead>
+                <TableHead>Last seen</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {installNowItems.map((pkg) => {
+                const kind = updateKindLabel(pkg.updateSeverity)
+                return (
+                  <TableRow key={pkg.id}>
+                    <TableCell className="font-medium">{pkg.name}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {pkg.version || "—"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {pkg.availableVersion || "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="destructive">Install now</Badge>
+                        {kind ? <Badge variant="outline">{kind}</Badge> : null}
+                      </div>
+                    </TableCell>
+                    <TableCell
+                      className="text-xs text-muted-foreground"
+                      title={formatDate(pkg.lastSeenAt)}
+                    >
+                      {formatRelativeTime(pkg.lastSeenAt)}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </SectionCard>
 
       <SectionCard
         title="Titles"
@@ -93,13 +196,6 @@ export function SoftwareTab({ device }: { device: DeviceDetail }) {
         }
         contentClassName="flex flex-col gap-4"
       >
-        <Input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search software"
-          aria-label="Search software"
-        />
-
         {titlesQuery.isLoading ? (
           <div className="flex flex-col gap-3">
             <Skeleton className="h-8 w-full" />
@@ -175,15 +271,26 @@ export function SoftwareTab({ device }: { device: DeviceDetail }) {
             : "Other software reported by this device."
         }
         actions={
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <input
-              type="checkbox"
-              className="size-4 accent-primary"
-              checked={updatesOnly}
-              onChange={(event) => setUpdatesOnly(event.target.checked)}
-            />
-            Updates only
-          </label>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={installNowOnly}
+                onChange={(event) => setInstallNowOnly(event.target.checked)}
+              />
+              Install now
+            </label>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                checked={updatesOnly}
+                onChange={(event) => setUpdatesOnly(event.target.checked)}
+              />
+              Updates only
+            </label>
+          </div>
         }
         contentClassName="flex flex-col gap-4"
       >
@@ -197,7 +304,7 @@ export function SoftwareTab({ device }: { device: DeviceDetail }) {
           <EmptyState
             title="No software inventory yet"
             description={
-              search || updatesOnly
+              search || updatesOnly || installNowOnly
                 ? "Nothing matches the current filters."
                 : "Installed software will show up here after the next check-in."
             }
@@ -205,7 +312,7 @@ export function SoftwareTab({ device }: { device: DeviceDetail }) {
           />
         ) : (
           <>
-            {updateCount > 0 && !updatesOnly ? (
+            {updateCount > 0 && !updatesOnly && !installNowOnly ? (
               <p className="text-sm text-muted-foreground">
                 {updateCount === 1
                   ? "1 update available."
@@ -227,6 +334,7 @@ export function SoftwareTab({ device }: { device: DeviceDetail }) {
                   const hasUpdate =
                     Boolean(pkg.availableVersion) &&
                     pkg.availableVersion !== pkg.version
+                  const kind = updateKindLabel(pkg.updateSeverity)
                   return (
                     <TableRow key={pkg.id}>
                       <TableCell className="font-medium">{pkg.name}</TableCell>
@@ -238,9 +346,17 @@ export function SoftwareTab({ device }: { device: DeviceDetail }) {
                       </TableCell>
                       <TableCell>
                         {hasUpdate ? (
-                          <Badge variant="secondary">
-                            {pkg.availableVersion}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="secondary">
+                              {pkg.availableVersion}
+                            </Badge>
+                            {pkg.installImmediately ? (
+                              <Badge variant="destructive">Install now</Badge>
+                            ) : null}
+                            {kind ? (
+                              <Badge variant="outline">{kind}</Badge>
+                            ) : null}
+                          </div>
                         ) : (
                           <span className="text-muted-foreground">—</span>
                         )}

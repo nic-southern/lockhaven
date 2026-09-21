@@ -80,6 +80,8 @@ async function applyPackageDiff(
       version: pkg.version,
       source: pkg.source,
       availableVersion: pkg.availableVersion,
+      updateSeverity: pkg.updateSeverity,
+      installImmediately: pkg.installImmediately,
       lastSeenAt: now,
     })
   }
@@ -90,6 +92,8 @@ async function applyPackageDiff(
       .set({
         version: pkg.version,
         availableVersion: pkg.availableVersion,
+        updateSeverity: pkg.updateSeverity,
+        installImmediately: pkg.installImmediately,
         lastSeenAt: now,
       })
       .where(
@@ -265,6 +269,11 @@ export async function ingestDeviceTelemetry(
       version: row.version,
       source: row.source,
       availableVersion: row.availableVersion,
+      updateSeverity:
+        row.updateSeverity === "security" || row.updateSeverity === "critical"
+          ? row.updateSeverity
+          : null,
+      installImmediately: row.installImmediately,
     }))
     const next = inventoryFromCheckIn(args.packages)
     await applyPackageDiff(tx, args.deviceId, args.now, previous, next)

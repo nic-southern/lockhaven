@@ -2,12 +2,17 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  aptPocketIsSecurity,
+  classifyWindowsUpdateCategories,
   parseAptUpgradable,
   parseDfKp,
+  parseDnfCheckUpdate,
+  parseDnfSecurityUpdates,
   parseDpkgQuery,
   parseListeningPorts,
   parseProcMeminfo,
   parseProcNetDev,
+  parseWindowsUpdateList,
 } from "./parse"
 
 test("parses df -kP mounts and skips tmpfs", () => {
@@ -65,6 +70,95 @@ test("parses dpkg and apt upgrade lists", () => {
         available_version: "8.1.0",
         current_version: "8.0.0",
         source: "apt",
+      },
+    ]
+  )
+  assert.equal(aptPocketIsSecurity("jammy-updates"), false)
+  assert.equal(aptPocketIsSecurity("jammy-security,jammy-updates"), true)
+  assert.deepEqual(
+    parseAptUpgradable(
+      "openssl/jammy-security,jammy-updates 3.0.2-1 amd64 [upgradable from: 3.0.2]\n"
+    ),
+    [
+      {
+        name: "openssl",
+        available_version: "3.0.2-1",
+        current_version: "3.0.2",
+        source: "apt",
+        severity: "security",
+      },
+    ]
+  )
+})
+
+test("dnf security advisories classify critical and ignore unknown labels", () => {
+  assert.deepEqual(
+    parseDnfSecurityUpdates(`RHSA-2024:0001 Critical/Sec. curl-7.76.1-1.el9.x86_64
+RHSA-2024:0002 Important/Sec. bash-5.1.8-2.el9.x86_64
+RHBA-2024:0003 bugfix jq-1.6-1.el9.x86_64
+libseccomp is not an advisory
+`),
+    [
+      {
+        name: "curl",
+        available_version: "7.76.1-1.el9",
+        source: "rpm",
+        severity: "critical",
+      },
+      {
+        name: "bash",
+        available_version: "5.1.8-2.el9",
+        source: "rpm",
+        severity: "security",
+      },
+    ]
+  )
+  assert.deepEqual(
+    parseDnfCheckUpdate(`curl.x86_64  7.76.1-1.el9  baseos
+Obsoleting Packages
+old.x86_64  new.x86_64
+`),
+    [
+      {
+        name: "curl",
+        available_version: "7.76.1-1.el9",
+        source: "rpm",
+        severity: "security",
+      },
+    ]
+  )
+})
+
+test("windows update categories fail closed", () => {
+  assert.equal(
+    classifyWindowsUpdateCategories("Security Updates|Updates"),
+    "security"
+  )
+  assert.equal(classifyWindowsUpdateCategories("Critical Updates"), "critical")
+  for (const raw of [
+    "",
+    "Updates",
+    "Definition Updates",
+    "Security Intelligence Updates",
+    "unknown",
+  ]) {
+    assert.equal(classifyWindowsUpdateCategories(raw), undefined)
+  }
+  assert.deepEqual(
+    parseWindowsUpdateList(
+      "Cumulative Update\t5034441\tSecurity Updates\nDriver pack\t\tDrivers\n"
+    ),
+    [
+      {
+        name: "Cumulative Update",
+        available_version: "KB5034441",
+        source: "windows-update",
+        severity: "security",
+      },
+      {
+        name: "Driver pack",
+        available_version: "pending",
+        source: "windows-update",
       },
     ]
   )

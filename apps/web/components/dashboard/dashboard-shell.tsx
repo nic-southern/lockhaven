@@ -26,6 +26,7 @@ import {
   NetworkIcon,
   RouteIcon,
   ServerIcon,
+  ShieldAlertIcon,
   ShieldCheckIcon,
   ShieldIcon,
   SlidersHorizontalIcon,
@@ -91,6 +92,12 @@ const navSections: NavSection[] = [
         href: "/devices",
         label: "Devices",
         icon: MonitorIcon,
+        permissions: ["device:view"],
+      },
+      {
+        href: "/software",
+        label: "Software",
+        icon: ShieldAlertIcon,
         permissions: ["device:view"],
       },
       {
