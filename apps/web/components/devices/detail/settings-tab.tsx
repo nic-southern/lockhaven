@@ -8,6 +8,7 @@ import { definitionAppliesTo } from "@nms/shared"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { CodeBlock } from "@/components/dashboard/code-block"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
@@ -34,7 +35,7 @@ function isRenameWindowOpen(allowedAt: string | Date | null | undefined) {
 
 export function SettingsTab({ device }: { device: DeviceDetail }) {
   const router = useRouter()
-  const { can } = usePermissions()
+  const { can, isPlatformAdmin } = usePermissions()
   const canUpdate = can("device:update")
   const canRevoke = can("device:revoke_vpn")
   const canDelete = can("device:delete")
@@ -71,7 +72,13 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
     device.vpnIdentity?.routePolicyId ?? ""
   )
   const [confirm, setConfirm] = React.useState<
-    "revoke" | "delete" | "archive" | "unarchive" | null
+    | "revoke"
+    | "delete"
+    | "archive"
+    | "unarchive"
+    | "infrastructure-on"
+    | "infrastructure-off"
+    | null
   >(null)
 
   // Reset the form when the server record changes underneath it.
@@ -146,6 +153,20 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
       setConfirm(null)
       toast.success(
         variables.archived ? "Device archived" : "Device returned to service"
+      )
+    },
+    onError() {
+      toast.error("We couldn't update this device.")
+    },
+  })
+  const setInfrastructure = trpc.devices.setInfrastructure.useMutation({
+    async onSuccess(_result, variables) {
+      await invalidate()
+      setConfirm(null)
+      toast.success(
+        variables.infrastructure
+          ? "Marked as infrastructure"
+          : "Infrastructure removed"
       )
     },
     onError() {
@@ -392,6 +413,40 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
         </SectionCard>
       ) : null}
 
+      {isPlatformAdmin || device.infrastructure ? (
+        <SectionCard
+          title="Infrastructure"
+          description="Highest security. Connections stay closed until access is requested, then close again when that access expires."
+        >
+          {isPlatformAdmin ? (
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium">Infrastructure device</p>
+                <p className="text-xs text-muted-foreground">
+                  Only a platform administrator can request access. Access
+                  expires on its own.
+                </p>
+              </div>
+              <Switch
+                checked={device.infrastructure}
+                disabled={setInfrastructure.isPending}
+                aria-label="Infrastructure device"
+                onCheckedChange={(checked) =>
+                  setConfirm(
+                    checked ? "infrastructure-on" : "infrastructure-off"
+                  )
+                }
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Connections stay closed until a platform administrator requests
+              access.
+            </p>
+          )}
+        </SectionCard>
+      ) : null}
+
       {canUpdate ? (
         <SectionCard
           title="Archive"
@@ -473,6 +528,28 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
         </SectionCard>
       ) : null}
 
+      <ConfirmDialog
+        open={confirm === "infrastructure-on"}
+        onOpenChange={(open) => (!open ? setConfirm(null) : null)}
+        title="Mark as infrastructure"
+        description={`Mark ${device.displayName} as infrastructure? Connections stay closed until a platform administrator requests access. That access expires on its own.`}
+        confirmLabel="Mark as infrastructure"
+        pending={setInfrastructure.isPending}
+        onConfirm={() =>
+          setInfrastructure.mutate({ id: device.id, infrastructure: true })
+        }
+      />
+      <ConfirmDialog
+        open={confirm === "infrastructure-off"}
+        onOpenChange={(open) => (!open ? setConfirm(null) : null)}
+        title="Remove infrastructure"
+        description={`Remove infrastructure from ${device.displayName}? Connections follow the usual rules again, and any open access ends.`}
+        confirmLabel="Remove infrastructure"
+        pending={setInfrastructure.isPending}
+        onConfirm={() =>
+          setInfrastructure.mutate({ id: device.id, infrastructure: false })
+        }
+      />
       <ConfirmDialog
         open={confirm === "archive"}
         onOpenChange={(open) => (!open ? setConfirm(null) : null)}

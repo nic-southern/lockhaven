@@ -22,11 +22,12 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Textarea } from "@/components/ui/textarea"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { SelectField } from "@/components/dashboard/select-field"
 import { StatusIndicator } from "@/components/dashboard/status-indicator"
-import { formatRelativeTime, statusLabel } from "@/lib/dashboard"
+import { formatDate, formatRelativeTime, statusLabel } from "@/lib/dashboard"
 import { serviceTypeLabel } from "@/lib/devices"
 import { preferredConnectionMethod } from "@/lib/remote-launch"
 import { trpc } from "@/lib/trpc"
@@ -85,7 +86,7 @@ export function ConnectTab({
   device: DeviceDetail
   onNavigate: (tab: DeviceTab) => void
 }) {
-  const { can, uiScope } = usePermissions()
+  const { can, uiScope, isPlatformAdmin } = usePermissions()
   const { connected: adminVpnConnected } = useAdminVpnConnected()
   const invalidate = useInvalidateDevice(device.id)
   const canUpdate = can("device:update")
@@ -105,10 +106,13 @@ export function ConnectTab({
     serviceId: string
     method: RemoteConnectionMethod
   } | null>(null)
+  const [accessMinutes, setAccessMinutes] = React.useState("30")
+  const [accessReason, setAccessReason] = React.useState("")
 
-  const requirementsQuery = trpc.sessions.launchRequirements.useQuery({
-    deviceId: device.id,
-  })
+  const requirementsQuery = trpc.sessions.launchRequirements.useQuery(
+    { deviceId: device.id },
+    { refetchInterval: device.infrastructure ? 15_000 : false }
+  )
   const mineQuery = trpc.accessRequests.mine.useQuery(
     { deviceId: device.id },
     { refetchInterval: 8_000 }
@@ -128,6 +132,7 @@ export function ConnectTab({
   }, [mineRequests])
 
   React.useEffect(() => {
+    if (device.infrastructure) return
     const approved = (mineQuery.data ?? []).filter(
       (request) => request.status === "approved"
     )
@@ -153,9 +158,37 @@ export function ConnectTab({
         }
       )
     }
-  }, [mineQuery.data, launch, launchingId, device.id])
+  }, [mineQuery.data, launch, launchingId, device.id, device.infrastructure])
+
+  const accessExpiresAt = requirements?.infrastructureAccessExpiresAt ?? null
+  const infrastructureClosed =
+    device.infrastructure && (requirementsQuery.isLoading || !accessExpiresAt)
+
+  const requestAccess = trpc.devices.requestInfrastructureAccess.useMutation({
+    async onSuccess() {
+      setAccessReason("")
+      await requirementsQuery.refetch()
+      toast.success("Access granted")
+    },
+    onError() {
+      toast.error("We couldn't open access.")
+    },
+  })
+  const endAccess = trpc.devices.revokeInfrastructureAccess.useMutation({
+    async onSuccess() {
+      await requirementsQuery.refetch()
+      toast.success("Access ended")
+    },
+    onError() {
+      toast.error("We couldn't end access.")
+    },
+  })
 
   function startLaunch(serviceId: string, method: RemoteConnectionMethod) {
+    if (infrastructureClosed) {
+      toast.message("Request access before connecting")
+      return
+    }
     const requireReason = Boolean(requirements?.requireAccessReason)
     const requireApproval = Boolean(requirements?.requireApproval)
     const outstanding = pendingByService.get(serviceId)
@@ -226,6 +259,81 @@ export function ConnectTab({
 
   return (
     <div className="flex flex-col gap-6">
+      {device.infrastructure ? (
+        <Card>
+          <CardContent className="flex flex-col gap-3 p-5">
+            {requirementsQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Checking access</p>
+            ) : accessExpiresAt ? (
+              <>
+                <p className="font-medium">
+                  Access expires {formatDate(accessExpiresAt)}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Connections close when this access expires. Request access
+                  again after that.
+                </p>
+                {isPlatformAdmin ? (
+                  <Button
+                    variant="outline"
+                    className="w-fit"
+                    disabled={endAccess.isPending}
+                    onClick={() => endAccess.mutate({ deviceId: device.id })}
+                  >
+                    {endAccess.isPending ? "Ending…" : "End access"}
+                  </Button>
+                ) : null}
+              </>
+            ) : isPlatformAdmin ? (
+              <>
+                <p className="font-medium">Access is closed</p>
+                <p className="text-sm text-muted-foreground">
+                  Request access to connect. It expires on its own.
+                </p>
+                <SelectField
+                  aria-label="How long access lasts"
+                  value={accessMinutes}
+                  onValueChange={setAccessMinutes}
+                  options={[
+                    { value: "15", label: "15 minutes" },
+                    { value: "30", label: "30 minutes" },
+                    { value: "60", label: "1 hour" },
+                    { value: "120", label: "2 hours" },
+                  ]}
+                />
+                <Textarea
+                  value={accessReason}
+                  onChange={(event) => setAccessReason(event.target.value)}
+                  maxLength={500}
+                  placeholder="Why do you need access?"
+                  aria-label="Why do you need access?"
+                />
+                <Button
+                  className="w-fit"
+                  disabled={requestAccess.isPending}
+                  onClick={() =>
+                    requestAccess.mutate({
+                      deviceId: device.id,
+                      minutes: Number(accessMinutes),
+                      reason: accessReason.trim() || undefined,
+                    })
+                  }
+                >
+                  {requestAccess.isPending ? "Requesting…" : "Request access"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="font-medium">Access is closed</p>
+                <p className="text-sm text-muted-foreground">
+                  Only a platform administrator can request access to this
+                  device.
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
       {revoked ? (
         <Card className="border-destructive/40 bg-destructive/5">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4 text-sm">
@@ -349,6 +457,7 @@ export function ConnectTab({
                         ) : null}
                         <Button
                           disabled={
+                            infrastructureClosed ||
                             revoked ||
                             launch.isPending ||
                             launchingId === service.id

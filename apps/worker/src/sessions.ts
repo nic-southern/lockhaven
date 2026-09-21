@@ -1,12 +1,24 @@
-import { and, devices, eq, isNull, remoteSessions, sql } from "@nms/db"
+import {
+  and,
+  devices,
+  eq,
+  infrastructureAccessGrants,
+  isNull,
+  remoteSessions,
+  sql,
+} from "@nms/db"
 import { db } from "@nms/db/client"
+import { inArray } from "drizzle-orm"
 import {
   GuacamoleRemoteAccessProvider,
   guacamoleConfigSchema,
   type RemoteAccessProvider,
   type RemoteAccessSessionActivity,
 } from "@nms/remote-access"
-import { BROWSER_CONNECTION_METHOD } from "@nms/shared"
+import {
+  BROWSER_CONNECTION_METHOD,
+  infrastructureSessionNeedsClose,
+} from "@nms/shared"
 
 import { recordEvent } from "./audit"
 
@@ -50,6 +62,7 @@ type OpenSession = {
   auditMetadata: Record<string, unknown>
   organizationId: string
   siteId: string | null
+  infrastructure: boolean
 }
 
 async function loadOpenSessions(): Promise<OpenSession[]> {
@@ -65,6 +78,7 @@ async function loadOpenSessions(): Promise<OpenSession[]> {
       auditMetadata: remoteSessions.auditMetadata,
       organizationId: devices.organizationId,
       siteId: devices.siteId,
+      infrastructure: devices.infrastructure,
     })
     .from(remoteSessions)
     .innerJoin(devices, eq(devices.id, remoteSessions.deviceId))
@@ -149,6 +163,17 @@ export async function refreshRemoteSessions(now = new Date()) {
   const open = await loadOpenSessions()
   if (open.length === 0) return { checked: 0, ended: 0 }
 
+  const infrastructureDeviceIds = [
+    ...new Set(
+      open
+        .filter((session) => session.infrastructure)
+        .map((session) => session.deviceId)
+    ),
+  ]
+  const infrastructureGrants = await loadInfrastructureGrants(
+    infrastructureDeviceIds
+  )
+
   const gatewaySessions = open.filter(
     (session) =>
       session.connectionMethod === BROWSER_CONNECTION_METHOD &&
@@ -174,6 +199,20 @@ export async function refreshRemoteSessions(now = new Date()) {
   let ended = 0
 
   for (const session of open) {
+    if (
+      infrastructureSessionNeedsClose({
+        infrastructure: session.infrastructure,
+        adminUserId: session.adminUserId,
+        deviceId: session.deviceId,
+        grants: infrastructureGrants,
+        now,
+      })
+    ) {
+      const closed = await endInfrastructureSession(session, now)
+      if (closed) ended += 1
+      continue
+    }
+
     const ageMs = now.getTime() - session.startedAt.getTime()
 
     if (session.connectionMethod !== BROWSER_CONNECTION_METHOD) {
@@ -245,4 +284,42 @@ export async function refreshRemoteSessions(now = new Date()) {
   }
 
   return { checked: open.length, ended }
+}
+
+async function loadInfrastructureGrants(deviceIds: string[]) {
+  if (deviceIds.length === 0) return []
+  return db
+    .select({
+      deviceId: infrastructureAccessGrants.deviceId,
+      requestedByUserId: infrastructureAccessGrants.requestedByUserId,
+      status: infrastructureAccessGrants.status,
+      expiresAt: infrastructureAccessGrants.expiresAt,
+      revokedAt: infrastructureAccessGrants.revokedAt,
+    })
+    .from(infrastructureAccessGrants)
+    .where(inArray(infrastructureAccessGrants.deviceId, deviceIds))
+}
+
+async function endInfrastructureSession(session: OpenSession, now: Date) {
+  const gatewayId = session.auditMetadata[GATEWAY_SESSION_ID_KEY]
+  if (typeof gatewayId === "string") {
+    const provider = gatewayProvider()
+    if (provider) {
+      try {
+        await provider.closeSession(gatewayId)
+      } catch (error) {
+        console.error("infrastructure session close failed", error)
+        return false
+      }
+    }
+  }
+
+  await endSession(session, {
+    status: "ended",
+    endedAt: now,
+    reason: "access_expired",
+    connectedAt: null,
+    observed: typeof gatewayId === "string",
+  })
+  return true
 }
