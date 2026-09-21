@@ -262,6 +262,16 @@ export function InviteUserDialog({
                       onValueChange={(value) => {
                         setOrganizationId(value)
                         setSiteGrants({})
+                        const next = organizations.find(
+                          (organization) => organization.id === value
+                        )
+                        if (
+                          organizationRole === "owner" &&
+                          next &&
+                          !next.canAssignOwner
+                        ) {
+                          setOrganizationRole("technician")
+                        }
                       }}
                       placeholder="Choose an organization"
                       options={organizations.map((organization) => ({
@@ -288,10 +298,16 @@ export function InviteUserDialog({
                         )
                       }
                       options={[
-                        ...organizationRoles.map((role) => ({
-                          value: role,
-                          label: organizationRoleLabels[role],
-                        })),
+                        ...organizationRoles
+                          .filter(
+                            (role) =>
+                              role !== "owner" ||
+                              selectedOrganization?.canAssignOwner
+                          )
+                          .map((role) => ({
+                            value: role,
+                            label: organizationRoleLabels[role],
+                          })),
                         { value: NO_ORG_ROLE, label: "Specific sites only" },
                       ]}
                     />

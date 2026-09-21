@@ -8,6 +8,7 @@ import {
   eq,
   exists,
   gt,
+  gte,
   ilike,
   inArray,
   isNull,
@@ -36,6 +37,11 @@ import {
 } from "@nms/db"
 import {
   invitationAcceptSchema,
+  invitationAlreadyPendingMessage,
+  invitationEmailTakenMessage,
+  invitationInvalidMessage,
+  invitationRoleDeniedMessage,
+  invitationTokenSchema,
   membershipStatuses,
   organizationRoles,
   platformRoles,
@@ -52,6 +58,14 @@ import {
 
 import { manageableOrganizationIds } from "../access"
 import { writeAuditEvent } from "../audit"
+import {
+  canGrantOrganizationRole,
+  canSupersedeInvitation,
+  isInvitationOpen,
+  isUserEmailConflict,
+  normalizeInvitationSiteGrants,
+  siteGrantsBelongToOrganization,
+} from "../invitation"
 import type { ApiContext } from "../context"
 import {
   buildOrderBy,
@@ -157,6 +171,17 @@ async function assertCanManageUser(ctx: ApiContext, targetUserId: string) {
   }
 
   return { actor, target, manageable }
+}
+
+function thrownTrpcError(error: unknown): TRPCError | null {
+  const seen = new Set<unknown>()
+  let current: unknown = error
+  while (current && typeof current === "object" && !seen.has(current)) {
+    if (current instanceof TRPCError) return current
+    seen.add(current)
+    current = (current as { cause?: unknown }).cause
+  }
+  return null
 }
 
 function assertOrganizationManageable(
@@ -536,6 +561,24 @@ export const usersRouter = createTRPCRouter({
             message: "Choose an organization role or at least one site grant.",
           })
         }
+        const actorRole =
+          actor.organizationMemberships.find(
+            (membership) =>
+              membership.organizationId === input.organizationId &&
+              membership.status === "active"
+          )?.role ?? null
+        if (
+          !canGrantOrganizationRole({
+            platformWide: hasPlatformWideAccess(actor),
+            actorRole,
+            role: input.organizationRole,
+          })
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: invitationRoleDeniedMessage,
+          })
+        }
       }
 
       if (input.siteGrants.length > 0) {
@@ -571,10 +614,14 @@ export const usersRouter = createTRPCRouter({
         })
       }
 
-      // Supersede any pending invitation for the same address.
-      await ctx.db
-        .update(userInvitations)
-        .set({ revokedAt: new Date() })
+      // Replace a pending invitation only when this actor manages it.
+      // Another organization's invite, or a platform invite, stays valid.
+      const pendingInvitations = await ctx.db
+        .select({
+          id: userInvitations.id,
+          organizationId: userInvitations.organizationId,
+        })
+        .from(userInvitations)
         .where(
           and(
             eq(userInvitations.email, email),
@@ -582,6 +629,27 @@ export const usersRouter = createTRPCRouter({
             isNull(userInvitations.revokedAt)
           )
         )
+      if (
+        pendingInvitations.some(
+          (pending) => !canSupersedeInvitation(manageable, pending)
+        )
+      ) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: invitationAlreadyPendingMessage,
+        })
+      }
+      if (pendingInvitations.length > 0) {
+        await ctx.db
+          .update(userInvitations)
+          .set({ revokedAt: new Date() })
+          .where(
+            inArray(
+              userInvitations.id,
+              pendingInvitations.map((pending) => pending.id)
+            )
+          )
+      }
 
       const token = makeInvitationToken()
       const expiresAt = new Date(Date.now() + INVITATION_TTL_MS)
@@ -670,7 +738,7 @@ export const usersRouter = createTRPCRouter({
     }),
 
   invitationPreview: publicProcedure
-    .input(z.object({ token: z.string().min(20).max(200) }))
+    .input(z.object({ token: invitationTokenSchema }))
     .query(async ({ ctx, input }) => {
       const [invitation] = await ctx.db
         .select({
@@ -688,12 +756,7 @@ export const usersRouter = createTRPCRouter({
         )
         .where(eq(userInvitations.tokenHash, hashInvitationToken(input.token)))
 
-      if (
-        !invitation ||
-        invitation.acceptedAt ||
-        invitation.revokedAt ||
-        invitation.expiresAt.getTime() < Date.now()
-      ) {
+      if (!isInvitationOpen(invitation, new Date())) {
         return { valid: false as const }
       }
 
@@ -710,105 +773,183 @@ export const usersRouter = createTRPCRouter({
     .input(invitationAcceptSchema)
     .mutation(async ({ ctx, input }) => {
       const [invitation] = await ctx.db
-        .select()
+        .select({
+          id: userInvitations.id,
+          acceptedAt: userInvitations.acceptedAt,
+          revokedAt: userInvitations.revokedAt,
+          expiresAt: userInvitations.expiresAt,
+        })
         .from(userInvitations)
         .where(eq(userInvitations.tokenHash, hashInvitationToken(input.token)))
 
-      if (
-        !invitation ||
-        invitation.acceptedAt ||
-        invitation.revokedAt ||
-        invitation.expiresAt.getTime() < Date.now()
-      ) {
+      if (!isInvitationOpen(invitation, new Date())) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "This invitation is no longer valid.",
+          message: invitationInvalidMessage,
         })
       }
 
-      const [existingUser] = await ctx.db
-        .select({ id: user.id })
-        .from(user)
-        .where(eq(user.email, invitation.email))
-      if (existingUser) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "An account already exists for this email.",
-        })
-      }
-
-      const now = new Date()
       const userId = randomUUID()
       const passwordHash = await hashPassword(input.password)
 
-      await ctx.db.transaction(async (tx) => {
-        await tx.insert(user).values({
-          id: userId,
-          name: input.name,
-          email: invitation.email,
-          emailVerified: true,
-          role: invitation.platformRole,
-          status: "active",
-          invitedBy: invitation.invitedByUserId,
-          createdAt: now,
-          updatedAt: now,
-        })
+      try {
+        const email = await ctx.db.transaction(async (tx) => {
+          const now = new Date()
+          // Claim the row before creating the account. A revoke, expiry, or
+          // second accept that lands first updates zero rows and stops here.
+          // The account id is filled in after the user row exists.
+          const [claimed] = await tx
+            .update(userInvitations)
+            .set({ acceptedAt: now })
+            .where(
+              and(
+                eq(userInvitations.id, invitation.id),
+                isNull(userInvitations.acceptedAt),
+                isNull(userInvitations.revokedAt),
+                gte(userInvitations.expiresAt, now)
+              )
+            )
+            .returning({
+              id: userInvitations.id,
+              email: userInvitations.email,
+              platformRole: userInvitations.platformRole,
+              organizationId: userInvitations.organizationId,
+              organizationRole: userInvitations.organizationRole,
+              siteGrants: userInvitations.siteGrants,
+              invitedByUserId: userInvitations.invitedByUserId,
+            })
 
-        await tx.insert(account).values({
-          id: randomUUID(),
-          userId,
-          accountId: userId,
-          providerId: "credential",
-          password: passwordHash,
-          createdAt: now,
-          updatedAt: now,
-        })
+          if (!claimed) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: invitationInvalidMessage,
+            })
+          }
 
-        if (invitation.organizationId && invitation.organizationRole) {
-          await tx.insert(organizationMemberships).values({
-            organizationId: invitation.organizationId,
-            userId,
-            role: invitation.organizationRole,
+          const [existingUser] = await tx
+            .select({ id: user.id })
+            .from(user)
+            .where(eq(user.email, claimed.email))
+          if (existingUser) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: invitationEmailTakenMessage,
+            })
+          }
+
+          const grants = normalizeInvitationSiteGrants(claimed.siteGrants)
+          if (!grants) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: invitationInvalidMessage,
+            })
+          }
+          if (grants.length > 0) {
+            const matched = await tx
+              .select({
+                id: sites.id,
+                organizationId: sites.organizationId,
+              })
+              .from(sites)
+              .where(
+                inArray(
+                  sites.id,
+                  grants.map((grant) => grant.siteId)
+                )
+              )
+            if (
+              !siteGrantsBelongToOrganization(
+                matched,
+                grants,
+                claimed.organizationId
+              )
+            ) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: invitationInvalidMessage,
+              })
+            }
+          }
+
+          await tx.insert(user).values({
+            id: userId,
+            name: input.name,
+            email: claimed.email,
+            emailVerified: true,
+            role: claimed.platformRole,
             status: "active",
-            createdByUserId: invitation.invitedByUserId,
+            invitedBy: claimed.invitedByUserId,
             createdAt: now,
             updatedAt: now,
           })
-        }
 
-        const grants = z.array(siteGrantSchema).parse(invitation.siteGrants)
-        if (grants.length > 0) {
-          await tx.insert(siteMemberships).values(
-            grants.map((grant) => ({
-              siteId: grant.siteId,
+          await tx.insert(account).values({
+            id: randomUUID(),
+            userId,
+            accountId: userId,
+            providerId: "credential",
+            password: passwordHash,
+            createdAt: now,
+            updatedAt: now,
+          })
+
+          if (claimed.organizationId && claimed.organizationRole) {
+            await tx.insert(organizationMemberships).values({
+              organizationId: claimed.organizationId,
               userId,
-              role: grant.role,
-              status: "active" as const,
-              createdByUserId: invitation.invitedByUserId,
+              role: claimed.organizationRole,
+              status: "active",
+              createdByUserId: claimed.invitedByUserId,
               createdAt: now,
               updatedAt: now,
-            }))
-          )
-        }
+            })
+          }
 
-        await tx
-          .update(userInvitations)
-          .set({ acceptedAt: now, acceptedUserId: userId })
-          .where(eq(userInvitations.id, invitation.id))
+          if (grants.length > 0) {
+            await tx.insert(siteMemberships).values(
+              grants.map((grant) => ({
+                siteId: grant.siteId,
+                userId,
+                role: grant.role,
+                status: "active" as const,
+                createdByUserId: claimed.invitedByUserId,
+                createdAt: now,
+                updatedAt: now,
+              }))
+            )
+          }
 
-        await tx.insert(auditEvents).values({
-          actorUserId: userId,
-          organizationId: invitation.organizationId,
-          eventType: "user_invitation_accepted",
-          eventData: {
-            invitationId: invitation.id,
-            email: invitation.email,
-            targetUserId: userId,
-          },
+          await tx
+            .update(userInvitations)
+            .set({ acceptedUserId: userId })
+            .where(eq(userInvitations.id, claimed.id))
+
+          await tx.insert(auditEvents).values({
+            actorUserId: userId,
+            organizationId: claimed.organizationId,
+            eventType: "user_invitation_accepted",
+            eventData: {
+              invitationId: claimed.id,
+              email: claimed.email,
+              targetUserId: userId,
+            },
+          })
+
+          return claimed.email
         })
-      })
 
-      return { ok: true, email: invitation.email }
+        return { ok: true as const, email }
+      } catch (error) {
+        const trpcError = thrownTrpcError(error)
+        if (trpcError) throw trpcError
+        if (isUserEmailConflict(error)) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: invitationEmailTakenMessage,
+          })
+        }
+        throw error
+      }
     }),
 
   updatePlatformRole: adminProcedure
@@ -1147,7 +1288,8 @@ export const usersRouter = createTRPCRouter({
 
   /** Organizations the caller may assign users to, with their sites. */
   assignableOrganizations: adminProcedure.query(async ({ ctx }) => {
-    const { manageable } = requireUserManager(ctx.actor)
+    const { actor, manageable } = requireUserManager(ctx.actor)
+    const platformWide = hasPlatformWideAccess(actor)
 
     const orgRows = await ctx.db
       .select({ id: organizations.id, name: organizations.name })
@@ -1173,6 +1315,14 @@ export const usersRouter = createTRPCRouter({
 
     return orgRows.map((organization) => ({
       ...organization,
+      canAssignOwner:
+        platformWide ||
+        actor.organizationMemberships.some(
+          (membership) =>
+            membership.organizationId === organization.id &&
+            membership.status === "active" &&
+            membership.role === "owner"
+        ),
       sites: siteRows.filter((site) => site.organizationId === organization.id),
     }))
   }),
