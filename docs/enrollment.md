@@ -85,9 +85,10 @@ The TypeScript client in `apps/agent` remains a protocol reference. macOS still
 uses that path until that installer ships the Go binary.
 
 Windows installs the same Go agent as a Windows service (`LockhavenAgent`).
-Attach never replaces an existing WireGuard tunnel. Greenfield enroll writes a
-tunnel only when WireGuard is already present (the Windows installer installs
-WireGuard if needed). Hub commands stay `reboot`, `restart`, and `update`.
+Attach never replaces an existing WireGuard tunnel. Greenfield enroll writes and
+starts a tunnel. The Linux installer installs `wireguard-tools` when missing;
+the Windows installer installs WireGuard when missing. Hub commands stay
+`reboot`, `restart`, and `update`.
 
 For tunnel-only Windows enrollment (no agent), the enrollment script can
 generate the keypair, call the API over your app hostname, install WireGuard if

@@ -67,7 +67,9 @@ func ApplyBind(state *config.State, bound *hub.BindResponse, privateKey string, 
 				); err != nil {
 					return nil, "", err
 				}
-				wgkeys.EnableTunnel(next.TunnelName)
+				if err := wgkeys.EnableTunnel(next.TunnelName); err != nil {
+					return nil, "", err
+				}
 			}
 		case "windows":
 			if err := wgkeys.WriteWindowsTunnel(next.TunnelName, privateKey, bound.VpnIPv4, settings); err != nil {
@@ -108,8 +110,8 @@ func Attach(opts BindOptions) (*config.State, string, error) {
 
 func Enroll(opts BindOptions) (*config.State, string, error) {
 	host := collect.Host()
-	if host.OSFamily == "windows" && wgkeys.WireGuardExe() == "" {
-		return nil, "", fmt.Errorf("WireGuard is not installed.")
+	if err := wgkeys.RequireInstalled(); err != nil {
+		return nil, "", err
 	}
 	privateKey, publicKey, err := wgkeys.Generate()
 	if err != nil {
