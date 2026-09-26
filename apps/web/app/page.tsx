@@ -12,7 +12,6 @@ import {
   KeyRoundIcon,
   PackageIcon,
   RadioIcon,
-  ScaleIcon,
   WifiIcon,
   WifiOffIcon,
 } from "lucide-react"
@@ -67,7 +66,6 @@ const TILE_ICONS: Record<
   patches: PackageIcon,
   offline: WifiOffIcon,
   agent_stale: RadioIcon,
-  expected_loss: ScaleIcon,
   sessions: ActivityIcon,
   live_grants: KeyRoundIcon,
 }
@@ -183,7 +181,6 @@ function Overview() {
       alerts: morning.alerts,
       devices: morning.devices,
       patches: morning.patches,
-      risk: morning.risk,
       sessions: morning.sessions,
       liveInfrastructureGrants: morning.liveInfrastructureGrants,
     })
@@ -229,15 +226,6 @@ function Overview() {
       empty: true,
     },
     {
-      id: "expected_loss",
-      label: "Expected loss",
-      value: "—",
-      hint: "",
-      href: "/reports?tab=risk",
-      tone: "neutral",
-      empty: true,
-    },
-    {
       id: "sessions",
       label: "Sessions · 24h",
       value: "0",
@@ -264,7 +252,7 @@ function Overview() {
       <PageHeader
         badge="Morning ops"
         title="What needs you today"
-        description="Alerts, security updates, quiet agents, expected loss, and recent access — one scan before the day starts."
+        description="Alerts, security updates, quiet agents, and recent access — one scan before the day starts."
         actions={
           <>
             {canEnroll ? (

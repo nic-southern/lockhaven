@@ -4,7 +4,6 @@ import test from "node:test"
 import {
   buildMorningOpsTiles,
   countInstallNowDevices,
-  emptyMorningRiskSummary,
   morningOpsAllClear,
   morningOpsLinks,
   summarizeMorningAlertCounts,
@@ -72,22 +71,16 @@ test("buildMorningOpsTiles uses calm empty-state hints when clear", () => {
       needsAttention: 0,
     },
     patches: { deviceCount: 0, packageCount: 0 },
-    risk: {
-      available: true,
-      inServiceLinkedCount: 0,
-      withCostCount: 0,
-      noCostCount: 0,
-      totalReplacementValue: "0.00",
-      totalExpectedLoss: "0.00",
-      totalAnnualExpectedLoss: "0.00",
-      aroPerYear: 0.05,
-    },
     sessions: { last24h: 0, active: 0 },
     liveInfrastructureGrants: 0,
   })
 
-  assert.equal(tiles.length, 7)
+  assert.equal(tiles.length, 6)
   assert.ok(morningOpsAllClear(tiles))
+  assert.equal(
+    tiles.some((tile) => tile.id === "expected_loss"),
+    false
+  )
   const byId = Object.fromEntries(tiles.map((tile) => [tile.id, tile]))
   assert.equal(byId.alerts?.hint, "Nothing waiting on you")
   assert.equal(byId.patches?.hint, "No security updates waiting")
@@ -96,7 +89,6 @@ test("buildMorningOpsTiles uses calm empty-state hints when clear", () => {
   assert.equal(byId.sessions?.hint, "No remote sessions in the last day")
   assert.equal(byId.live_grants?.hint, "No live infrastructure access")
   assert.equal(byId.alerts?.href, morningOpsLinks.alerts)
-  assert.equal(byId.expected_loss?.href, morningOpsLinks.expectedLoss)
 })
 
 test("buildMorningOpsTiles deep-links critical alerts and warns on patches", () => {
@@ -118,16 +110,6 @@ test("buildMorningOpsTiles deep-links critical alerts and warns on patches", () 
       needsAttention: 5,
     },
     patches: { deviceCount: 3, packageCount: 7 },
-    risk: {
-      available: true,
-      inServiceLinkedCount: 4,
-      withCostCount: 3,
-      noCostCount: 1,
-      totalReplacementValue: "1500.00",
-      totalExpectedLoss: "1500.00",
-      totalAnnualExpectedLoss: "75.00",
-      aroPerYear: 0.05,
-    },
     sessions: { last24h: 12, active: 2 },
     liveInfrastructureGrants: 1,
   })
@@ -142,38 +124,7 @@ test("buildMorningOpsTiles deep-links critical alerts and warns on patches", () 
   assert.equal(byId.offline?.value, "5")
   assert.match(byId.offline?.hint ?? "", /never connected/)
   assert.equal(byId.agent_stale?.href, morningOpsLinks.alertsAgentStale)
-  assert.equal(byId.expected_loss?.empty, false)
-  assert.match(byId.expected_loss?.hint ?? "", /missing cost/)
   assert.equal(byId.sessions?.hint, "2 still open")
   assert.equal(byId.live_grants?.tone, "online")
   assert.equal(morningOpsAllClear(tiles), false)
-})
-
-test("expected loss tile stays unavailable without audit access", () => {
-  const tiles = buildMorningOpsTiles({
-    alerts: {
-      open: 0,
-      acknowledged: 0,
-      critical: 0,
-      warning: 0,
-      notice: 0,
-      info: 0,
-      agentStale: 0,
-    },
-    devices: {
-      total: 1,
-      online: 1,
-      offline: 0,
-      never: 0,
-      needsAttention: 0,
-    },
-    patches: { deviceCount: 0, packageCount: 0 },
-    risk: emptyMorningRiskSummary(),
-    sessions: { last24h: 1, active: 0 },
-    liveInfrastructureGrants: 0,
-  })
-  const risk = tiles.find((tile) => tile.id === "expected_loss")
-  assert.equal(risk?.value, "—")
-  assert.equal(risk?.hint, "Open the expected loss report")
-  assert.equal(risk?.href, "/reports?tab=risk")
 })

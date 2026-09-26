@@ -1,11 +1,8 @@
 import { and, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm"
 
-import { hasPermission } from "@nms/auth"
 import {
   alerts,
-  assets,
   auditEvents,
-  deviceModels,
   devicePackages,
   devices,
   infrastructureAccessGrants,
@@ -15,22 +12,11 @@ import {
   user,
   vpnIdentities,
 } from "@nms/db"
-import {
-  DEFAULT_ARO_PER_YEAR,
-  emptyMorningRiskSummary,
-  summarizeAssetRisk,
-  type DeviceConnectivity,
-  type MorningOpsRiskSummary,
-} from "@nms/shared"
+import { type DeviceConnectivity } from "@nms/shared"
 
 import { actorOrganizationIds, actorSiteIds } from "../access"
 import { connectivityExpression, offlineServiceCount } from "../device-sql"
-import {
-  combineConditions,
-  deviceScopeCondition,
-  eventScopeCondition,
-  inventoryScopeCondition,
-} from "../scope"
+import { deviceScopeCondition, eventScopeCondition } from "../scope"
 import { createTRPCRouter, permissionProcedure } from "../trpc"
 
 const ATTENTION_LIMIT = 8
@@ -239,14 +225,12 @@ export const dashboardRouter = createTRPCRouter({
 
   /**
    * One-shot morning ops slice: open alerts, install-now devices, offline /
-   * quiet agents, expected loss totals, recent sessions, and live
-   * infrastructure grants. No new tables — reuses existing sources.
+   * quiet agents, recent sessions, and live infrastructure grants. No new
+   * tables — reuses existing sources.
    */
   morningOps: permissionProcedure("device:view").query(async ({ ctx }) => {
     const deviceScope = deviceScopeCondition(ctx.actor)
     const alertsScope = alertScope(ctx.actor)
-    const canViewRisk =
-      ctx.actor != null && hasPermission(ctx.actor.permissions, "audit:view")
     const now = new Date()
     const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
 
@@ -268,17 +252,13 @@ export const dashboardRouter = createTRPCRouter({
         needsAttention: 0,
       },
       patches: { deviceCount: 0, packageCount: 0 },
-      risk: null as MorningOpsRiskSummary | null,
       sessions: { last24h: 0, active: 0 },
       liveInfrastructureGrants: 0,
       generatedAt: now,
     }
 
     if (deviceScope.kind === "none" && alertsScope.kind === "none") {
-      return {
-        ...empty,
-        risk: canViewRisk ? emptyMorningRiskSummary() : null,
-      }
+      return empty
     }
 
     const deviceWhere =
@@ -410,82 +390,18 @@ export const dashboardRouter = createTRPCRouter({
               )
             )
 
-    const riskPromise: Promise<MorningOpsRiskSummary | null> = (async () => {
-      if (!canViewRisk) return null
-      const inventoryScope = inventoryScopeCondition(ctx.actor, {
-        organizationId: assets.organizationId,
-        siteId: assets.siteId,
-      })
-      if (inventoryScope.kind === "none") {
-        return { ...emptyMorningRiskSummary(), available: true }
-      }
-      const conditions = combineConditions([
-        inventoryScope.kind === "where" ? inventoryScope.condition : undefined,
-      ])
-      const rows = await ctx.db
-        .select({
-          id: assets.id,
-          tag: assets.tag,
-          status: assets.status,
-          siteId: assets.siteId,
-          organizationId: assets.organizationId,
-          assetPurchaseCost: assets.purchaseCost,
-          deviceId: devices.id,
-          siteName: sites.name,
-          organizationName: organizations.name,
-          deviceModelName: deviceModels.name,
-          modelReplacementCost: deviceModels.replacementCost,
-          modelPurchaseCost: deviceModels.purchaseCost,
-        })
-        .from(assets)
-        .innerJoin(organizations, eq(organizations.id, assets.organizationId))
-        .leftJoin(sites, eq(sites.id, assets.siteId))
-        .leftJoin(deviceModels, eq(deviceModels.id, assets.deviceModelId))
-        .leftJoin(devices, eq(devices.assetId, assets.id))
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-      const summary = summarizeAssetRisk(
-        rows.map((row) => ({
-          id: row.id,
-          tag: row.tag,
-          status: row.status,
-          linked: Boolean(row.deviceId),
-          siteId: row.siteId,
-          siteName: row.siteName,
-          organizationId: row.organizationId,
-          organizationName: row.organizationName,
-          deviceModelName: row.deviceModelName,
-          modelReplacementCost: row.modelReplacementCost,
-          modelPurchaseCost: row.modelPurchaseCost,
-          assetPurchaseCost: row.assetPurchaseCost,
-        })),
-        DEFAULT_ARO_PER_YEAR
-      )
-      return {
-        available: true,
-        inServiceLinkedCount: summary.inServiceLinkedCount,
-        withCostCount: summary.withCostCount,
-        noCostCount: summary.noCostCount,
-        totalReplacementValue: summary.totalReplacementValue,
-        totalExpectedLoss: summary.totalExpectedLoss,
-        totalAnnualExpectedLoss: summary.totalAnnualExpectedLoss,
-        aroPerYear: summary.aroPerYear,
-      }
-    })()
-
     const [
       alertCountRows,
       deviceCounts,
       patchCountRows,
       sessionCountRows,
       liveGrantRows,
-      risk,
     ] = await Promise.all([
       alertCountsPromise,
       deviceTotalsPromise,
       patchPromise,
       sessionsPromise,
       liveGrantsPromise,
-      riskPromise,
     ])
 
     const alertCounts = alertCountRows[0]
@@ -514,7 +430,6 @@ export const dashboardRouter = createTRPCRouter({
         deviceCount: Number(patchCounts?.deviceCount ?? 0),
         packageCount: Number(patchCounts?.packageCount ?? 0),
       },
-      risk,
       sessions: {
         last24h: Number(sessionCounts?.last24h ?? 0),
         active: Number(sessionCounts?.active ?? 0),
