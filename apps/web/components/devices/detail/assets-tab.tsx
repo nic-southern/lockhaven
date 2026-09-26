@@ -52,20 +52,6 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
   const [serial, setSerial] = React.useState(device.serialNumber ?? "")
   const [hostname, setHostname] = React.useState(device.hostname ?? "")
 
-  React.useEffect(() => {
-    if (!device.assetId) {
-      setTag(
-        suggestAssetTrackingTag({
-          deviceId: device.id,
-          hostname: device.hostname,
-          serialNumber: device.serialNumber,
-        })
-      )
-      setSerial(device.serialNumber ?? "")
-      setHostname(device.hostname ?? "")
-    }
-  }, [device.assetId, device.id, device.hostname, device.serialNumber])
-
   const createAsset = trpc.assets.create.useMutation()
   const linkDevice = trpc.assets.linkDevice.useMutation()
   const updateAsset = trpc.assets.update.useMutation({
