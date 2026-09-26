@@ -806,15 +806,13 @@ function AssetsContent() {
         description="Record hardware that may never enroll."
         className="sm:max-w-xl"
       >
-          {formFields}
-          <Button
-            disabled={
-              !form.organizationId || !form.tag || createAsset.isPending
-            }
-            onClick={() => void createAsset.mutateAsync(payloadFromForm())}
-          >
-            Add asset
-          </Button>
+        {formFields}
+        <Button
+          disabled={!form.organizationId || !form.tag || createAsset.isPending}
+          onClick={() => void createAsset.mutateAsync(payloadFromForm())}
+        >
+          Add asset
+        </Button>
       </DetailSheet>
 
       <ConfirmDialog
