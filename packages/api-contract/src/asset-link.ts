@@ -113,6 +113,44 @@ async function allocateTrackingTag(
   })
 }
 
+/**
+ * Org-unique serial check used by create and fill. Shared SMBIOS placeholders
+ * must not abort a check-in: create already skipped taken serials; fill must
+ * too, or the whole check-in transaction rolls back and the agent looks stale
+ * while the tunnel stays up.
+ */
+async function serialTakenInOrganization(
+  client: AssetLinkDb,
+  organizationId: string,
+  serial: string,
+  excludeAssetId?: string
+) {
+  const normalized = serial.replace(/[\s-]+/g, "").toUpperCase()
+  const conditions = [
+    eq(assets.organizationId, organizationId),
+    sql`replace(upper(coalesce(${assets.serial}, '')), '-', '') = ${normalized}`,
+  ]
+  if (excludeAssetId) {
+    conditions.push(sql`${assets.id} <> ${excludeAssetId}`)
+  }
+  const [row] = await client
+    .select({ id: assets.id })
+    .from(assets)
+    .where(and(...conditions))
+    .limit(1)
+  return Boolean(row)
+}
+
+/** Drop `serial` from a fill patch when another asset already owns it. */
+export function omitTakenSerialFromPatch<T extends { serial?: string | null }>(
+  patch: T,
+  taken: boolean
+): T {
+  if (!taken || patch.serial == null) return patch
+  const { serial: _serial, ...rest } = patch
+  return rest as T
+}
+
 async function fillLinkedAsset(
   client: AssetLinkDb,
   device: DeviceAssetReport,
@@ -138,7 +176,7 @@ async function fillLinkedAsset(
   const catalogEntry = catalogModelId
     ? (catalog.find((entry) => entry.id === catalogModelId) ?? null)
     : null
-  const patch = fillEmptyAssetIdentity(
+  let patch = fillEmptyAssetIdentity(
     {
       serial: existing.serial,
       hostname: existing.hostname,
@@ -150,6 +188,15 @@ async function fillLinkedAsset(
     catalogModelId,
     catalogEntry
   )
+  if (patch.serial) {
+    const taken = await serialTakenInOrganization(
+      client,
+      device.organizationId,
+      patch.serial,
+      assetId
+    )
+    patch = omitTakenSerialFromPatch(patch, taken)
+  }
   if (Object.keys(patch).length === 0) return { assetId, created: false }
 
   await client
@@ -177,18 +224,11 @@ async function createAndLinkAsset(
   const tag = await allocateTrackingTag(client, device, reported)
 
   let serial = identity.serial
-  if (serial) {
-    const [serialTaken] = await client
-      .select({ id: assets.id })
-      .from(assets)
-      .where(
-        and(
-          eq(assets.organizationId, device.organizationId),
-          sql`replace(upper(coalesce(${assets.serial}, '')), '-', '') = ${serial.replace(/[\s-]+/g, "").toUpperCase()}`
-        )
-      )
-      .limit(1)
-    if (serialTaken) serial = null
+  if (
+    serial &&
+    (await serialTakenInOrganization(client, device.organizationId, serial))
+  ) {
+    serial = null
   }
 
   const [created] = await client
