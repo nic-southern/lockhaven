@@ -2,7 +2,7 @@ import {
   requestInfoFromHeaders,
   loadAssignedServices,
   syncArchivedDeviceAlerts,
-  tryLinkDeviceToAsset,
+  upsertAssetFromDeviceReport,
 } from "@nms/api-contract"
 import {
   agentReleases,
@@ -407,13 +407,15 @@ export async function POST(request: Request) {
       replaceCollectors: input.modules !== undefined,
     })
 
-    await tryLinkDeviceToAsset(tx, {
+    await upsertAssetFromDeviceReport(tx, {
       id: device.id,
       organizationId: device.organizationId,
       siteId: device.siteId,
       assetId: device.assetId,
       serialNumber: device.serialNumber,
       hostname: adoptHostname ? input.hostname : device.hostname,
+      manufacturer: input.manufacturer ?? null,
+      model: input.model ?? null,
     })
 
     return settleDeviceCommands(tx, {

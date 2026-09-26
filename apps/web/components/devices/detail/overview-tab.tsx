@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -126,9 +127,20 @@ export function OverviewTab({
               {
                 label: "Asset",
                 value: device.assetTag ? (
-                  <span>{device.assetTag}</span>
+                  <Link
+                    href={`/assets?id=${device.assetId}`}
+                    className="font-mono text-sm hover:underline"
+                  >
+                    {device.assetTag}
+                  </Link>
                 ) : (
-                  <span className="text-muted-foreground">Not linked</span>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:underline"
+                    onClick={() => onNavigate("assets")}
+                  >
+                    Not linked
+                  </button>
                 ),
               },
               {

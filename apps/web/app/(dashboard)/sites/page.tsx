@@ -2,6 +2,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import * as React from "react"
+import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import { PlusIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -49,6 +51,7 @@ type SiteRow = {
   timezone: string | null
   hoursLabel: string
   deviceCount: number
+  assetCount: number
   hasSshCredential: boolean
 }
 
@@ -320,14 +323,34 @@ function HoursDayFields({
 }
 
 export default function SitesPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="flex flex-col gap-6">
+          <div className="h-10 w-48 animate-pulse rounded-md bg-muted" />
+          <div className="h-64 w-full animate-pulse rounded-xl bg-muted" />
+        </div>
+      }
+    >
+      <SitesContent />
+    </React.Suspense>
+  )
+}
+
+function SitesContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const editRequestId = searchParams.get("edit") ?? ""
   const utils = trpc.useUtils()
   const organizationsQuery = trpc.organizations.list.useQuery()
   const sitesQuery = trpc.sites.list.useQuery()
   const devicesQuery = trpc.devices.list.useQuery()
+  const assetsQuery = trpc.assets.list.useQuery()
   const [selectedSiteId, setSelectedSiteId] = React.useState("")
   const [detailOpen, setDetailOpen] = React.useState(false)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
+  const [openedEditFromQuery, setOpenedEditFromQuery] = React.useState("")
 
   const [createOrganizationId, setCreateOrganizationId] = React.useState("")
   const [createName, setCreateName] = React.useState("")
@@ -454,6 +477,29 @@ export default function SitesPage() {
     return counts
   }, [devices])
 
+  const assets = React.useMemo(() => assetsQuery.data ?? [], [assetsQuery.data])
+  const assetCountBySite = React.useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const asset of assets) {
+      if (!asset.siteId) continue
+      counts.set(asset.siteId, (counts.get(asset.siteId) ?? 0) + 1)
+    }
+    return counts
+  }, [assets])
+
+  React.useEffect(() => {
+    if (
+      editRequestId &&
+      editRequestId !== openedEditFromQuery &&
+      sites.some((site) => site.id === editRequestId)
+    ) {
+      setOpenedEditFromQuery(editRequestId)
+      setSelectedSiteId(editRequestId)
+      setDetailOpen(true)
+      setCreateOpen(false)
+    }
+  }, [editRequestId, openedEditFromQuery, sites])
+
   React.useEffect(() => {
     if (selectedSite) {
       setEditName(selectedSite.name)
@@ -506,12 +552,20 @@ export default function SitesPage() {
           )
         ),
         deviceCount: deviceCountBySite.get(site.id) ?? 0,
+        assetCount: assetCountBySite.get(site.id) ?? 0,
         hasSshCredential: site.hasSshCredential,
       })),
-    [deviceCountBySite, organizations, sites]
+    [assetCountBySite, deviceCountBySite, organizations, sites]
   )
 
-  const openSite = React.useCallback((id: string) => {
+  const openSiteInventory = React.useCallback(
+    (id: string) => {
+      router.push(`/sites/${id}`)
+    },
+    [router]
+  )
+
+  const openSiteSettings = React.useCallback((id: string) => {
     setCreateOpen(false)
     setSelectedSiteId(id)
     setDetailOpen(true)
@@ -554,6 +608,16 @@ export default function SitesPage() {
         ),
         cell: ({ row }) => (
           <span className="tabular-nums">{row.original.deviceCount}</span>
+        ),
+      },
+      {
+        accessorKey: "assetCount",
+        meta: { label: "Assets", align: "right" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Assets" align="right" />
+        ),
+        cell: ({ row }) => (
+          <span className="tabular-nums">{row.original.assetCount}</span>
         ),
       },
       {
@@ -605,7 +669,14 @@ export default function SitesPage() {
           <DataTableRowActions
             label={row.original.name}
             actions={[
-              { label: "Open site", onSelect: () => openSite(row.original.id) },
+              {
+                label: "Open site",
+                onSelect: () => openSiteInventory(row.original.id),
+              },
+              {
+                label: "Site settings",
+                onSelect: () => openSiteSettings(row.original.id),
+              },
               {
                 label: "Remove site",
                 destructive: true,
@@ -620,7 +691,7 @@ export default function SitesPage() {
         ),
       },
     ],
-    [openSite]
+    [openSiteInventory, openSiteSettings]
   )
 
   const organizationFacetOptions = React.useMemo(
@@ -673,7 +744,7 @@ export default function SitesPage() {
           },
         ]}
         initialSorting={[{ id: "name", desc: false }]}
-        onRowClick={(row) => openSite(row.id)}
+        onRowClick={(row) => openSiteInventory(row.id)}
         isRowActive={(row) => detailOpen && row.id === selectedSiteId}
         emptyTitle="No sites yet"
         emptyDescription="Create a site to start assigning devices to a location."
@@ -805,10 +876,17 @@ export default function SitesPage() {
             }
           }}
           title={selectedSite.name}
-          description="Update this location or remove it."
+          description="Hours, access rules, and SSH for this location. Devices and assets live on the site page."
           className="sm:max-w-xl"
           contentClassName="gap-6"
         >
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild>
+              <Link href={`/sites/${selectedSite.id}`}>
+                View devices and assets
+              </Link>
+            </Button>
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <FormField label="Name" htmlFor="site-edit-name">
               <Input

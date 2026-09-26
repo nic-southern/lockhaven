@@ -34,6 +34,7 @@ import { apiKeysRouter } from "./routers/api-keys"
 import { alertPoliciesRouter } from "./routers/alert-policies"
 import { assetsRouter } from "./routers/assets"
 import { customFieldsRouter } from "./routers/custom-fields"
+import { deviceModelsRouter } from "./routers/device-models"
 import { dashboardRouter } from "./routers/dashboard"
 import { devicesRouter } from "./routers/devices"
 import { maintenanceRouter } from "./routers/maintenance"
@@ -1061,6 +1062,7 @@ export const appRouter = createTRPCRouter({
   agentModules: agentModulesRouter,
   agentServices: agentServicesRouter,
   assets: assetsRouter,
+  deviceModels: deviceModelsRouter,
   customFields: customFieldsRouter,
   accessRequests: accessRequestsRouter,
   system: systemRouter,

@@ -217,6 +217,8 @@ export const enrollmentRequestSchema = z.object({
   os_version: z.string().min(1),
   architecture: z.string().min(1),
   serial_number: z.string().min(1),
+  manufacturer: z.string().trim().max(120).optional(),
+  model: z.string().trim().max(120).optional(),
   wireguard_public_key: z.string().min(1),
   services: z.array(
     z.object({
@@ -255,6 +257,8 @@ export const agentAttachRequestSchema = z.object({
   os_version: z.string().min(1),
   architecture: z.string().min(1),
   serial_number: z.string().min(1),
+  manufacturer: z.string().trim().max(120).optional(),
+  model: z.string().trim().max(120).optional(),
   device_id: z.string().uuid().optional(),
   wireguard_public_key: z.string().min(1).optional(),
 })
@@ -272,6 +276,8 @@ export const checkInSchema = z.object({
   os_family: z.string().min(1),
   os_version: z.string().min(1),
   architecture: z.string().trim().min(1).max(64).optional(),
+  manufacturer: z.string().trim().max(120).optional(),
+  model: z.string().trim().max(120).optional(),
   vpn: z.object({
     interface_up: z.boolean(),
     vpn_ipv4: z.string().min(1),
@@ -534,6 +540,9 @@ export const auditEventTypeSchema = z.enum([
   "asset_deleted",
   "asset_linked",
   "asset_unlinked",
+  "device_model_created",
+  "device_model_updated",
+  "device_model_deleted",
   "custom_field_definition_created",
   "custom_field_definition_updated",
   "custom_field_definition_deleted",

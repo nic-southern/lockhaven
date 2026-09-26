@@ -16,6 +16,7 @@ export const DEVICE_TABS = [
   "network",
   "metrics",
   "software",
+  "assets",
   "activity",
   "settings",
 ] as const

@@ -16,6 +16,7 @@ import {
   matchForToken,
   recordAgentAttachEvent,
 } from "@/lib/agent-attach"
+import { upsertAssetFromDeviceReport } from "@nms/api-contract"
 import {
   addressKey,
   enforceRateLimit,
@@ -127,6 +128,17 @@ export async function POST(request: Request) {
       failure = "tunnel_missing"
       return null
     }
+
+    await upsertAssetFromDeviceReport(tx, {
+      id: bound.device.id,
+      organizationId: bound.device.organizationId,
+      siteId: bound.device.siteId,
+      assetId: bound.device.assetId,
+      serialNumber: bound.device.serialNumber ?? input.serial_number,
+      hostname: bound.device.hostname ?? input.hostname,
+      manufacturer: input.manufacturer ?? null,
+      model: input.model ?? null,
+    })
 
     const settings = clientVpnSettings(bound.routePolicyRoutes) ?? wireguard
 

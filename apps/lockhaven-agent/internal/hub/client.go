@@ -24,6 +24,8 @@ type EnrollRequest struct {
 	OSVersion          string      `json:"os_version"`
 	Architecture       string      `json:"architecture"`
 	SerialNumber       string      `json:"serial_number"`
+	Manufacturer       string      `json:"manufacturer,omitempty"`
+	Model              string      `json:"model,omitempty"`
 	WireGuardPublicKey string      `json:"wireguard_public_key"`
 	Services           []ServiceIn `json:"services"`
 }
@@ -35,6 +37,8 @@ type AttachRequest struct {
 	OSVersion          string `json:"os_version"`
 	Architecture       string `json:"architecture"`
 	SerialNumber       string `json:"serial_number"`
+	Manufacturer       string `json:"manufacturer,omitempty"`
+	Model              string `json:"model,omitempty"`
 	DeviceID           string `json:"device_id,omitempty"`
 	WireGuardPublicKey string `json:"wireguard_public_key,omitempty"`
 }
@@ -95,6 +99,8 @@ type CheckInRequest struct {
 	OSFamily       string          `json:"os_family"`
 	OSVersion      string          `json:"os_version"`
 	Architecture   string          `json:"architecture,omitempty"`
+	Manufacturer   string          `json:"manufacturer,omitempty"`
+	Model          string          `json:"model,omitempty"`
 	VPN            any             `json:"vpn"`
 	Services       any             `json:"services"`
 	Metrics        any             `json:"metrics,omitempty"`

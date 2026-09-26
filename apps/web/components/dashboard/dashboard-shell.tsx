@@ -259,6 +259,13 @@ const navSections: NavSection[] = [
         scopes: ["admin"],
       },
       {
+        href: "/settings/device-models",
+        label: "Device models",
+        icon: PackageIcon,
+        permissions: ["organization:admin"],
+        scopes: ["admin"],
+      },
+      {
         href: "/system",
         label: "System",
         icon: ServerIcon,

@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { keepPreviousData } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
-import { PlusIcon } from "lucide-react"
+import { PlusIcon, PrinterIcon } from "lucide-react"
 
 import {
   assetStatusLabels,
@@ -45,6 +45,7 @@ type AssetRow = RouterOutputs["assets"]["page"]["items"][number]
 type AssetForm = {
   organizationId: string
   siteId: string
+  deviceModelId: string
   tag: string
   vendor: string
   model: string
@@ -61,6 +62,7 @@ type AssetForm = {
 const emptyForm = (): AssetForm => ({
   organizationId: "",
   siteId: "",
+  deviceModelId: "",
   tag: "",
   vendor: "",
   model: "",
@@ -76,13 +78,14 @@ const emptyForm = (): AssetForm => ({
 
 const assetTemplate = [
   "tag,vendor,model,serial,hostname,site,status,purchase_date,purchase_cost,warranty_expires_on,notes",
-  "PRN-1,Example,Laser,SN-100,,Main,stock,2026-01-15,240.00,2028-01-15,Spare printer",
+  "LH-7K2MPQ,Example,Laser,SN-100,,Main,stock,2026-01-15,240.00,2028-01-15,Spare printer",
 ].join("\n")
 
 function formFromAsset(asset: AssetRow): AssetForm {
   return {
     organizationId: asset.organizationId,
     siteId: asset.siteId ?? "",
+    deviceModelId: asset.deviceModelId ?? "",
     tag: asset.tag,
     vendor: asset.vendor ?? "",
     model: asset.model ?? "",
@@ -154,6 +157,10 @@ function AssetsContent() {
   const resolvedImportOrgId = importOrgId || organizations[0]?.id || ""
   const fieldOrgId = form.organizationId || resolvedImportOrgId
   const customFieldsQuery = trpc.customFields.list.useQuery(
+    { organizationId: fieldOrgId },
+    { enabled: canView && Boolean(fieldOrgId) }
+  )
+  const modelsQuery = trpc.deviceModels.list.useQuery(
     { organizationId: fieldOrgId },
     { enabled: canView && Boolean(fieldOrgId) }
   )
@@ -243,29 +250,29 @@ function AssetsContent() {
     () => [
       {
         accessorKey: "tag",
-        meta: { label: "Tag" },
+        meta: { label: "Tracking tag" },
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Tag" />
+          <DataTableColumnHeader column={column} title="Tracking tag" />
         ),
         cell: ({ row }) => (
-          <span className="font-medium">{row.original.tag}</span>
+          <span className="font-mono text-sm font-medium">
+            {row.original.tag}
+          </span>
         ),
       },
       {
-        accessorKey: "vendor",
-        meta: { label: "Vendor" },
+        id: "deviceModel",
+        accessorFn: (row) => row.deviceModelName ?? row.model ?? "",
+        meta: { label: "Device model" },
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Vendor" />
+          <DataTableColumnHeader column={column} title="Device model" />
         ),
-        cell: ({ row }) => row.original.vendor ?? "—",
-      },
-      {
-        accessorKey: "model",
-        meta: { label: "Model" },
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Model" />
-        ),
-        cell: ({ row }) => row.original.model ?? "—",
+        cell: ({ row }) =>
+          row.original.deviceModelName ??
+          ([row.original.vendor, row.original.model]
+            .filter(Boolean)
+            .join(" ") ||
+            "—"),
       },
       {
         accessorKey: "serial",
@@ -403,9 +410,10 @@ function AssetsContent() {
     return {
       organizationId: form.organizationId,
       siteId: form.siteId || null,
+      deviceModelId: form.deviceModelId || null,
       tag: form.tag,
-      vendor: form.vendor || null,
-      model: form.model || null,
+      vendor: form.deviceModelId ? null : form.vendor || null,
+      model: form.deviceModelId ? null : form.model || null,
       serial: form.serial || null,
       hostname: form.hostname || null,
       status: form.status,
@@ -429,6 +437,7 @@ function AssetsContent() {
                 ...current,
                 organizationId: value,
                 siteId: "",
+                deviceModelId: "",
               }))
             }
             placeholder="Choose an organization"
@@ -439,31 +448,29 @@ function AssetsContent() {
           />
         </FormField>
       ) : null}
-      <FormField label="Tag" htmlFor="asset-tag">
+      <FormField label="Tracking tag" htmlFor="asset-tag">
         <Input
           id="asset-tag"
           value={form.tag}
           onChange={(event) =>
             setForm((current) => ({ ...current, tag: event.target.value }))
           }
+          className="font-mono"
         />
       </FormField>
-      <FormField label="Vendor" htmlFor="asset-vendor">
-        <Input
-          id="asset-vendor"
-          value={form.vendor}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, vendor: event.target.value }))
+      <FormField label="Device model" htmlFor="asset-device-model">
+        <SelectField
+          id="asset-device-model"
+          value={form.deviceModelId}
+          onValueChange={(value) =>
+            setForm((current) => ({ ...current, deviceModelId: value }))
           }
-        />
-      </FormField>
-      <FormField label="Model" htmlFor="asset-model">
-        <Input
-          id="asset-model"
-          value={form.model}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, model: event.target.value }))
-          }
+          placeholder="Choose a model"
+          emptyLabel="Not assigned"
+          options={(modelsQuery.data ?? []).map((model) => ({
+            value: model.id,
+            label: model.label,
+          }))}
         />
       </FormField>
       <FormField label="Serial" htmlFor="asset-serial">
@@ -731,6 +738,12 @@ function AssetsContent() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Button variant="outline" asChild>
+                  <Link href={`/assets/labels?ids=${selected.id}`}>
+                    <PrinterIcon />
+                    Print label
+                  </Link>
+                </Button>
                 <Button variant="outline" onClick={() => setTicketOpen(true)}>
                   Open ticket
                 </Button>

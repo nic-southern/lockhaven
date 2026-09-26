@@ -22,6 +22,32 @@ func platformSerial() string {
 	return strings.TrimSpace(result.Stdout)
 }
 
+func platformManufacturer() string {
+	result := proc.RunDefault(
+		"powershell.exe",
+		"-NoProfile",
+		"-NonInteractive",
+		"-WindowStyle",
+		"Hidden",
+		"-Command",
+		"(Get-CimInstance -ClassName Win32_ComputerSystem).Manufacturer",
+	)
+	return strings.TrimSpace(result.Stdout)
+}
+
+func platformModel() string {
+	result := proc.RunDefault(
+		"powershell.exe",
+		"-NoProfile",
+		"-NonInteractive",
+		"-WindowStyle",
+		"Hidden",
+		"-Command",
+		"(Get-CimInstance -ClassName Win32_ComputerSystem).Model",
+	)
+	return strings.TrimSpace(result.Stdout)
+}
+
 func platformOSVersion() string {
 	key, err := registry.OpenKey(
 		registry.LOCAL_MACHINE,

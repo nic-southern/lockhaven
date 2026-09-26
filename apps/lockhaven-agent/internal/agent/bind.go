@@ -90,6 +90,8 @@ func Attach(opts BindOptions) (*config.State, string, error) {
 		OSVersion:          host.OSVersion,
 		Architecture:       host.Architecture,
 		SerialNumber:       host.SerialNumber,
+		Manufacturer:       host.Manufacturer,
+		Model:              host.Model,
 		DeviceID:           opts.DeviceID,
 		WireGuardPublicKey: wgkeys.PublicKeyFromInterface(opts.TunnelName),
 	}
@@ -125,6 +127,8 @@ func Enroll(opts BindOptions) (*config.State, string, error) {
 		OSVersion:          host.OSVersion,
 		Architecture:       host.Architecture,
 		SerialNumber:       host.SerialNumber,
+		Manufacturer:       host.Manufacturer,
+		Model:              host.Model,
 		WireGuardPublicKey: publicKey,
 		Services:           defaultServices(host.OSFamily),
 	})

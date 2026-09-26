@@ -28,6 +28,7 @@ import { MetricsTab } from "@/components/devices/detail/metrics-tab"
 import { ServicesTab } from "@/components/devices/detail/services-tab"
 import { SettingsTab } from "@/components/devices/detail/settings-tab"
 import { SoftwareTab } from "@/components/devices/detail/software-tab"
+import { AssetsTab } from "@/components/devices/detail/assets-tab"
 import { type DeviceTab, isDeviceTab } from "@/components/devices/detail/shared"
 import { OpenDeviceTicketDialog } from "@/components/tickets/open-ticket-dialog"
 import { statusLabel, statusVariant, formatRelativeTime } from "@/lib/dashboard"
@@ -43,6 +44,7 @@ const tabLabels: Record<DeviceTab, string> = {
   network: "Network",
   metrics: "Health",
   software: "Software",
+  assets: "Assets",
   activity: "Activity",
   settings: "Settings",
 }
@@ -109,6 +111,7 @@ function DeviceDetail() {
       "network",
       "metrics",
       "software",
+      "assets",
     ]
     if (permissionsLoading || can("audit:view")) tabs.push("activity")
     if (
@@ -210,8 +213,11 @@ function DeviceDetail() {
               {device.assetTag ? (
                 <>
                   <span aria-hidden>·</span>
-                  <Link href="/assets" className="hover:underline">
-                    Asset {device.assetTag}
+                  <Link
+                    href={`/assets?id=${device.assetId}`}
+                    className="hover:underline"
+                  >
+                    {device.assetTag}
                   </Link>
                 </>
               ) : null}
@@ -286,6 +292,8 @@ function DeviceDetail() {
           <MetricsTab device={device} />
         ) : activeTab === "software" ? (
           <SoftwareTab device={device} />
+        ) : activeTab === "assets" ? (
+          <AssetsTab device={device} />
         ) : activeTab === "activity" ? (
           <ActivityTab device={device} />
         ) : (
