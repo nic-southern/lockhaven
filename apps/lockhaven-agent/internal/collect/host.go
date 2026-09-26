@@ -12,6 +12,8 @@ type HostIdentity struct {
 	OSVersion    string
 	Architecture string
 	SerialNumber string
+	Manufacturer string
+	Model        string
 }
 
 func OSFamily() string {
@@ -42,6 +44,20 @@ func SerialNumber() string {
 	}
 	host, _ := os.Hostname()
 	return host
+}
+
+func Manufacturer() string {
+	if env := strings.TrimSpace(os.Getenv("LOCKHAVEN_MANUFACTURER")); env != "" {
+		return env
+	}
+	return platformManufacturer()
+}
+
+func Model() string {
+	if env := strings.TrimSpace(os.Getenv("LOCKHAVEN_MODEL")); env != "" {
+		return env
+	}
+	return platformModel()
 }
 
 func Hostname() string {
@@ -102,5 +118,7 @@ func Host() HostIdentity {
 		OSVersion:    OSVersion(),
 		Architecture: Architecture(),
 		SerialNumber: SerialNumber(),
+		Manufacturer: Manufacturer(),
+		Model:        Model(),
 	}
 }

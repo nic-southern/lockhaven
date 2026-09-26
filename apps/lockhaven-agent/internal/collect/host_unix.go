@@ -11,6 +11,14 @@ func platformSerial() string {
 	return ""
 }
 
+func platformManufacturer() string {
+	return readTrimmed("/sys/class/dmi/id/sys_vendor")
+}
+
+func platformModel() string {
+	return readTrimmed("/sys/class/dmi/id/product_name")
+}
+
 func platformOSVersion() string {
 	return parseOSReleasePretty(readTrimmed("/etc/os-release"))
 }

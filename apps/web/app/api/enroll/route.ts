@@ -14,7 +14,10 @@ import {
   vpnIdentities,
 } from "@nms/db"
 import { db } from "@nms/db/client"
-import { requestInfoFromHeaders } from "@nms/api-contract"
+import {
+  requestInfoFromHeaders,
+  upsertAssetFromDeviceReport,
+} from "@nms/api-contract"
 import {
   decryptSecret,
   encryptSecret,
@@ -472,6 +475,17 @@ export async function POST(request: Request) {
         sshProvisioned: Boolean(sshAccess),
         imagingSsh: !token.siteId && Boolean(sshAccess),
       },
+    })
+
+    await upsertAssetFromDeviceReport(tx, {
+      id: device.id,
+      organizationId: device.organizationId,
+      siteId: device.siteId,
+      assetId: device.assetId,
+      serialNumber: device.serialNumber,
+      hostname: device.hostname,
+      manufacturer: input.manufacturer ?? null,
+      model: input.model ?? null,
     })
 
     return { device, identity, routePolicyRoutes, sshAccess }

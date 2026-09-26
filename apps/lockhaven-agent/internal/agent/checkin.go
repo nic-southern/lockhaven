@@ -64,6 +64,8 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 		OSFamily:       host.OSFamily,
 		OSVersion:      host.OSVersion,
 		Architecture:   host.Architecture,
+		Manufacturer:   host.Manufacturer,
+		Model:          host.Model,
 		VPN:            vpn,
 		Services:       services,
 		Metrics:        metrics,

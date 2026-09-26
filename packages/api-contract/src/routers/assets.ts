@@ -16,6 +16,7 @@ import { z } from "zod"
 import {
   assets,
   customFieldDefinitions,
+  deviceModels,
   devices,
   organizations,
   sites,
@@ -62,6 +63,7 @@ const isoDateInput = z
 const assetWriteInput = z.object({
   organizationId: z.string().uuid(),
   siteId: z.string().uuid().nullable().optional(),
+  deviceModelId: z.string().uuid().nullable().optional(),
   tag: z.string().trim().min(1).max(80),
   vendor: z.string().trim().max(120).nullable().optional(),
   model: z.string().trim().max(120).nullable().optional(),
@@ -78,6 +80,30 @@ const assetWriteInput = z.object({
 function emptyToNull(value: string | null | undefined) {
   const trimmed = value?.trim()
   return trimmed ? trimmed : null
+}
+
+async function resolveDeviceModel(
+  ctx: ApiContext,
+  organizationId: string,
+  deviceModelId: string | null | undefined
+) {
+  if (!deviceModelId) return null
+  const [record] = await ctx.db
+    .select()
+    .from(deviceModels)
+    .where(
+      and(
+        eq(deviceModels.id, deviceModelId),
+        eq(deviceModels.organizationId, organizationId)
+      )
+    )
+  if (!record) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That device model was not found.",
+    })
+  }
+  return record
 }
 
 function assetScope(actor: ApiContext["actor"]) {
@@ -124,6 +150,9 @@ function publicAsset(
     lastHandshakeAt: Date | null
     lastSeenAt: Date | null
     vpnRevokedAt: Date | null
+    deviceModelName?: string | null
+    deviceModelManufacturer?: string | null
+    deviceModelCode?: string | null
   }
 ) {
   const linked = Boolean(extras.deviceId)
@@ -133,6 +162,9 @@ function publicAsset(
     organizationName: extras.organizationName,
     deviceId: extras.deviceId,
     deviceName: extras.deviceName,
+    deviceModelName: extras.deviceModelName ?? null,
+    deviceModelManufacturer: extras.deviceModelManufacturer ?? null,
+    deviceModelCode: extras.deviceModelCode ?? null,
     managed: linked,
     presence: linked ? "managed" : "unmanaged",
     connectivity: linked
@@ -156,10 +188,14 @@ function assetBase(ctx: ApiContext) {
       lastSeenAt: devices.lastSeenAt,
       lastHandshakeAt: vpnIdentities.lastHandshakeAt,
       vpnRevokedAt: vpnIdentities.revokedAt,
+      deviceModelName: deviceModels.name,
+      deviceModelManufacturer: deviceModels.manufacturer,
+      deviceModelCode: deviceModels.model,
     })
     .from(assets)
     .innerJoin(organizations, eq(organizations.id, assets.organizationId))
     .leftJoin(sites, eq(sites.id, assets.siteId))
+    .leftJoin(deviceModels, eq(deviceModels.id, assets.deviceModelId))
     .leftJoin(devices, eq(devices.assetId, assets.id))
     .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
 }
@@ -191,6 +227,32 @@ async function loadDefinitions(ctx: ApiContext, organizationId: string) {
     .where(eq(customFieldDefinitions.organizationId, organizationId))
 }
 
+function rowExtras(row: {
+  siteName: string | null
+  organizationName: string | null
+  deviceId: string | null
+  deviceName: string | null
+  lastHandshakeAt: Date | null
+  lastSeenAt: Date | null
+  vpnRevokedAt: Date | null
+  deviceModelName: string | null
+  deviceModelManufacturer: string | null
+  deviceModelCode: string | null
+}) {
+  return {
+    siteName: row.siteName,
+    organizationName: row.organizationName,
+    deviceId: row.deviceId,
+    deviceName: row.deviceName,
+    lastHandshakeAt: row.lastHandshakeAt,
+    lastSeenAt: row.lastSeenAt,
+    vpnRevokedAt: row.vpnRevokedAt,
+    deviceModelName: row.deviceModelName,
+    deviceModelManufacturer: row.deviceModelManufacturer,
+    deviceModelCode: row.deviceModelCode,
+  }
+}
+
 export const assetsRouter = createTRPCRouter({
   page: permissionProcedure("device:view")
     .input(listQuerySchema.optional())
@@ -203,6 +265,9 @@ export const assetsRouter = createTRPCRouter({
 
       const conditions = combineConditions([
         scope.kind === "where" ? scope.condition : undefined,
+        query.filters.id?.length
+          ? inArray(assets.id, query.filters.id)
+          : undefined,
         query.search
           ? or(
               ilike(assets.tag, likePattern(query.search)),
@@ -210,7 +275,8 @@ export const assetsRouter = createTRPCRouter({
               ilike(assets.model, likePattern(query.search)),
               ilike(assets.serial, likePattern(query.search)),
               ilike(assets.hostname, likePattern(query.search)),
-              ilike(sites.name, likePattern(query.search))
+              ilike(sites.name, likePattern(query.search)),
+              ilike(deviceModels.name, likePattern(query.search))
             )
           : undefined,
       ])
@@ -261,6 +327,7 @@ export const assetsRouter = createTRPCRouter({
           .from(assets)
           .leftJoin(sites, eq(sites.id, assets.siteId))
           .leftJoin(devices, eq(devices.assetId, assets.id))
+          .leftJoin(deviceModels, eq(deviceModels.id, assets.deviceModelId))
           .where(where),
         assetBase(ctx)
           .where(where)
@@ -275,17 +342,7 @@ export const assetsRouter = createTRPCRouter({
       ])
 
       return paginate(
-        rows.map((row) =>
-          publicAsset(row.asset, {
-            siteName: row.siteName,
-            organizationName: row.organizationName,
-            deviceId: row.deviceId,
-            deviceName: row.deviceName,
-            lastHandshakeAt: row.lastHandshakeAt,
-            lastSeenAt: row.lastSeenAt,
-            vpnRevokedAt: row.vpnRevokedAt,
-          })
-        ),
+        rows.map((row) => publicAsset(row.asset, rowExtras(row))),
         query,
         Number(totalRow?.total ?? 0)
       )
@@ -296,17 +353,7 @@ export const assetsRouter = createTRPCRouter({
     const rows = await assetBase(ctx)
       .where(scope.kind === "where" ? scope.condition : undefined)
       .orderBy(desc(assets.createdAt))
-    return rows.map((row) =>
-      publicAsset(row.asset, {
-        siteName: row.siteName,
-        organizationName: row.organizationName,
-        deviceId: row.deviceId,
-        deviceName: row.deviceName,
-        lastHandshakeAt: row.lastHandshakeAt,
-        lastSeenAt: row.lastSeenAt,
-        vpnRevokedAt: row.vpnRevokedAt,
-      })
-    )
+    return rows.map((row) => publicAsset(row.asset, rowExtras(row)))
   }),
   byId: permissionProcedure("device:view")
     .input(z.object({ id: z.string().uuid() }))
@@ -320,15 +367,7 @@ export const assetsRouter = createTRPCRouter({
       })
       const definitions = await loadDefinitions(ctx, row.asset.organizationId)
       return {
-        ...publicAsset(row.asset, {
-          siteName: row.siteName,
-          organizationName: row.organizationName,
-          deviceId: row.deviceId,
-          deviceName: row.deviceName,
-          lastHandshakeAt: row.lastHandshakeAt,
-          lastSeenAt: row.lastSeenAt,
-          vpnRevokedAt: row.vpnRevokedAt,
-        }),
+        ...publicAsset(row.asset, rowExtras(row)),
         definitions,
       }
     }),
@@ -341,6 +380,11 @@ export const assetsRouter = createTRPCRouter({
         siteId: input.siteId ?? null,
       })
       await assertSiteInOrganization(ctx, input.siteId, input.organizationId)
+      const catalog = await resolveDeviceModel(
+        ctx,
+        input.organizationId,
+        input.deviceModelId
+      )
 
       try {
         const [record] = await ctx.db
@@ -348,9 +392,12 @@ export const assetsRouter = createTRPCRouter({
           .values({
             organizationId: input.organizationId,
             siteId: input.siteId ?? null,
+            deviceModelId: catalog?.id ?? null,
             tag: input.tag.trim(),
-            vendor: emptyToNull(input.vendor),
-            model: emptyToNull(input.model),
+            vendor: catalog
+              ? emptyToNull(catalog.manufacturer)
+              : emptyToNull(input.vendor),
+            model: catalog ? catalog.model : emptyToNull(input.model),
             serial: emptyToNull(input.serial),
             hostname: emptyToNull(input.hostname),
             status: input.status ?? "stock",
@@ -401,12 +448,32 @@ export const assetsRouter = createTRPCRouter({
         )
       }
 
+      const catalog =
+        input.deviceModelId !== undefined
+          ? await resolveDeviceModel(
+              ctx,
+              existing.organizationId,
+              input.deviceModelId
+            )
+          : undefined
+
       const patch: Partial<typeof assets.$inferInsert> = {
         updatedAt: new Date(),
       }
       if (input.tag !== undefined) patch.tag = input.tag.trim()
-      if (input.vendor !== undefined) patch.vendor = emptyToNull(input.vendor)
-      if (input.model !== undefined) patch.model = emptyToNull(input.model)
+      if (input.deviceModelId !== undefined) {
+        patch.deviceModelId = catalog?.id ?? null
+        if (catalog) {
+          patch.vendor = emptyToNull(catalog.manufacturer)
+          patch.model = catalog.model
+        }
+      }
+      if (input.vendor !== undefined && catalog === undefined) {
+        patch.vendor = emptyToNull(input.vendor)
+      }
+      if (input.model !== undefined && catalog === undefined) {
+        patch.model = emptyToNull(input.model)
+      }
       if (input.serial !== undefined) patch.serial = emptyToNull(input.serial)
       if (input.hostname !== undefined) {
         patch.hostname = emptyToNull(input.hostname)

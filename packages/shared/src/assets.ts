@@ -201,6 +201,214 @@ export function normalizeSerial(value: string | null | undefined) {
   return normalized.length > 0 ? normalized : null
 }
 
+/** Soft identity compare for manufacturer / model catalog matching. */
+export function normalizeHardwareIdentity(value: string | null | undefined) {
+  if (!value) return null
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ")
+  return normalized.length > 0 ? normalized : null
+}
+
+function blankToNull(value: string | null | undefined) {
+  if (value == null) return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function isBlank(value: string | null | undefined) {
+  return blankToNull(value) === null
+}
+
+/**
+ * Short org-unique tracking tag for tape labels. Crockford base32, no
+ * ambiguous characters. Prefer this over SMBIOS serials on handheld printers.
+ */
+const TRACKING_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+
+export function generateTrackingTag(seed: string, length = 6): string {
+  let hash = 2166136261
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  let value = hash >>> 0
+  let body = ""
+  for (let index = 0; index < length; index += 1) {
+    body += TRACKING_ALPHABET[value % TRACKING_ALPHABET.length]
+    value = Math.floor(value / TRACKING_ALPHABET.length)
+    if (value === 0) value = hash >>> (index + 1) || 1
+  }
+  return `LH-${body}`
+}
+
+export function suggestAssetTrackingTag(input: {
+  deviceId: string
+  hostname?: string | null
+  serialNumber?: string | null
+  attempt?: number
+}) {
+  const attempt = input.attempt ?? 0
+  const seed = [
+    input.deviceId,
+    input.hostname ?? "",
+    input.serialNumber ?? "",
+    String(attempt),
+  ].join("|")
+  return generateTrackingTag(seed, 6)
+}
+
+export type AgentReportedAssetIdentity = {
+  serialNumber: string | null
+  hostname: string | null
+  manufacturer: string | null
+  model: string | null
+}
+
+export type AssetIdentityFields = {
+  serial: string | null
+  hostname: string | null
+  vendor: string | null
+  model: string | null
+  deviceModelId: string | null
+}
+
+export type DeviceModelMatchCandidate = {
+  id: string
+  manufacturer: string | null
+  model: string
+  name: string
+}
+
+/**
+ * Prefer manufacturer+model together; fall back to a unique model string match.
+ */
+export function matchDeviceModel(
+  reported: { manufacturer: string | null; model: string | null },
+  catalog: readonly DeviceModelMatchCandidate[]
+): string | null {
+  const model = normalizeHardwareIdentity(reported.model)
+  if (!model) return null
+  const manufacturer = normalizeHardwareIdentity(reported.manufacturer)
+
+  if (manufacturer) {
+    const both = catalog.find(
+      (entry) =>
+        normalizeHardwareIdentity(entry.model) === model &&
+        normalizeHardwareIdentity(entry.manufacturer) === manufacturer
+    )
+    if (both) return both.id
+  }
+
+  const byModel = catalog.filter(
+    (entry) => normalizeHardwareIdentity(entry.model) === model
+  )
+  return byModel.length === 1 ? byModel[0].id : null
+}
+
+/**
+ * Fill empty identity fields only. Never overwrite a non-empty value, and
+ * never write blank agent data over anything. Catalog link is set only when
+ * the asset has no model yet and a catalog match exists.
+ */
+export function fillEmptyAssetIdentity(
+  existing: AssetIdentityFields,
+  reported: AgentReportedAssetIdentity,
+  catalogModelId: string | null,
+  catalogEntry?: { manufacturer: string | null; model: string } | null
+): Partial<AssetIdentityFields> {
+  const patch: Partial<AssetIdentityFields> = {}
+  const serial = blankToNull(reported.serialNumber)
+  const hostname = blankToNull(reported.hostname)
+  const manufacturer = blankToNull(reported.manufacturer)
+  const model = blankToNull(reported.model)
+
+  if (isBlank(existing.serial) && serial) patch.serial = serial.slice(0, 120)
+  if (isBlank(existing.hostname) && hostname) {
+    patch.hostname = hostname.slice(0, 253)
+  }
+
+  if (isBlank(existing.deviceModelId) && catalogModelId) {
+    patch.deviceModelId = catalogModelId
+    if (catalogEntry) {
+      if (isBlank(existing.vendor) && catalogEntry.manufacturer) {
+        patch.vendor = catalogEntry.manufacturer.slice(0, 120)
+      }
+      if (isBlank(existing.model) && catalogEntry.model) {
+        patch.model = catalogEntry.model.slice(0, 120)
+      }
+    }
+  } else if (isBlank(existing.deviceModelId)) {
+    if (isBlank(existing.vendor) && manufacturer) {
+      patch.vendor = manufacturer.slice(0, 120)
+    }
+    if (isBlank(existing.model) && model) {
+      patch.model = model.slice(0, 120)
+    }
+  }
+
+  return patch
+}
+
+export function initialAssetIdentityFromAgent(
+  reported: AgentReportedAssetIdentity,
+  catalogModelId: string | null,
+  catalogEntry?: { manufacturer: string | null; model: string } | null
+): Omit<AssetIdentityFields, "deviceModelId"> & {
+  deviceModelId: string | null
+} {
+  const serial = blankToNull(reported.serialNumber)?.slice(0, 120) ?? null
+  const hostname = blankToNull(reported.hostname)?.slice(0, 253) ?? null
+  if (catalogModelId && catalogEntry) {
+    return {
+      serial,
+      hostname,
+      vendor: blankToNull(catalogEntry.manufacturer)?.slice(0, 120) ?? null,
+      model: blankToNull(catalogEntry.model)?.slice(0, 120) ?? null,
+      deviceModelId: catalogModelId,
+    }
+  }
+  return {
+    serial,
+    hostname,
+    vendor: blankToNull(reported.manufacturer)?.slice(0, 120) ?? null,
+    model: blankToNull(reported.model)?.slice(0, 120) ?? null,
+    deviceModelId: null,
+  }
+}
+
+/**
+ * Plain-text QR payload for physical labels. Tracking tag first; append serial
+ * when present. Never a Console URL — scanners and humans share the same values.
+ */
+export function assetLabelQrPayload(input: {
+  tag: string
+  serial?: string | null
+}) {
+  const tag = blankToNull(input.tag)
+  if (!tag) return ""
+  const serial = blankToNull(input.serial)
+  return serial ? `${tag}\n${serial}` : tag
+}
+
+export const deviceModelInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  name: z.string().trim().min(1).max(80),
+  manufacturer: z.string().trim().max(120).nullable().optional(),
+  model: z.string().trim().min(1).max(120),
+  notes: z.string().trim().max(4000).nullable().optional(),
+  purchaseCost: z
+    .string()
+    .trim()
+    .regex(/^-?\d+(\.\d{1,2})?$/, "Cost must be a number.")
+    .nullable()
+    .optional(),
+  replacementCost: z
+    .string()
+    .trim()
+    .regex(/^-?\d+(\.\d{1,2})?$/, "Cost must be a number.")
+    .nullable()
+    .optional(),
+})
+
 export function parseIsoDate(value: string | null | undefined) {
   if (!value) return null
   const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)

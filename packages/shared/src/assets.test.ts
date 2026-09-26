@@ -2,7 +2,11 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  assetLabelQrPayload,
+  fillEmptyAssetIdentity,
+  initialAssetIdentityFromAgent,
   matchAssetToDevice,
+  matchDeviceModel,
   normalizeSerial,
   parseAssetBulkCsv,
   parseCsv,
@@ -10,6 +14,7 @@ import {
   parseIsoDate,
   parseMoney,
   parseSiteBulkCsv,
+  suggestAssetTrackingTag,
   warrantyState,
 } from "./assets"
 
@@ -17,6 +22,119 @@ test("normalizeSerial strips case, spaces, and hyphens", () => {
   assert.equal(normalizeSerial(" sn-abc 12 "), "SNABC12")
   assert.equal(normalizeSerial("  "), null)
   assert.equal(normalizeSerial(null), null)
+})
+
+test("suggestAssetTrackingTag is short and stable for the same seed", () => {
+  const first = suggestAssetTrackingTag({
+    deviceId: "11111111-1111-4111-8111-111111111111",
+    hostname: "kiosk-01",
+    serialNumber: "SN-LONG-SMBIOS-VALUE",
+  })
+  const second = suggestAssetTrackingTag({
+    deviceId: "11111111-1111-4111-8111-111111111111",
+    hostname: "kiosk-01",
+    serialNumber: "SN-LONG-SMBIOS-VALUE",
+  })
+  assert.equal(first, second)
+  assert.match(first, /^LH-[0-9A-Z]{6}$/)
+  assert.notEqual(first, "SN-LONG-SMBIOS-VALUE")
+})
+
+test("assetLabelQrPayload is plain text tag and optional serial", () => {
+  assert.equal(assetLabelQrPayload({ tag: "LH-7K2MPQ" }), "LH-7K2MPQ")
+  assert.equal(
+    assetLabelQrPayload({ tag: "LH-7K2MPQ", serial: "SN-100" }),
+    "LH-7K2MPQ\nSN-100"
+  )
+  assert.equal(assetLabelQrPayload({ tag: "  ", serial: "SN" }), "")
+  assert.ok(
+    !assetLabelQrPayload({ tag: "LH-1", serial: null }).includes("http")
+  )
+})
+
+test("matchDeviceModel prefers manufacturer and model together", () => {
+  const catalog = [
+    { id: "a", manufacturer: "Dell", model: "OptiPlex", name: "Desk" },
+    { id: "b", manufacturer: "HP", model: "OptiPlex", name: "Other" },
+  ]
+  assert.equal(
+    matchDeviceModel({ manufacturer: "dell", model: "optiplex" }, catalog),
+    "a"
+  )
+  assert.equal(
+    matchDeviceModel({ manufacturer: null, model: "optiplex" }, catalog),
+    null
+  )
+  assert.equal(
+    matchDeviceModel({ manufacturer: null, model: "unique" }, [
+      { id: "c", manufacturer: null, model: "Unique", name: "Only" },
+    ]),
+    "c"
+  )
+})
+
+test("fillEmptyAssetIdentity never clobbers operator values or blanks", () => {
+  const patch = fillEmptyAssetIdentity(
+    {
+      serial: "KEEP",
+      hostname: "shop",
+      vendor: "Acme",
+      model: null,
+      deviceModelId: null,
+    },
+    {
+      serialNumber: "NEW",
+      hostname: "other",
+      manufacturer: "Dell",
+      model: "XPS",
+    },
+    null
+  )
+  assert.deepEqual(patch, { model: "XPS" })
+  assert.ok(!("serial" in patch))
+  assert.ok(!("hostname" in patch))
+  assert.ok(!("vendor" in patch))
+})
+
+test("fillEmptyAssetIdentity links catalog model when empty", () => {
+  const patch = fillEmptyAssetIdentity(
+    {
+      serial: null,
+      hostname: null,
+      vendor: null,
+      model: null,
+      deviceModelId: null,
+    },
+    {
+      serialNumber: "SN-1",
+      hostname: "pc-1",
+      manufacturer: "Dell",
+      model: "OptiPlex",
+    },
+    "model-1",
+    { manufacturer: "Dell", model: "OptiPlex 7010" }
+  )
+  assert.equal(patch.deviceModelId, "model-1")
+  assert.equal(patch.vendor, "Dell")
+  assert.equal(patch.model, "OptiPlex 7010")
+  assert.equal(patch.serial, "SN-1")
+})
+
+test("initialAssetIdentityFromAgent creates first-report fields", () => {
+  const created = initialAssetIdentityFromAgent(
+    {
+      serialNumber: "SN-2",
+      hostname: "bar",
+      manufacturer: "HP",
+      model: "Elite",
+    },
+    null
+  )
+  assert.equal(created.serial, "SN-2")
+  assert.equal(created.hostname, "bar")
+  assert.equal(created.vendor, "HP")
+  assert.equal(created.model, "Elite")
+  assert.equal(created.deviceModelId, null)
 })
 
 test("matchAssetToDevice prefers serial over hostname", () => {

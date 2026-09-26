@@ -358,6 +358,45 @@ export const siteMemberships = pgTable(
   })
 )
 
+/**
+ * Org catalog of known hardware models. Assets pick one of these instead of
+ * typing manufacturer/model free-form on every record. Optional cost columns
+ * are reserved for later pricing work.
+ */
+export const deviceModels = pgTable(
+  "device_models",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    manufacturer: text("manufacturer"),
+    model: text("model").notNull(),
+    notes: text("notes"),
+    purchaseCost: numeric("purchase_cost", { precision: 12, scale: 2 }),
+    replacementCost: numeric("replacement_cost", { precision: 12, scale: 2 }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    organizationNameIdx: uniqueIndex("device_models_organization_name_idx").on(
+      table.organizationId,
+      table.name
+    ),
+    organizationIdx: index("device_models_organization_idx").on(
+      table.organizationId
+    ),
+    organizationIdentityIdx: index(
+      "device_models_organization_identity_idx"
+    ).on(table.organizationId, table.manufacturer, table.model),
+  })
+)
+
 export const assets = pgTable(
   "assets",
   {
@@ -368,8 +407,13 @@ export const assets = pgTable(
     siteId: uuid("site_id").references(() => sites.id, {
       onDelete: "set null",
     }),
+    deviceModelId: uuid("device_model_id").references(() => deviceModels.id, {
+      onDelete: "set null",
+    }),
     tag: text("tag").notNull(),
+    /** Denormalized from the catalog entry when `deviceModelId` is set. */
     vendor: text("vendor"),
+    /** Denormalized from the catalog entry when `deviceModelId` is set. */
     model: text("model"),
     serial: text("serial"),
     hostname: text("hostname"),
@@ -405,6 +449,7 @@ export const assets = pgTable(
     warrantyIdx: index("assets_warranty_expires_on_idx").on(
       table.warrantyExpiresOn
     ),
+    deviceModelIdx: index("assets_device_model_id_idx").on(table.deviceModelId),
   })
 )
 
@@ -1532,6 +1577,7 @@ export type OrganizationMembership = typeof organizationMemberships.$inferSelect
 export type Site = typeof sites.$inferSelect
 export type SiteMembership = typeof siteMemberships.$inferSelect
 export type Asset = typeof assets.$inferSelect
+export type DeviceModel = typeof deviceModels.$inferSelect
 export type CustomFieldDefinition = typeof customFieldDefinitions.$inferSelect
 export type AuthUser = typeof user.$inferSelect
 export type AuthSession = typeof session.$inferSelect
