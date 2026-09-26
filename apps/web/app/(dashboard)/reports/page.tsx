@@ -55,13 +55,14 @@ import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
-type ReportTab = ReportType | "risk"
+type ReportTab = ReportType | "risk" | "value"
 
 const reportTabs = [
   "uptime",
   "sessions",
   "alerts",
   "access",
+  "value",
   "risk",
 ] as const satisfies readonly ReportTab[]
 
@@ -175,8 +176,12 @@ function ReportsContent() {
   const initial = React.useMemo(() => defaultRange(), [])
   const [from, setFrom] = React.useState(initial.from)
   const [to, setTo] = React.useState(initial.to)
-  const [organizationId, setOrganizationId] = React.useState("")
-  const [siteId, setSiteId] = React.useState("")
+  const [organizationId, setOrganizationId] = React.useState(
+    () => searchParams.get("organizationId") ?? ""
+  )
+  const [siteId, setSiteId] = React.useState(
+    () => searchParams.get("siteId") ?? ""
+  )
   const tab = parseReportTab(searchParams.get("tab"))
   const [exporting, setExporting] = React.useState(false)
   const [scheduleOpen, setScheduleOpen] = React.useState(false)
@@ -225,6 +230,13 @@ function ReportsContent() {
   const accessQuery = trpc.reports.accessLog.useQuery(rangeInput, {
     enabled: allowed && tab === "access",
   })
+  const installedValueQuery = trpc.reports.installedValue.useQuery(
+    {
+      organizationId: organizationId || undefined,
+      siteId: siteId || undefined,
+    },
+    { enabled: allowed && tab === "value" }
+  )
   const assetRiskQuery = trpc.reports.assetRisk.useQuery(
     {
       organizationId: organizationId || undefined,
@@ -260,8 +272,8 @@ function ReportsContent() {
   }
 
   async function downloadCsv() {
-    if (tab === "risk") {
-      toast.error("Download is not available for expected loss yet.")
+    if (tab === "risk" || tab === "value") {
+      toast.error("Download is not available for this report yet.")
       return
     }
     setExporting(true)
@@ -289,6 +301,7 @@ function ReportsContent() {
     (tab === "sessions" && sessionsQuery.isLoading) ||
     (tab === "alerts" && alertsQuery.isLoading) ||
     (tab === "access" && accessQuery.isLoading) ||
+    (tab === "value" && installedValueQuery.isLoading) ||
     (tab === "risk" && assetRiskQuery.isLoading)
 
   return (
@@ -296,13 +309,15 @@ function ReportsContent() {
       <PageHeader
         badge="Reports"
         title="Operations reports"
-        description="Uptime, sessions, alerts, access, and expected loss for linked assets. Download a spreadsheet or email one on a schedule."
+        description="Uptime, sessions, alerts, access, installed value, and expected loss for linked assets. Download a spreadsheet or email one on a schedule."
         actions={
           <Button
             variant="outline"
             className="w-full sm:w-auto"
             onClick={() => void downloadCsv()}
-            disabled={!allowed || exporting || tab === "risk"}
+            disabled={
+              !allowed || exporting || tab === "risk" || tab === "value"
+            }
           >
             <DownloadIcon />
             Download CSV
@@ -358,6 +373,7 @@ function ReportsContent() {
                   value: entry.id,
                   label: entry.label,
                 }))}
+                placeholder="Choose a preset"
               />
             </FormField>
             <FormField label="Likelihood per year" htmlFor="report-aro">
@@ -369,7 +385,7 @@ function ReportsContent() {
               />
             </FormField>
           </>
-        ) : (
+        ) : tab === "value" ? null : (
           <>
             <FormField label="From" htmlFor="report-from">
               <Input
@@ -392,7 +408,7 @@ function ReportsContent() {
           </>
         )}
       </div>
-      {tab !== "risk" ? (
+      {tab !== "risk" && tab !== "value" ? (
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => applyPreset(7)}>
             Last 7 days
@@ -416,6 +432,7 @@ function ReportsContent() {
           <TabsTrigger value="sessions">Sessions</TabsTrigger>
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
           <TabsTrigger value="access">Access log</TabsTrigger>
+          <TabsTrigger value="value">Installed value</TabsTrigger>
           <TabsTrigger value="risk">Expected loss</TabsTrigger>
         </TabsList>
 
@@ -710,6 +727,147 @@ function ReportsContent() {
                 ]}
               />
             </SectionCard>
+          )}
+        </TabsContent>
+
+        <TabsContent value="value" className="flex flex-col gap-4 pt-4">
+          {loading ? (
+            <Skeleton className="h-48 w-full" />
+          ) : (
+            <>
+              <StatStrip
+                items={[
+                  {
+                    label: "In service (linked)",
+                    value: installedValueQuery.data?.inServiceLinkedCount ?? 0,
+                  },
+                  {
+                    label: "Replacement value",
+                    value: formatMoney(
+                      installedValueQuery.data?.totalInstalledValue
+                    ),
+                  },
+                  {
+                    label: "Purchase value",
+                    value: formatMoney(
+                      installedValueQuery.data?.totalPurchaseValue
+                    ),
+                  },
+                  {
+                    label: "No cost set",
+                    value: installedValueQuery.data?.noCostCount ?? 0,
+                    hint:
+                      (installedValueQuery.data?.noCostCount ?? 0) > 0
+                        ? "Excluded from dollar totals"
+                        : undefined,
+                  },
+                ]}
+              />
+              {(installedValueQuery.data?.noCostCount ?? 0) > 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {installedValueQuery.data?.noCostCount} linked in-service
+                  asset
+                  {installedValueQuery.data?.noCostCount === 1 ? "" : "s"}{" "}
+                  excluded — no cost set on the device model (or asset purchase
+                  cost).
+                </p>
+              ) : null}
+              {!siteId && (installedValueQuery.data?.sites.length ?? 0) > 1 ? (
+                <SectionCard
+                  title="By site"
+                  description="Installed value of linked in-service assets at each site."
+                >
+                  <ReportTable
+                    rows={installedValueQuery.data?.sites ?? []}
+                    emptyTitle="No sites yet"
+                    emptyDescription="Site totals appear when linked in-service assets have a location."
+                    columns={[
+                      {
+                        header: "Site",
+                        cell: (index) =>
+                          installedValueQuery.data?.sites[index]?.siteName ??
+                          "No site",
+                      },
+                      {
+                        header: "In service",
+                        className: "text-right",
+                        cell: (index) =>
+                          installedValueQuery.data?.sites[index]
+                            ?.inServiceLinkedCount,
+                      },
+                      {
+                        header: "Replacement value",
+                        className: "text-right",
+                        cell: (index) =>
+                          formatMoney(
+                            installedValueQuery.data?.sites[index]
+                              ?.totalInstalledValue
+                          ),
+                      },
+                      {
+                        header: "Purchase value",
+                        className: "text-right",
+                        cell: (index) =>
+                          formatMoney(
+                            installedValueQuery.data?.sites[index]
+                              ?.totalPurchaseValue
+                          ),
+                      },
+                      {
+                        header: "No cost set",
+                        className: "text-right",
+                        cell: (index) =>
+                          installedValueQuery.data?.sites[index]?.noCostCount,
+                      },
+                    ]}
+                  />
+                </SectionCard>
+              ) : null}
+              <SectionCard
+                title="Linked in-service assets"
+                description="Replacement value prefers catalog replacement cost, then purchase cost. Set costs under Settings → Device models."
+              >
+                <ReportTable
+                  rows={installedValueQuery.data?.lines ?? []}
+                  emptyTitle="No valued assets yet"
+                  emptyDescription="Link in-service assets to devices and set replacement or purchase cost on their device model."
+                  columns={[
+                    {
+                      header: "Tracking tag",
+                      cell: (index) =>
+                        installedValueQuery.data?.lines[index]?.tag ?? "—",
+                    },
+                    {
+                      header: "Site",
+                      cell: (index) =>
+                        installedValueQuery.data?.lines[index]?.siteName ?? "—",
+                    },
+                    {
+                      header: "Model",
+                      cell: (index) =>
+                        installedValueQuery.data?.lines[index]
+                          ?.deviceModelName ?? "—",
+                    },
+                    {
+                      header: "Replacement value",
+                      className: "text-right",
+                      cell: (index) =>
+                        formatMoney(
+                          installedValueQuery.data?.lines[index]?.installedValue
+                        ),
+                    },
+                    {
+                      header: "Purchase value",
+                      className: "text-right",
+                      cell: (index) =>
+                        formatMoney(
+                          installedValueQuery.data?.lines[index]?.purchaseValue
+                        ),
+                    },
+                  ]}
+                />
+              </SectionCard>
+            </>
           )}
         </TabsContent>
 
