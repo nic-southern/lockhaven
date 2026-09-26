@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -38,6 +39,7 @@ export function OpenDeviceTicketDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const router = useRouter()
   const [reason, setReason] = React.useState("")
   const [sessionId, setSessionId] = React.useState("")
   const sessionsQuery = trpc.tickets.recentSessions.useQuery(
@@ -67,6 +69,7 @@ export function OpenDeviceTicketDialog({
         result.created ? "Ticket opened" : "A ticket is already open"
       )
       handleOpenChange(false)
+      if (result.id) router.push(`/tickets/${result.id}`)
     } catch (error) {
       toast.error(ticketErrorMessage(error))
     }
@@ -79,15 +82,15 @@ export function OpenDeviceTicketDialog({
           <DialogHeader>
             <DialogTitle>Open a ticket</DialogTitle>
             <DialogDescription>
-              Send {deviceName}
-              {siteName ? ` at ${siteName}` : ""} to the desk. You can attach a
-              recent session or a short reason.
+              Track work on {deviceName}
+              {siteName ? ` at ${siteName}` : ""}. You can attach a recent
+              session or a short reason.
             </DialogDescription>
           </DialogHeader>
           <FormField
             label="Reason"
             htmlFor="device-ticket-reason"
-            description="Optional. Helps the desk see why this came up."
+            description="Optional. Helps the next person see why this came up."
           >
             <Textarea
               id="device-ticket-reason"
@@ -148,6 +151,7 @@ export function OpenAssetTicketDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const router = useRouter()
   const [title, setTitle] = React.useState(`Work on ${assetTag}`)
   const [notes, setNotes] = React.useState("")
   const [severity, setSeverity] = React.useState("")
@@ -181,6 +185,7 @@ export function OpenAssetTicketDialog({
         result.created ? "Ticket opened" : "A ticket is already open"
       )
       handleOpenChange(false)
+      if (result.id) router.push(`/tickets/${result.id}`)
     } catch (error) {
       toast.error(ticketErrorMessage(error))
     }
@@ -216,7 +221,7 @@ export function OpenAssetTicketDialog({
               rows={4}
             />
           </FormField>
-          <FormField label="Severity" htmlFor="asset-ticket-severity">
+          <FormField label="Priority" htmlFor="asset-ticket-severity">
             <SelectField
               id="asset-ticket-severity"
               value={severity}

@@ -31,6 +31,7 @@ import {
   ShieldIcon,
   SlidersHorizontalIcon,
   TagIcon,
+  TicketIcon,
   UserRoundIcon,
   UsersIcon,
   type LucideIcon,
@@ -136,6 +137,12 @@ const navSections: NavSection[] = [
         href: "/alerts",
         label: "Alerts",
         icon: BellRingIcon,
+        permissions: ["device:view"],
+      },
+      {
+        href: "/tickets",
+        label: "Tickets",
+        icon: TicketIcon,
         permissions: ["device:view"],
       },
       {

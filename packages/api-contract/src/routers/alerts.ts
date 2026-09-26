@@ -20,7 +20,9 @@ import { alertKindLabels, isAlertSnoozed, type AlertKind } from "@nms/shared"
 
 import { assertAuthorized, requireActor } from "../access"
 import { writeAuditEvent } from "../audit"
+import { enqueueAlertNotifications } from "../alert-deliveries"
 import type { ApiContext } from "../context"
+import { markHubTicketsDoneForAlert } from "../hub-tickets"
 import {
   buildOrderBy,
   likePattern,
@@ -178,6 +180,9 @@ async function loadAlertForUpdate(ctx: ApiContext, id: string) {
       organizationId: alerts.organizationId,
       siteId: alerts.siteId,
       deviceId: alerts.deviceId,
+      assetId: alerts.assetId,
+      detail: alerts.detail,
+      snoozedUntil: alerts.snoozedUntil,
       dedupeKey: alerts.dedupeKey,
     })
     .from(alerts)
@@ -423,6 +428,20 @@ export const alertsRouter = createTRPCRouter({
             },
           }
         )
+        const resolvedAlert = {
+          ...alert,
+          status: "resolved" as const,
+          resolvedAt: now,
+          resolvedByUserId: actor.id,
+          updatedAt: now,
+        }
+        await enqueueAlertNotifications(
+          tx,
+          resolvedAlert,
+          "alert.resolved",
+          now
+        )
+        await markHubTicketsDoneForAlert(tx, alert.id, now)
       })
       return { id: alert.id, status: "resolved" as const }
     }),
