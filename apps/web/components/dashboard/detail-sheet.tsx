@@ -20,8 +20,10 @@ import { useIsDesktop } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 
 /**
- * `inline` (default): card on desktop, bottom sheet on mobile.
- * `overlay`: right-side sheet on every breakpoint so list pages stay full-width.
+ * `overlay` (default): right-side sheet on every breakpoint so list pages
+ * stay full-width (portal + backdrop).
+ * `inline`: card on desktop, bottom sheet on mobile — for master-detail
+ * layouts that intentionally keep detail in the page flow.
  */
 export function DetailSheet({
   open,
@@ -31,7 +33,7 @@ export function DetailSheet({
   children,
   className,
   contentClassName,
-  variant = "inline",
+  variant = "overlay",
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void

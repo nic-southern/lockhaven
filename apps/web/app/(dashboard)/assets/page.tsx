@@ -131,7 +131,7 @@ function AssetsContent() {
   const [createOpen, setCreateOpen] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState("")
-  const [mobileOpen, setMobileOpen] = React.useState(false)
+  const [detailOpen, setDetailOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [ticketOpen, setTicketOpen] = React.useState(false)
   const [form, setForm] = React.useState<AssetForm>(emptyForm)
@@ -179,8 +179,9 @@ function AssetsContent() {
     items.some((item) => item.id === requestedId)
   ) {
     setOpenedFromQuery(requestedId)
+    setCreateOpen(false)
     setSelectedId(requestedId)
-    setMobileOpen(true)
+    setDetailOpen(true)
   }
 
   const createAsset = trpc.assets.create.useMutation({
@@ -208,6 +209,7 @@ function AssetsContent() {
       await utils.assets.page.invalidate()
       setDeleteOpen(false)
       setSelectedId("")
+      setDetailOpen(false)
       toast.success("Asset removed")
     },
     onError() {
@@ -361,8 +363,9 @@ function AssetsContent() {
               {
                 label: "Edit asset",
                 onSelect: () => {
+                  setCreateOpen(false)
                   setSelectedId(row.original.id)
-                  setMobileOpen(true)
+                  setDetailOpen(true)
                 },
               },
               ...(canUpdate
@@ -616,6 +619,8 @@ function AssetsContent() {
               </Button>
               <Button
                 onClick={() => {
+                  setDetailOpen(false)
+                  setSelectedId("")
                   setForm({
                     ...emptyForm(),
                     organizationId: organizations[0]?.id ?? "",
@@ -669,8 +674,9 @@ function AssetsContent() {
         ]}
         initialSorting={[{ id: "tag", desc: false }]}
         onRowClick={(row) => {
+          setCreateOpen(false)
           setSelectedId(row.id)
-          setMobileOpen(true)
+          setDetailOpen(true)
         }}
         isRowActive={(row) => row.id === selectedId}
         emptyTitle="No assets yet"
@@ -686,10 +692,16 @@ function AssetsContent() {
 
       {selected ? (
         <DetailSheet
-          open={mobileOpen}
-          onOpenChange={setMobileOpen}
+          open={detailOpen}
+          onOpenChange={(open) => {
+            setDetailOpen(open)
+            if (!open && !deleteOpen && !ticketOpen) {
+              setSelectedId("")
+            }
+          }}
           title={selected.tag}
           description="Financial and physical record. Unmanaged means nothing has checked in against this asset."
+          className="sm:max-w-xl"
         >
           {formFields}
           {canUpdate ? (
@@ -787,24 +799,21 @@ function AssetsContent() {
         }
       />
 
-      {createOpen ? (
-        <DetailSheet
-          open={createOpen}
-          onOpenChange={setCreateOpen}
-          title="New asset"
-          description="Record hardware that may never enroll."
+      <DetailSheet
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        title="New asset"
+        description="Record hardware that may never enroll."
+        className="sm:max-w-xl"
+      >
+        {formFields}
+        <Button
+          disabled={!form.organizationId || !form.tag || createAsset.isPending}
+          onClick={() => void createAsset.mutateAsync(payloadFromForm())}
         >
-          {formFields}
-          <Button
-            disabled={
-              !form.organizationId || !form.tag || createAsset.isPending
-            }
-            onClick={() => void createAsset.mutateAsync(payloadFromForm())}
-          >
-            Add asset
-          </Button>
-        </DetailSheet>
-      ) : null}
+          Add asset
+        </Button>
+      </DetailSheet>
 
       <ConfirmDialog
         open={deleteOpen}
