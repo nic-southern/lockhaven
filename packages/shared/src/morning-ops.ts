@@ -3,8 +3,6 @@
  * lightweight aggregation over counts already available elsewhere.
  */
 
-import { DEFAULT_ARO_PER_YEAR } from "./asset-risk"
-
 /** Console paths each morning tile deep-links into. */
 export const morningOpsLinks = {
   alerts: "/alerts",
@@ -13,7 +11,6 @@ export const morningOpsLinks = {
   devicesOffline: "/devices?f.connectivity=offline%2Cnever",
   devicesOnline: "/devices?f.connectivity=online",
   software: "/software",
-  expectedLoss: "/reports?tab=risk",
   sessions: "/connections",
   activityInfrastructure: "/activity?f.eventType=infrastructure_access_granted",
 } as const
@@ -35,17 +32,6 @@ export type MorningOpsPatchCounts = {
   packageCount: number
 }
 
-export type MorningOpsRiskSummary = {
-  available: boolean
-  inServiceLinkedCount: number
-  withCostCount: number
-  noCostCount: number
-  totalReplacementValue: string
-  totalExpectedLoss: string
-  totalAnnualExpectedLoss: string
-  aroPerYear: number
-}
-
 export type MorningOpsSessionCounts = {
   last24h: number
   active: number
@@ -63,7 +49,6 @@ export type MorningOpsSnapshotInput = {
   alerts: MorningOpsAlertCounts
   devices: MorningOpsDeviceCounts
   patches: MorningOpsPatchCounts
-  risk: MorningOpsRiskSummary | null
   sessions: MorningOpsSessionCounts
   liveInfrastructureGrants: number
 }
@@ -81,7 +66,6 @@ export type MorningOpsTile = {
     | "patches"
     | "offline"
     | "agent_stale"
-    | "expected_loss"
     | "sessions"
     | "live_grants"
   label: string
@@ -130,31 +114,6 @@ export function summarizeMorningAlertCounts(input: {
   }
 }
 
-export function emptyMorningRiskSummary(
-  aroPerYear = DEFAULT_ARO_PER_YEAR
-): MorningOpsRiskSummary {
-  return {
-    available: false,
-    inServiceLinkedCount: 0,
-    withCostCount: 0,
-    noCostCount: 0,
-    totalReplacementValue: "0.00",
-    totalExpectedLoss: "0.00",
-    totalAnnualExpectedLoss: "0.00",
-    aroPerYear,
-  }
-}
-
-function formatMoneyDisplay(amount: string): string {
-  const n = Number(amount)
-  if (!Number.isFinite(n)) return amount
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: n % 1 === 0 ? 0 : 2,
-  }).format(n)
-}
-
 function offlineDeviceCount(devices: MorningOpsDeviceCounts): number {
   return devices.offline + devices.never
 }
@@ -170,7 +129,6 @@ export function buildMorningOpsTiles(
   const offline = offlineDeviceCount(input.devices)
   const patches = input.patches
   const sessions = input.sessions
-  const risk = input.risk
   const liveGrants = Math.max(0, Math.trunc(input.liveInfrastructureGrants))
 
   const alertHint =
@@ -202,29 +160,6 @@ export function buildMorningOpsTiles(
   const staleHint = staleEmpty
     ? "Agents are checking in"
     : "Quiet longer than expected"
-
-  const riskAvailable = Boolean(risk?.available)
-  const riskEmpty =
-    !riskAvailable || (risk!.withCostCount === 0 && risk!.noCostCount === 0)
-  let riskValue = "—"
-  let riskHint = "Open the expected loss report"
-  let riskTone: MorningOpsTileTone = "neutral"
-  if (riskAvailable && risk) {
-    if (risk.withCostCount === 0 && risk.noCostCount === 0) {
-      riskValue = formatMoneyDisplay("0.00")
-      riskHint = "No linked in-service assets yet"
-    } else if (risk.withCostCount === 0) {
-      riskValue = formatMoneyDisplay("0.00")
-      riskHint = `${risk.noCostCount} with no cost set`
-      riskTone = "warning"
-    } else {
-      riskValue = formatMoneyDisplay(risk.totalExpectedLoss)
-      riskHint =
-        risk.noCostCount > 0
-          ? `Annual ${formatMoneyDisplay(risk.totalAnnualExpectedLoss)} · ${risk.noCostCount} missing cost`
-          : `Annual ${formatMoneyDisplay(risk.totalAnnualExpectedLoss)}`
-    }
-  }
 
   const sessionsEmpty = sessions.last24h === 0 && sessions.active === 0
   const sessionsHint = sessionsEmpty
@@ -282,15 +217,6 @@ export function buildMorningOpsTiles(
       href: morningOpsLinks.alertsAgentStale,
       tone: staleEmpty ? "neutral" : "warning",
       empty: staleEmpty,
-    },
-    {
-      id: "expected_loss",
-      label: "Expected loss",
-      value: riskValue,
-      hint: riskHint,
-      href: morningOpsLinks.expectedLoss,
-      tone: riskTone,
-      empty: riskEmpty,
     },
     {
       id: "sessions",
