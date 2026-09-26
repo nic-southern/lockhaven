@@ -9,9 +9,18 @@ import {
   AlertTriangleIcon,
   ArrowRightIcon,
   BellRingIcon,
+  KeyRoundIcon,
+  PackageIcon,
+  RadioIcon,
+  ScaleIcon,
   WifiIcon,
   WifiOffIcon,
 } from "lucide-react"
+import {
+  buildMorningOpsTiles,
+  morningOpsAllClear,
+  type MorningOpsTile,
+} from "@nms/shared"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -50,6 +59,19 @@ const OVERVIEW_DEVICES_VIEW: TableViewState = {
   },
 }
 
+const TILE_ICONS: Record<
+  MorningOpsTile["id"],
+  React.ComponentType<{ className?: string }>
+> = {
+  alerts: BellRingIcon,
+  patches: PackageIcon,
+  offline: WifiOffIcon,
+  agent_stale: RadioIcon,
+  expected_loss: ScaleIcon,
+  sessions: ActivityIcon,
+  live_grants: KeyRoundIcon,
+}
+
 export default function Page() {
   return (
     <DashboardShell>
@@ -70,37 +92,22 @@ function OverviewSkeleton() {
   )
 }
 
-function Metric({
-  label,
-  value,
-  hint,
-  icon: Icon,
-  tone = "neutral",
-  href,
-  loading,
-}: {
-  label: string
-  value: number | undefined
-  hint?: string
-  icon: React.ComponentType<{ className?: string }>
-  tone?: "neutral" | "online" | "warning" | "danger" | "offline"
-  href?: string
-  loading: boolean
-}) {
+function Metric({ tile, loading }: { tile: MorningOpsTile; loading: boolean }) {
+  const Icon = TILE_ICONS[tile.id]
   const body = (
     <div className="flex h-full flex-col gap-2 rounded-xl border border-border/80 bg-card p-3.5 transition-colors group-hover:bg-muted/40 sm:gap-3 sm:p-4">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase sm:text-xs">
-          {label}
+          {tile.label}
         </span>
         <Icon
           className={cn(
             "size-4 shrink-0",
-            tone === "online" && "text-emerald-500",
-            tone === "warning" && "text-amber-500",
-            tone === "danger" && "text-red-500",
-            tone === "offline" && "text-muted-foreground",
-            tone === "neutral" && "text-muted-foreground"
+            tile.tone === "online" && "text-emerald-500",
+            tile.tone === "warning" && "text-amber-500",
+            tile.tone === "danger" && "text-red-500",
+            tile.tone === "offline" && "text-muted-foreground",
+            tile.tone === "neutral" && "text-muted-foreground"
           )}
         />
       </div>
@@ -108,20 +115,18 @@ function Metric({
         <Skeleton className="h-8 w-16" />
       ) : (
         <span className="text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl">
-          {value ?? 0}
+          {tile.value}
         </span>
       )}
-      {hint && !loading ? (
-        <span className="text-xs text-muted-foreground">{hint}</span>
+      {!loading ? (
+        <span className="text-xs text-muted-foreground">{tile.hint}</span>
       ) : null}
     </div>
   )
-  return href ? (
-    <Link href={href} className="group block h-full">
+  return (
+    <Link href={tile.href} className="group block h-full">
       {body}
     </Link>
-  ) : (
-    body
   )
 }
 
@@ -149,6 +154,9 @@ function Overview() {
   const summaryQuery = trpc.dashboard.summary.useQuery(undefined, {
     refetchInterval: 30_000,
   })
+  const morningQuery = trpc.dashboard.morningOps.useQuery(undefined, {
+    refetchInterval: 30_000,
+  })
   const alertsQuery = trpc.alerts.summary.useQuery(undefined, {
     refetchInterval: 30_000,
   })
@@ -165,15 +173,98 @@ function Overview() {
   })
 
   const summary = summaryQuery.data
-  const loading = summaryQuery.isLoading
+  const morning = morningQuery.data
+  const loading = summaryQuery.isLoading || morningQuery.isLoading
   const devices = summary?.devices
+
+  const morningTiles = React.useMemo(() => {
+    if (!morning) return []
+    return buildMorningOpsTiles({
+      alerts: morning.alerts,
+      devices: morning.devices,
+      patches: morning.patches,
+      risk: morning.risk,
+      sessions: morning.sessions,
+      liveInfrastructureGrants: morning.liveInfrastructureGrants,
+    })
+  }, [morning])
+
+  const allClear = morningTiles.length > 0 && morningOpsAllClear(morningTiles)
+
+  const placeholderTiles: MorningOpsTile[] = [
+    {
+      id: "alerts",
+      label: "Open alerts",
+      value: "0",
+      hint: "",
+      href: "/alerts",
+      tone: "neutral",
+      empty: true,
+    },
+    {
+      id: "patches",
+      label: "Security updates",
+      value: "0",
+      hint: "",
+      href: "/software",
+      tone: "neutral",
+      empty: true,
+    },
+    {
+      id: "offline",
+      label: "Offline",
+      value: "0",
+      hint: "",
+      href: "/devices?f.connectivity=offline%2Cnever",
+      tone: "neutral",
+      empty: true,
+    },
+    {
+      id: "agent_stale",
+      label: "Quiet agents",
+      value: "0",
+      hint: "",
+      href: "/alerts?f.kind=agent_stale",
+      tone: "neutral",
+      empty: true,
+    },
+    {
+      id: "expected_loss",
+      label: "Expected loss",
+      value: "—",
+      hint: "",
+      href: "/reports?tab=risk",
+      tone: "neutral",
+      empty: true,
+    },
+    {
+      id: "sessions",
+      label: "Sessions · 24h",
+      value: "0",
+      hint: "",
+      href: "/connections",
+      tone: "neutral",
+      empty: true,
+    },
+    {
+      id: "live_grants",
+      label: "Live access",
+      value: "0",
+      hint: "",
+      href: "/activity?f.eventType=infrastructure_access_granted",
+      tone: "neutral",
+      empty: true,
+    },
+  ]
+
+  const tiles = morningTiles.length > 0 ? morningTiles : placeholderTiles
 
   return (
     <div className="flex w-full flex-col gap-8">
       <PageHeader
-        badge="Overview"
-        title="Your private network at a glance"
-        description="Connectivity, attention items, and recent activity across every device you can see."
+        badge="Morning ops"
+        title="What needs you today"
+        description="Alerts, security updates, quiet agents, expected loss, and recent access — one scan before the day starts."
         actions={
           <>
             {canEnroll ? (
@@ -197,82 +288,79 @@ function Overview() {
         <EnrollDeviceCard onClose={() => setEnrollmentOpen(false)} />
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-1">
-        <Metric
-          label="Online now"
-          value={devices?.online}
-          hint={devices ? `of ${devices.total} enrolled` : undefined}
-          icon={WifiIcon}
-          tone="online"
+      {!loading && allClear ? (
+        <div className="rounded-xl border border-border/80 bg-card px-4 py-3 text-sm text-muted-foreground">
+          All clear — no open alerts, offline devices, quiet agents, or pending
+          security updates.
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
+        {tiles.map((tile) => (
+          <Metric key={tile.id} tile={tile} loading={loading} />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Link
           href="/devices?f.connectivity=online"
-          loading={loading}
-        />
-        <Metric
-          label="Offline"
-          value={devices ? devices.offline + devices.never : undefined}
-          hint={
-            devices
-              ? devices.never > 0
-                ? `${devices.never} never connected`
-                : "All have connected at least once"
-              : undefined
-          }
-          icon={WifiOffIcon}
-          tone="offline"
+          className="group block h-full"
+        >
+          <div className="flex h-full flex-col gap-2 rounded-xl border border-border/80 bg-card/60 p-3.5 transition-colors group-hover:bg-muted/40 sm:p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase sm:text-xs">
+                Online now
+              </span>
+              <WifiIcon className="size-4 shrink-0 text-emerald-500" />
+            </div>
+            {loading ? (
+              <Skeleton className="h-7 w-14" />
+            ) : (
+              <span className="text-xl font-semibold tracking-tight tabular-nums">
+                {devices?.online ?? 0}
+              </span>
+            )}
+            {!loading && devices ? (
+              <span className="text-xs text-muted-foreground">
+                of {devices.total} enrolled
+              </span>
+            ) : null}
+          </div>
+        </Link>
+        <Link
           href="/devices?f.connectivity=offline%2Cnever"
-          loading={loading}
-        />
-        <Metric
-          label="Needs attention"
-          value={devices?.needsAttention}
-          hint={
-            devices
-              ? devices.needsAttention === 0
-                ? "Everything is reachable"
-                : "Unreachable or a service is down"
-              : undefined
-          }
-          icon={AlertTriangleIcon}
-          tone={devices && devices.needsAttention > 0 ? "warning" : "neutral"}
-          loading={loading}
-        />
-        <Metric
-          label="Open alerts"
-          value={alertSummary?.open}
-          hint={
-            alertSummary
-              ? alertSummary.critical > 0
-                ? `${alertSummary.critical} critical`
-                : alertSummary.acknowledged > 0
-                  ? `${alertSummary.acknowledged} acknowledged`
-                  : "Nothing waiting on you"
-              : undefined
-          }
-          icon={BellRingIcon}
-          tone={
-            alertSummary && alertSummary.critical > 0
-              ? "danger"
-              : alertSummary && alertSummary.open > 0
-                ? "warning"
-                : "neutral"
-          }
-          href="/alerts"
-          loading={alertsQuery.isLoading}
-        />
-        <Metric
-          label="Sessions · 24h"
-          value={summary?.sessions.last24h}
-          hint={
-            summary
-              ? summary.sessions.active > 0
-                ? `${summary.sessions.active} still open`
-                : "None open right now"
-              : undefined
-          }
-          icon={ActivityIcon}
-          href="/connections"
-          loading={loading}
-        />
+          className="group block h-full"
+        >
+          <div className="flex h-full flex-col gap-2 rounded-xl border border-border/80 bg-card/60 p-3.5 transition-colors group-hover:bg-muted/40 sm:p-4">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase sm:text-xs">
+                Needs attention
+              </span>
+              <AlertTriangleIcon
+                className={cn(
+                  "size-4 shrink-0",
+                  devices && devices.needsAttention > 0
+                    ? "text-amber-500"
+                    : "text-muted-foreground"
+                )}
+              />
+            </div>
+            {loading ? (
+              <Skeleton className="h-7 w-14" />
+            ) : (
+              <span className="text-xl font-semibold tracking-tight tabular-nums">
+                {devices?.needsAttention ?? 0}
+              </span>
+            )}
+            {!loading && devices ? (
+              <span className="text-xs text-muted-foreground">
+                {devices.needsAttention === 0
+                  ? "Everything is reachable"
+                  : "Unreachable or a service is down"}
+              </span>
+            ) : null}
+          </div>
+        </Link>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

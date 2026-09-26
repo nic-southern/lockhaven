@@ -53,8 +53,24 @@ import { downloadTextFile } from "@/lib/devices"
 import { formatDate } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 type ReportTab = ReportType | "risk"
+
+const reportTabs = [
+  "uptime",
+  "sessions",
+  "alerts",
+  "access",
+  "risk",
+] as const satisfies readonly ReportTab[]
+
+function parseReportTab(value: string | null): ReportTab {
+  if (value && (reportTabs as readonly string[]).includes(value)) {
+    return value as ReportTab
+  }
+  return "uptime"
+}
 
 function formatMoney(value: string | null | undefined) {
   if (!value) return "—"
@@ -133,6 +149,24 @@ function ReportTable({
 }
 
 export default function ReportsPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="flex flex-col gap-6">
+          <div className="h-8 w-56 animate-pulse rounded-md bg-muted" />
+          <div className="h-96 w-full animate-pulse rounded-xl bg-muted" />
+        </div>
+      }
+    >
+      <ReportsContent />
+    </React.Suspense>
+  )
+}
+
+function ReportsContent() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { can, isLoading } = usePermissions()
   const allowed = can("audit:view")
   const canManage = can("organization:admin")
@@ -143,7 +177,7 @@ export default function ReportsPage() {
   const [to, setTo] = React.useState(initial.to)
   const [organizationId, setOrganizationId] = React.useState("")
   const [siteId, setSiteId] = React.useState("")
-  const [tab, setTab] = React.useState<ReportTab>("uptime")
+  const tab = parseReportTab(searchParams.get("tab"))
   const [exporting, setExporting] = React.useState(false)
   const [scheduleOpen, setScheduleOpen] = React.useState(false)
   const [aroPerYear, setAroPerYear] = React.useState(
@@ -151,6 +185,17 @@ export default function ReportsPage() {
   )
   const [likelihoodClassId, setLikelihoodClassId] =
     React.useState<(typeof likelihoodClasses)[number]["id"]>("org_default")
+
+  const setTab = (next: string) => {
+    if (!(reportTabs as readonly string[]).includes(next)) return
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === "uptime") params.delete("tab")
+    else params.set("tab", next)
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    })
+  }
 
   const parsedAro = (() => {
     const value = Number(aroPerYear)
@@ -365,7 +410,7 @@ export default function ReportsPage() {
         </div>
       ) : null}
 
-      <Tabs value={tab} onValueChange={(value) => setTab(value as ReportTab)}>
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList variant="line">
           <TabsTrigger value="uptime">Uptime</TabsTrigger>
           <TabsTrigger value="sessions">Sessions</TabsTrigger>
