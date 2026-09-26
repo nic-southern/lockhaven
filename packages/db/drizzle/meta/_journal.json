@@ -309,6 +309,13 @@
       "when": 1783500000000,
       "tag": "0053_tickets",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1783600000000,
+      "tag": "0054_asset_retire_lifecycle",
+      "breakpoints": true
     }
   ]
 }

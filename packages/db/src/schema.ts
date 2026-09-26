@@ -378,6 +378,10 @@ export const deviceModels = pgTable(
     notes: text("notes"),
     purchaseCost: numeric("purchase_cost", { precision: 12, scale: 2 }),
     replacementCost: numeric("replacement_cost", { precision: 12, scale: 2 }),
+    /** Bulk default purchase date for assets that inherit this model. */
+    defaultPurchaseDate: date("default_purchase_date", { mode: "string" }),
+    /** Retire after this many months from the effective purchase date. */
+    retireAfterMonths: integer("retire_after_months"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -423,6 +427,10 @@ export const assets = pgTable(
     purchaseDate: date("purchase_date", { mode: "string" }),
     purchaseCost: numeric("purchase_cost", { precision: 12, scale: 2 }),
     warrantyExpiresOn: date("warranty_expires_on", { mode: "string" }),
+    /** Per-asset retire-after override (months). Null inherits the model. */
+    retireAfterMonths: integer("retire_after_months"),
+    /** Explicit retire-on date. When set, wins over purchase + duration. */
+    retireOn: date("retire_on", { mode: "string" }),
     notes: text("notes"),
     customFields: jsonb("custom_fields")
       .$type<CustomFieldValues>()
@@ -451,6 +459,7 @@ export const assets = pgTable(
     warrantyIdx: index("assets_warranty_expires_on_idx").on(
       table.warrantyExpiresOn
     ),
+    retireOnIdx: index("assets_retire_on_idx").on(table.retireOn),
     deviceModelIdx: index("assets_device_model_id_idx").on(table.deviceModelId),
   })
 )

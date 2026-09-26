@@ -248,11 +248,36 @@ function SiteDetail() {
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Status" />
         ),
-        cell: ({ row }) => (
-          <Badge variant="secondary">
-            {assetStatusLabels[row.original.status as AssetStatus]}
-          </Badge>
-        ),
+        cell: ({ row }) => {
+          const lifecycle = row.original.lifecycle
+          if (lifecycle?.showRetired) {
+            return (
+              <div className="flex flex-wrap items-center gap-1">
+                <Badge variant="secondary">
+                  {assetStatusLabels[row.original.status as AssetStatus]}
+                </Badge>
+                {row.original.status !== "retired" ? (
+                  <Badge variant="outline">Retired</Badge>
+                ) : null}
+              </div>
+            )
+          }
+          if (lifecycle?.state === "due") {
+            return (
+              <div className="flex flex-wrap items-center gap-1">
+                <Badge variant="secondary">
+                  {assetStatusLabels[row.original.status as AssetStatus]}
+                </Badge>
+                <Badge variant="outline">Due to retire</Badge>
+              </div>
+            )
+          }
+          return (
+            <Badge variant="secondary">
+              {assetStatusLabels[row.original.status as AssetStatus]}
+            </Badge>
+          )
+        },
       },
       {
         id: "device",

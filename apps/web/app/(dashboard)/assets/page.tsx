@@ -9,9 +9,12 @@ import { toast } from "sonner"
 import { PlusIcon, PrinterIcon } from "lucide-react"
 
 import {
+  assetLifecycleStateLabels,
   assetStatusLabels,
   assetStatuses,
   definitionAppliesTo,
+  retireMonthsToYears,
+  yearsToRetireMonths,
   type AssetStatus,
 } from "@nms/shared"
 
@@ -55,6 +58,8 @@ type AssetForm = {
   purchaseDate: string
   purchaseCost: string
   warrantyExpiresOn: string
+  retireAfterYears: string
+  retireOn: string
   notes: string
   customFields: Record<string, string>
 }
@@ -72,6 +77,8 @@ const emptyForm = (): AssetForm => ({
   purchaseDate: "",
   purchaseCost: "",
   warrantyExpiresOn: "",
+  retireAfterYears: "",
+  retireOn: "",
   notes: "",
   customFields: {},
 })
@@ -82,6 +89,7 @@ const assetTemplate = [
 ].join("\n")
 
 function formFromAsset(asset: AssetRow): AssetForm {
+  const years = retireMonthsToYears(asset.retireAfterMonths)
   return {
     organizationId: asset.organizationId,
     siteId: asset.siteId ?? "",
@@ -95,6 +103,8 @@ function formFromAsset(asset: AssetRow): AssetForm {
     purchaseDate: asset.purchaseDate ?? "",
     purchaseCost: asset.purchaseCost ?? "",
     warrantyExpiresOn: asset.warrantyExpiresOn ?? "",
+    retireAfterYears: years == null ? "" : String(years),
+    retireOn: asset.retireOn ?? "",
     notes: asset.notes ?? "",
     customFields: Object.fromEntries(
       Object.entries(asset.customFields ?? {}).map(([key, value]) => [
@@ -247,6 +257,12 @@ function AssetsContent() {
   const expiring = items.filter(
     (item) => item.warranty === "expiring" || item.warranty === "expired"
   ).length
+  const retiredCount = items.filter(
+    (item) => item.lifecycle?.showRetired
+  ).length
+  const dueToRetire = items.filter(
+    (item) => item.lifecycle?.state === "due" && !item.lifecycle.showRetired
+  ).length
 
   const columns = React.useMemo<ColumnDef<AssetRow>[]>(
     () => [
@@ -327,7 +343,55 @@ function AssetsContent() {
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Status" />
         ),
-        cell: ({ row }) => assetStatusLabels[row.original.status],
+        cell: ({ row }) => {
+          const lifecycle = row.original.lifecycle
+          if (lifecycle?.showRetired && row.original.status !== "retired") {
+            return (
+              <div className="flex flex-col gap-1">
+                <span>{assetStatusLabels[row.original.status]}</span>
+                <Badge variant="outline">Retired</Badge>
+              </div>
+            )
+          }
+          if (lifecycle?.state === "due") {
+            return (
+              <div className="flex flex-col gap-1">
+                <span>{assetStatusLabels[row.original.status]}</span>
+                <Badge variant="secondary">Due to retire</Badge>
+              </div>
+            )
+          }
+          return assetStatusLabels[row.original.status]
+        },
+      },
+      {
+        id: "lifecycle",
+        accessorFn: (row) => {
+          if (row.lifecycle?.showRetired) return "retired"
+          if (row.lifecycle?.state === "due") return "due"
+          if (row.lifecycle?.state === "in_service") return "in_service"
+          return "none"
+        },
+        meta: { label: "Lifecycle" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Retire" />
+        ),
+        cell: ({ row }) => {
+          const lifecycle = row.original.lifecycle
+          if (!lifecycle?.retireOn) return "—"
+          const label = formatDate(lifecycle.retireOn)
+          if (lifecycle.showRetired) {
+            return <span className="text-destructive">{label}</span>
+          }
+          if (lifecycle.state === "due") {
+            return (
+              <span className="text-amber-700 dark:text-amber-300">
+                {label}
+              </span>
+            )
+          }
+          return label
+        },
       },
       {
         accessorKey: "warrantyExpiresOn",
@@ -410,6 +474,8 @@ function AssetsContent() {
   }
 
   function payloadFromForm() {
+    const yearsTrimmed = form.retireAfterYears.trim()
+    const yearsParsed = yearsTrimmed ? Number(yearsTrimmed) : null
     return {
       organizationId: form.organizationId,
       siteId: form.siteId || null,
@@ -423,10 +489,41 @@ function AssetsContent() {
       purchaseDate: form.purchaseDate || null,
       purchaseCost: form.purchaseCost || null,
       warrantyExpiresOn: form.warrantyExpiresOn || null,
+      retireAfterMonths: yearsToRetireMonths(
+        yearsParsed != null && Number.isFinite(yearsParsed) ? yearsParsed : null
+      ),
+      retireOn: form.retireOn || null,
       notes: form.notes || null,
       customFields: form.customFields,
     }
   }
+
+  const selectedLifecycle = selected?.lifecycle
+  const purchaseHint =
+    !form.purchaseDate && selectedLifecycle?.purchaseDateSource === "model"
+      ? `From model: ${selectedLifecycle.purchaseDate}`
+      : !form.purchaseDate &&
+          (modelsQuery.data ?? []).find(
+            (model) => model.id === form.deviceModelId
+          )?.defaultPurchaseDate
+        ? `From model: ${(modelsQuery.data ?? []).find((model) => model.id === form.deviceModelId)?.defaultPurchaseDate}`
+        : null
+  const selectedModel = (modelsQuery.data ?? []).find(
+    (model) => model.id === form.deviceModelId
+  )
+  const modelRetireYears = retireMonthsToYears(
+    selectedModel?.retireAfterMonths ?? null
+  )
+  const retireAfterHint =
+    !form.retireAfterYears && modelRetireYears != null
+      ? `From model: ${modelRetireYears} year${modelRetireYears === 1 ? "" : "s"}`
+      : null
+  const retireOnHint =
+    selectedLifecycle?.retireOn &&
+    selectedLifecycle.retireOnSource === "computed" &&
+    !form.retireOn
+      ? `Computed: ${selectedLifecycle.retireOn}`
+      : null
 
   const formFields = (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -543,6 +640,9 @@ function AssetsContent() {
             }))
           }
         />
+        {purchaseHint ? (
+          <p className="mt-1 text-xs text-muted-foreground">{purchaseHint}</p>
+        ) : null}
       </FormField>
       <FormField label="Cost" htmlFor="asset-cost">
         <Input
@@ -556,6 +656,41 @@ function AssetsContent() {
             }))
           }
         />
+      </FormField>
+      <FormField label="Retire after (years)" htmlFor="asset-retire-years">
+        <Input
+          id="asset-retire-years"
+          inputMode="decimal"
+          value={form.retireAfterYears}
+          onChange={(event) =>
+            setForm((current) => ({
+              ...current,
+              retireAfterYears: event.target.value,
+            }))
+          }
+          placeholder={modelRetireYears != null ? String(modelRetireYears) : ""}
+        />
+        {retireAfterHint ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {retireAfterHint}
+          </p>
+        ) : null}
+      </FormField>
+      <FormField label="Retire on" htmlFor="asset-retire-on">
+        <Input
+          id="asset-retire-on"
+          type="date"
+          value={form.retireOn}
+          onChange={(event) =>
+            setForm((current) => ({
+              ...current,
+              retireOn: event.target.value,
+            }))
+          }
+        />
+        {retireOnHint ? (
+          <p className="mt-1 text-xs text-muted-foreground">{retireOnHint}</p>
+        ) : null}
       </FormField>
       <FormField label="Warranty ends" htmlFor="asset-warranty">
         <Input
@@ -640,6 +775,8 @@ function AssetsContent() {
         items={[
           { label: "Assets", value: pageQuery.data?.total ?? items.length },
           { label: "Unmanaged", value: unmanaged },
+          { label: "Retired", value: retiredCount },
+          { label: "Due to retire", value: dueToRetire },
           { label: "Warranty attention", value: expiring },
           {
             label: "Managed",
@@ -662,6 +799,18 @@ function AssetsContent() {
               value: status,
               label: assetStatusLabels[status],
             })),
+          },
+          {
+            columnId: "lifecycle",
+            title: "Lifecycle",
+            options: [
+              { value: "retired", label: assetLifecycleStateLabels.retired },
+              { value: "due", label: assetLifecycleStateLabels.due },
+              {
+                value: "in_service",
+                label: assetLifecycleStateLabels.in_service,
+              },
+            ],
           },
           {
             columnId: "presence",

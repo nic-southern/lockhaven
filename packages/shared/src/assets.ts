@@ -53,10 +53,28 @@ export const customFieldAppliesToLabels: Record<CustomFieldAppliesTo, string> =
 
 export const WARRANTY_EXPIRING_DAYS = 90
 
+/** Assets due to retire within this many days show "Due to retire". */
+export const RETIRE_DUE_DAYS = 90
+
 export const isoDateSchema = z
   .string()
   .trim()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a calendar date.")
+
+export const retireAfterMonthsSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(1200)
+  .nullable()
+  .optional()
+
+export const retireAfterYearsSchema = z
+  .number()
+  .min(0.083)
+  .max(100)
+  .nullable()
+  .optional()
 
 export const timeOfDaySchema = z
   .string()
@@ -133,6 +151,38 @@ export const customFieldDefinitionInputSchema = z.object({
 })
 
 export type WarrantyState = "none" | "current" | "expiring" | "expired"
+
+export type AssetLifecycleState = "none" | "in_service" | "due" | "retired"
+
+export const assetLifecycleStateLabels: Record<AssetLifecycleState, string> = {
+  none: "—",
+  in_service: "In service",
+  due: "Due to retire",
+  retired: "Retired",
+}
+
+export type AssetLifecycleFieldSource = "asset" | "model" | "none"
+
+export type AssetLifecycleInput = {
+  status: AssetStatus
+  purchaseDate?: string | null
+  retireAfterMonths?: number | null
+  retireOn?: string | null
+  modelDefaultPurchaseDate?: string | null
+  modelRetireAfterMonths?: number | null
+}
+
+export type AssetLifecycle = {
+  purchaseDate: string | null
+  purchaseDateSource: AssetLifecycleFieldSource
+  retireAfterMonths: number | null
+  retireAfterMonthsSource: AssetLifecycleFieldSource
+  retireOn: string | null
+  retireOnSource: "asset" | "computed" | "none"
+  state: AssetLifecycleState
+  /** True when the operator set status to retired/disposed, or the schedule has passed. */
+  showRetired: boolean
+}
 
 export type AssetMatchReason = "serial" | "hostname"
 
@@ -407,7 +457,113 @@ export const deviceModelInputSchema = z.object({
     .regex(/^-?\d+(\.\d{1,2})?$/, "Cost must be a number.")
     .nullable()
     .optional(),
+  defaultPurchaseDate: isoDateSchema.nullable().optional(),
+  retireAfterMonths: retireAfterMonthsSchema,
 })
+
+export function yearsToRetireMonths(
+  years: number | null | undefined
+): number | null {
+  if (years == null || !Number.isFinite(years) || years <= 0) return null
+  return Math.max(1, Math.round(years * 12))
+}
+
+export function retireMonthsToYears(
+  months: number | null | undefined
+): number | null {
+  if (months == null || !Number.isFinite(months) || months <= 0) return null
+  const years = months / 12
+  return Number.isInteger(years) ? years : Math.round(years * 100) / 100
+}
+
+export function addMonthsToIsoDate(
+  isoDate: string,
+  months: number
+): string | null {
+  const start = parseIsoDate(isoDate)
+  if (!start || !Number.isFinite(months) || months <= 0) return null
+  const year = start.getUTCFullYear()
+  const month = start.getUTCMonth()
+  const day = start.getUTCDate()
+  const totalMonths = month + Math.trunc(months)
+  const targetYear = year + Math.floor(totalMonths / 12)
+  const targetMonth = ((totalMonths % 12) + 12) % 12
+  const lastDay = new Date(
+    Date.UTC(targetYear, targetMonth + 1, 0)
+  ).getUTCDate()
+  const targetDay = Math.min(day, lastDay)
+  return formatIsoDate(new Date(Date.UTC(targetYear, targetMonth, targetDay)))
+}
+
+export function resolveAssetLifecycle(
+  input: AssetLifecycleInput,
+  now: Date,
+  dueDays = RETIRE_DUE_DAYS
+): AssetLifecycle {
+  const purchaseDateSource: AssetLifecycleFieldSource = input.purchaseDate
+    ? "asset"
+    : input.modelDefaultPurchaseDate
+      ? "model"
+      : "none"
+  const purchaseDate =
+    purchaseDateSource === "asset"
+      ? (input.purchaseDate ?? null)
+      : purchaseDateSource === "model"
+        ? (input.modelDefaultPurchaseDate ?? null)
+        : null
+
+  const retireAfterMonthsSource: AssetLifecycleFieldSource =
+    input.retireAfterMonths != null
+      ? "asset"
+      : input.modelRetireAfterMonths != null
+        ? "model"
+        : "none"
+  const retireAfterMonths =
+    retireAfterMonthsSource === "asset"
+      ? (input.retireAfterMonths ?? null)
+      : retireAfterMonthsSource === "model"
+        ? (input.modelRetireAfterMonths ?? null)
+        : null
+
+  let retireOn: string | null = null
+  let retireOnSource: AssetLifecycle["retireOnSource"] = "none"
+  if (input.retireOn) {
+    retireOn = input.retireOn
+    retireOnSource = "asset"
+  } else if (purchaseDate && retireAfterMonths != null) {
+    retireOn = addMonthsToIsoDate(purchaseDate, retireAfterMonths)
+    retireOnSource = retireOn ? "computed" : "none"
+  }
+
+  let state: AssetLifecycleState = "none"
+  if (retireOn) {
+    const end = parseIsoDate(retireOn)
+    if (end) {
+      const today = utcDayStart(now)
+      if (end.getTime() <= today.getTime()) {
+        state = "retired"
+      } else {
+        const windowEnd = new Date(today.getTime() + dueDays * MS_PER_DAY)
+        state = end.getTime() <= windowEnd.getTime() ? "due" : "in_service"
+      }
+    }
+  }
+
+  const statusRetired = input.status === "retired"
+  const showRetired =
+    statusRetired || input.status === "disposed" || state === "retired"
+
+  return {
+    purchaseDate,
+    purchaseDateSource,
+    retireAfterMonths,
+    retireAfterMonthsSource,
+    retireOn,
+    retireOnSource,
+    state: statusRetired && state !== "retired" ? "retired" : state,
+    showRetired,
+  }
+}
 
 export function parseIsoDate(value: string | null | undefined) {
   if (!value) return null

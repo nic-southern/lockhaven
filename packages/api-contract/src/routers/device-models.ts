@@ -24,6 +24,8 @@ function publicModel(row: typeof deviceModels.$inferSelect) {
     notes: row.notes,
     purchaseCost: row.purchaseCost,
     replacementCost: row.replacementCost,
+    defaultPurchaseDate: row.defaultPurchaseDate,
+    retireAfterMonths: row.retireAfterMonths,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     label: row.manufacturer
@@ -65,6 +67,8 @@ export const deviceModelsRouter = createTRPCRouter({
             notes: emptyToNull(input.notes),
             purchaseCost: input.purchaseCost ?? null,
             replacementCost: input.replacementCost ?? null,
+            defaultPurchaseDate: input.defaultPurchaseDate ?? null,
+            retireAfterMonths: input.retireAfterMonths ?? null,
           })
           .returning()
         await writeAuditEvent(ctx, {
@@ -128,6 +132,14 @@ export const deviceModelsRouter = createTRPCRouter({
               input.replacementCost !== undefined
                 ? (input.replacementCost ?? null)
                 : existing.replacementCost,
+            defaultPurchaseDate:
+              input.defaultPurchaseDate !== undefined
+                ? (input.defaultPurchaseDate ?? null)
+                : existing.defaultPurchaseDate,
+            retireAfterMonths:
+              input.retireAfterMonths !== undefined
+                ? (input.retireAfterMonths ?? null)
+                : existing.retireAfterMonths,
             updatedAt: new Date(),
           })
           .where(eq(deviceModels.id, existing.id))
