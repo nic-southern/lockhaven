@@ -10,7 +10,7 @@ import type {
   RowSelectionState,
   SortingState,
 } from "@tanstack/react-table"
-import { CheckCheckIcon, CheckIcon, ClockIcon } from "lucide-react"
+import { CheckCheckIcon, CheckIcon, ClockIcon, TicketIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -824,6 +824,9 @@ export function AlertsTable({
 }
 
 function AlertDetails({ row }: { row: AlertRow }) {
+  const { can } = usePermissions()
+  const canAct = can("device:update")
+  const createFromAlert = trpc.tickets.createFromAlert.useMutation()
   const detail = row.detail ?? {}
   const entries = Object.entries(detail)
   const timeline: Array<{ label: string; value: React.ReactNode }> = [
@@ -871,19 +874,52 @@ function AlertDetails({ row }: { row: AlertRow }) {
     value: <span className="font-mono text-xs">{row.id}</span>,
   })
 
+  async function openTicket() {
+    try {
+      const result = await createFromAlert.mutateAsync({ alertId: row.id })
+      toast.success(
+        result.created ? "Ticket opened" : "A ticket is already open"
+      )
+      if (result.id) {
+        window.location.assign(`/tickets/${result.id}`)
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : "We couldn't open a ticket. Try again in a moment."
+      )
+    }
+  }
+
   return (
     <div
       className="grid gap-4 px-4 py-4 text-sm lg:grid-cols-2"
       onClick={(event) => event.stopPropagation()}
     >
-      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5">
-        {timeline.map((entry) => (
-          <React.Fragment key={entry.label}>
-            <dt className="text-xs text-muted-foreground">{entry.label}</dt>
-            <dd className="min-w-0 text-xs">{entry.value}</dd>
-          </React.Fragment>
-        ))}
-      </dl>
+      <div className="flex flex-col gap-3">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5">
+          {timeline.map((entry) => (
+            <React.Fragment key={entry.label}>
+              <dt className="text-xs text-muted-foreground">{entry.label}</dt>
+              <dd className="min-w-0 text-xs">{entry.value}</dd>
+            </React.Fragment>
+          ))}
+        </dl>
+        {canAct ? (
+          <div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={createFromAlert.isPending}
+              onClick={() => void openTicket()}
+            >
+              <TicketIcon />
+              {createFromAlert.isPending ? "Opening…" : "Open ticket"}
+            </Button>
+          </div>
+        ) : null}
+      </div>
       <div className="min-w-0">
         <p className="mb-1.5 text-xs font-medium text-muted-foreground">
           What was observed

@@ -13,6 +13,7 @@ import {
 } from "@nms/shared"
 
 import { enqueueAlertNotifications } from "./alert-deliveries"
+import { markHubTicketsDoneForAlert } from "./hub-tickets"
 import {
   activeMaintenanceWindowFor,
   deviceInPlannedRebootGrace,
@@ -294,6 +295,7 @@ export async function resolveAlert(
     if (!wasSuppressed) {
       await enqueueAlertNotifications(tx, resolved, "alert.resolved", now)
     }
+    await markHubTicketsDoneForAlert(tx, resolved.id, now)
     return resolved
   })
 }

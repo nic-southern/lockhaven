@@ -61,6 +61,8 @@ import {
   type PlaybookSkipReason,
   type SiteBusinessHours,
   type SiteContact,
+  type TicketPriority,
+  type TicketStatus,
 } from "@nms/shared"
 
 export const statusEnum = pgEnum("device_status", deviceStatuses)
@@ -1080,6 +1082,88 @@ export const alerts = pgTable(
 )
 
 /**
+ * Org-scoped work items for daily ops. Optional links to site, device, and
+ * alert. Alert resolve moves linked open rows to Done.
+ */
+export const tickets = pgTable(
+  "tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    siteId: uuid("site_id").references(() => sites.id, {
+      onDelete: "set null",
+    }),
+    deviceId: uuid("device_id").references(() => devices.id, {
+      onDelete: "set null",
+    }),
+    alertId: uuid("alert_id").references(() => alerts.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    status: text("status").$type<TicketStatus>().notNull().default("open"),
+    priority: text("priority")
+      .$type<TicketPriority>()
+      .notNull()
+      .default("medium"),
+    body: text("body"),
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    updatedByUserId: text("updated_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    openAlertIdx: uniqueIndex("tickets_open_alert_idx")
+      .on(table.alertId)
+      .where(sql`${table.alertId} is not null and ${table.status} <> 'done'`),
+    organizationStatusIdx: index("tickets_organization_status_idx").on(
+      table.organizationId,
+      table.status
+    ),
+    organizationUpdatedIdx: index("tickets_organization_updated_idx").on(
+      table.organizationId,
+      table.updatedAt
+    ),
+    siteIdx: index("tickets_site_idx").on(table.siteId),
+    deviceIdx: index("tickets_device_idx").on(table.deviceId),
+    alertIdx: index("tickets_alert_idx").on(table.alertId),
+  })
+)
+
+export const ticketComments = pgTable(
+  "ticket_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    authorUserId: text("author_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    ticketCreatedIdx: index("ticket_comments_ticket_created_idx").on(
+      table.ticketId,
+      table.createdAt
+    ),
+  })
+)
+
+/**
  * One row per new connection observed on the concentrator. Populated by the
  * worker from nftables log lines; never updated in place.
  */
@@ -1602,6 +1686,8 @@ export type AuditEvent = typeof auditEvents.$inferSelect
 export type VpnPeerSample = typeof vpnPeerSamples.$inferSelect
 export type Alert = typeof alerts.$inferSelect
 export type AlertPolicy = typeof alertPolicies.$inferSelect
+export type Ticket = typeof tickets.$inferSelect
+export type TicketComment = typeof ticketComments.$inferSelect
 export type MaintenanceWindow = typeof maintenanceWindows.$inferSelect
 export type NotificationChannel = typeof notificationChannels.$inferSelect
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
