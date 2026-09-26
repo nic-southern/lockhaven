@@ -79,14 +79,7 @@ test("buildMorningOpsTiles uses calm empty-state hints when clear", () => {
   assert.ok(morningOpsAllClear(tiles))
   assert.deepEqual(
     tiles.map((tile) => tile.id),
-    [
-      "alerts",
-      "patches",
-      "offline",
-      "agent_stale",
-      "sessions",
-      "live_grants",
-    ]
+    ["alerts", "patches", "offline", "agent_stale", "sessions", "live_grants"]
   )
   const byId = Object.fromEntries(tiles.map((tile) => [tile.id, tile]))
   assert.equal(byId.alerts?.hint, "Nothing waiting on you")
