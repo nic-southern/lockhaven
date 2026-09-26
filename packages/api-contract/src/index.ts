@@ -1,4 +1,5 @@
 export {
+  omitTakenSerialFromPatch,
   tryLinkDeviceToAsset,
   tryLinkDevicesToAssets,
   upsertAssetFromDeviceReport,
