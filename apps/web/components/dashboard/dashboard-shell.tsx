@@ -87,7 +87,7 @@ const navSections: NavSection[] = [
   {
     label: "Operate",
     items: [
-      { href: "/", label: "Overview", icon: LayoutDashboardIcon },
+      { href: "/", label: "Morning ops", icon: LayoutDashboardIcon },
       {
         href: "/devices",
         label: "Devices",
