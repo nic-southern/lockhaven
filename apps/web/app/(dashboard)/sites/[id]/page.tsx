@@ -17,6 +17,7 @@ import {
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
+import { StatStrip } from "@/components/dashboard/stat-strip"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -30,6 +31,16 @@ import type { RouterOutputs } from "@/lib/trpc"
 
 type DeviceRow = RouterOutputs["devices"]["page"]["items"][number]
 type AssetRow = RouterOutputs["assets"]["page"]["items"][number]
+
+function formatMoney(value: string | null | undefined) {
+  if (!value) return "—"
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return value
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+  }).format(amount)
+}
 
 export default function SiteDetailPage() {
   return (
@@ -55,6 +66,7 @@ function SiteDetail() {
   const siteId = params.id
   const { can, isLoading: permissionsLoading } = usePermissions()
   const canViewDevices = can("device:view")
+  const canViewValue = can("audit:view")
   const canManageSite = can("site:admin") || can("organization:admin")
 
   const sitesQuery = trpc.sites.list.useQuery(undefined, {
@@ -81,6 +93,12 @@ function SiteDetail() {
     {
       enabled: canViewDevices && Boolean(siteId),
       placeholderData: keepPreviousData,
+    }
+  )
+  const installedValueQuery = trpc.reports.installedValue.useQuery(
+    { siteId },
+    {
+      enabled: canViewValue && Boolean(siteId),
     }
   )
 
@@ -277,7 +295,7 @@ function SiteDetail() {
     return <SiteDetailSkeleton />
   }
 
-  if (!canViewDevices && !canManageSite) {
+  if (!canViewDevices && !canManageSite && !canViewValue) {
     return <AccessDenied />
   }
 
@@ -348,62 +366,125 @@ function SiteDetail() {
         />
       </div>
 
-      <SectionCard
-        title="Devices"
-        description="Devices assigned to this location."
-        contentClassName="gap-4"
-      >
-        <DataTable
-          columns={deviceColumns}
-          data={devices}
-          isLoading={devicesQuery.isLoading}
-          getRowId={(row) => row.id}
-          searchPlaceholder="Search devices"
-          initialSorting={[{ id: "displayName", desc: false }]}
-          onRowClick={(row) => router.push(`/devices/${row.id}`)}
-          emptyTitle="No devices at this site"
-          emptyDescription="Assign a device to this location from its settings, or enroll one here."
-        />
-      </SectionCard>
-
-      <SectionCard
-        title="Assets"
-        description="Assets linked to this location, including tracking tags from the agent."
-        contentClassName="gap-4"
-        actions={
-          assets.length > 0 ? (
+      {canViewValue ? (
+        <SectionCard
+          title="Installed value"
+          description="Replacement value of linked in-service assets at this site. Assets with no cost set are left out of the totals."
+          contentClassName="gap-4"
+          actions={
             <Button variant="outline" size="sm" asChild>
               <Link
-                href={`/assets/labels?ids=${assets.map((asset) => asset.id).join(",")}`}
+                href={`/reports?tab=value&siteId=${encodeURIComponent(site.id)}`}
               >
-                <PrinterIcon />
-                Print labels
+                Open report
               </Link>
             </Button>
-          ) : null
-        }
-      >
-        {assetsQuery.isLoading ? (
-          <Skeleton className="h-40 w-full" />
-        ) : assets.length === 0 ? (
-          <EmptyState
-            title="No assets at this site"
-            description="Assets show up here when they are linked to this location, or when a device at this site creates one on check-in."
-            bordered={false}
-          />
-        ) : (
+          }
+        >
+          {installedValueQuery.isLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <>
+              <StatStrip
+                items={[
+                  {
+                    label: "In service (linked)",
+                    value: installedValueQuery.data?.inServiceLinkedCount ?? 0,
+                  },
+                  {
+                    label: "Replacement value",
+                    value: formatMoney(
+                      installedValueQuery.data?.totalInstalledValue
+                    ),
+                  },
+                  {
+                    label: "Purchase value",
+                    value: formatMoney(
+                      installedValueQuery.data?.totalPurchaseValue
+                    ),
+                  },
+                  {
+                    label: "No cost set",
+                    value: installedValueQuery.data?.noCostCount ?? 0,
+                    hint:
+                      (installedValueQuery.data?.noCostCount ?? 0) > 0
+                        ? "Excluded from dollar totals"
+                        : undefined,
+                  },
+                ]}
+              />
+              {(installedValueQuery.data?.noCostCount ?? 0) > 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Set purchase or replacement cost on the device model under
+                  Settings → Device models so these assets count toward
+                  installed value.
+                </p>
+              ) : null}
+            </>
+          )}
+        </SectionCard>
+      ) : null}
+
+      {canViewDevices ? (
+        <SectionCard
+          title="Devices"
+          description="Devices assigned to this location."
+          contentClassName="gap-4"
+        >
           <DataTable
-            columns={assetColumns}
-            data={assets}
+            columns={deviceColumns}
+            data={devices}
+            isLoading={devicesQuery.isLoading}
             getRowId={(row) => row.id}
-            searchPlaceholder="Search assets"
-            initialSorting={[{ id: "tag", desc: false }]}
-            onRowClick={(row) => router.push(`/assets?id=${row.id}`)}
-            emptyTitle="No assets at this site"
-            emptyDescription="Assets show up here when they are linked to this location."
+            searchPlaceholder="Search devices"
+            initialSorting={[{ id: "displayName", desc: false }]}
+            onRowClick={(row) => router.push(`/devices/${row.id}`)}
+            emptyTitle="No devices at this site"
+            emptyDescription="Assign a device to this location from its settings, or enroll one here."
           />
-        )}
-      </SectionCard>
+        </SectionCard>
+      ) : null}
+
+      {canViewDevices ? (
+        <SectionCard
+          title="Assets"
+          description="Assets linked to this location, including tracking tags from the agent."
+          contentClassName="gap-4"
+          actions={
+            assets.length > 0 ? (
+              <Button variant="outline" size="sm" asChild>
+                <Link
+                  href={`/assets/labels?ids=${assets.map((asset) => asset.id).join(",")}`}
+                >
+                  <PrinterIcon />
+                  Print labels
+                </Link>
+              </Button>
+            ) : null
+          }
+        >
+          {assetsQuery.isLoading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : assets.length === 0 ? (
+            <EmptyState
+              title="No assets at this site"
+              description="Assets show up here when they are linked to this location, or when a device at this site creates one on check-in."
+              bordered={false}
+            />
+          ) : (
+            <DataTable
+              columns={assetColumns}
+              data={assets}
+              getRowId={(row) => row.id}
+              searchPlaceholder="Search assets"
+              initialSorting={[{ id: "tag", desc: false }]}
+              onRowClick={(row) => router.push(`/assets?id=${row.id}`)}
+              emptyTitle="No assets at this site"
+              emptyDescription="Assets show up here when they are linked to this location."
+            />
+          )}
+        </SectionCard>
+      ) : null}
     </div>
   )
 }

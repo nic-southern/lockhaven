@@ -21,8 +21,10 @@ import {
   reportCadenceSchema,
   reportTypeSchema,
   summarizeAssetRisk,
+  summarizeInstalledValue,
   utcDayEnd,
   utcDayStart,
+  type AssetRiskRowInput,
 } from "@nms/shared"
 
 import { assertAuthorized } from "../access"
@@ -260,6 +262,72 @@ const assetRiskInput = z.object({
   aroPerYear: aroPerYearSchema.optional(),
 })
 
+const installedValueInput = z.object({
+  organizationId: z.string().uuid().optional(),
+  siteId: z.string().uuid().optional(),
+})
+
+async function loadAssetValueRows(
+  ctx: ApiContext,
+  input?: { organizationId?: string; siteId?: string }
+): Promise<AssetRiskRowInput[]> {
+  const organizationId = input?.organizationId
+  const siteId = input?.siteId
+  if (organizationId) {
+    assertAuthorized(ctx.actor, "audit:view", {
+      kind: "organization",
+      organizationId,
+    })
+  }
+  const scope = inventoryScopeCondition(ctx.actor, {
+    organizationId: assets.organizationId,
+    siteId: assets.siteId,
+  })
+  if (scope.kind === "none") {
+    return []
+  }
+  const conditions = combineConditions([
+    scope.kind === "where" ? scope.condition : undefined,
+    organizationId ? eq(assets.organizationId, organizationId) : undefined,
+    siteId ? eq(assets.siteId, siteId) : undefined,
+  ])
+  const rows = await ctx.db
+    .select({
+      id: assets.id,
+      tag: assets.tag,
+      status: assets.status,
+      siteId: assets.siteId,
+      organizationId: assets.organizationId,
+      assetPurchaseCost: assets.purchaseCost,
+      deviceId: devices.id,
+      siteName: sites.name,
+      organizationName: organizations.name,
+      deviceModelName: deviceModels.name,
+      modelReplacementCost: deviceModels.replacementCost,
+      modelPurchaseCost: deviceModels.purchaseCost,
+    })
+    .from(assets)
+    .innerJoin(organizations, eq(organizations.id, assets.organizationId))
+    .leftJoin(sites, eq(sites.id, assets.siteId))
+    .leftJoin(deviceModels, eq(deviceModels.id, assets.deviceModelId))
+    .leftJoin(devices, eq(devices.assetId, assets.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+  return rows.map((row) => ({
+    id: row.id,
+    tag: row.tag,
+    status: row.status,
+    linked: Boolean(row.deviceId),
+    siteId: row.siteId,
+    siteName: row.siteName,
+    organizationId: row.organizationId,
+    organizationName: row.organizationName,
+    deviceModelName: row.deviceModelName,
+    modelReplacementCost: row.modelReplacementCost,
+    modelPurchaseCost: row.modelPurchaseCost,
+    assetPurchaseCost: row.assetPurchaseCost,
+  }))
+}
+
 export const reportsRouter = createTRPCRouter({
   /**
    * Morning expected-loss slice for linked in-service assets.
@@ -268,65 +336,20 @@ export const reportsRouter = createTRPCRouter({
   assetRisk: permissionProcedure("audit:view")
     .input(assetRiskInput.optional())
     .query(async ({ ctx, input }) => {
-      const organizationId = input?.organizationId
-      const siteId = input?.siteId
       const aroPerYear = input?.aroPerYear ?? DEFAULT_ARO_PER_YEAR
-      if (organizationId) {
-        assertAuthorized(ctx.actor, "audit:view", {
-          kind: "organization",
-          organizationId,
-        })
-      }
-      const scope = inventoryScopeCondition(ctx.actor, {
-        organizationId: assets.organizationId,
-        siteId: assets.siteId,
-      })
-      if (scope.kind === "none") {
-        return summarizeAssetRisk([], aroPerYear)
-      }
-      const conditions = combineConditions([
-        scope.kind === "where" ? scope.condition : undefined,
-        organizationId ? eq(assets.organizationId, organizationId) : undefined,
-        siteId ? eq(assets.siteId, siteId) : undefined,
-      ])
-      const rows = await ctx.db
-        .select({
-          id: assets.id,
-          tag: assets.tag,
-          status: assets.status,
-          siteId: assets.siteId,
-          organizationId: assets.organizationId,
-          assetPurchaseCost: assets.purchaseCost,
-          deviceId: devices.id,
-          siteName: sites.name,
-          organizationName: organizations.name,
-          deviceModelName: deviceModels.name,
-          modelReplacementCost: deviceModels.replacementCost,
-          modelPurchaseCost: deviceModels.purchaseCost,
-        })
-        .from(assets)
-        .innerJoin(organizations, eq(organizations.id, assets.organizationId))
-        .leftJoin(sites, eq(sites.id, assets.siteId))
-        .leftJoin(deviceModels, eq(deviceModels.id, assets.deviceModelId))
-        .leftJoin(devices, eq(devices.assetId, assets.id))
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
-      return summarizeAssetRisk(
-        rows.map((row) => ({
-          id: row.id,
-          tag: row.tag,
-          status: row.status,
-          linked: Boolean(row.deviceId),
-          siteId: row.siteId,
-          siteName: row.siteName,
-          organizationId: row.organizationId,
-          organizationName: row.organizationName,
-          deviceModelName: row.deviceModelName,
-          modelReplacementCost: row.modelReplacementCost,
-          modelPurchaseCost: row.modelPurchaseCost,
-          assetPurchaseCost: row.assetPurchaseCost,
-        })),
-        aroPerYear
-      )
+      const rows = await loadAssetValueRows(ctx, input)
+      return summarizeAssetRisk(rows, aroPerYear)
+    }),
+
+  /**
+   * Installed / replacement value for linked in-service assets at a site or
+   * organization. Same cost resolution as expected loss; no likelihood math.
+   */
+  installedValue: permissionProcedure("audit:view")
+    .input(installedValueInput.optional())
+    .query(async ({ ctx, input }) => {
+      const rows = await loadAssetValueRows(ctx, input)
+      return summarizeInstalledValue(rows, { siteId: input?.siteId })
     }),
 
   uptime: permissionProcedure("audit:view")
