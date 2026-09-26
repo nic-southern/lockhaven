@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  addMonthsToIsoDate,
   assetLabelQrPayload,
   fillEmptyAssetIdentity,
   initialAssetIdentityFromAgent,
@@ -14,8 +15,11 @@ import {
   parseIsoDate,
   parseMoney,
   parseSiteBulkCsv,
+  resolveAssetLifecycle,
+  retireMonthsToYears,
   suggestAssetTrackingTag,
   warrantyState,
+  yearsToRetireMonths,
 } from "./assets"
 
 test("normalizeSerial strips case, spaces, and hyphens", () => {
@@ -177,6 +181,90 @@ test("warrantyState windows expired, expiring, and current dates", () => {
   assert.equal(warrantyState("2026-08-30", now), "expiring")
   assert.equal(warrantyState("2026-09-01", now), "current")
   assert.equal(warrantyState("2026-07-01", now, 10), "current")
+})
+
+test("yearsToRetireMonths and addMonthsToIsoDate round-trip calendar months", () => {
+  assert.equal(yearsToRetireMonths(7), 84)
+  assert.equal(retireMonthsToYears(84), 7)
+  assert.equal(addMonthsToIsoDate("2019-01-15", 84), "2026-01-15")
+  assert.equal(addMonthsToIsoDate("2019-01-31", 1), "2019-02-28")
+})
+
+test("resolveAssetLifecycle inherits model purchase and retire-after", () => {
+  const now = new Date("2026-09-26T12:00:00.000Z")
+  const inherited = resolveAssetLifecycle(
+    {
+      status: "in_service",
+      purchaseDate: null,
+      retireAfterMonths: null,
+      retireOn: null,
+      modelDefaultPurchaseDate: "2019-01-15",
+      modelRetireAfterMonths: 84,
+    },
+    now
+  )
+  assert.equal(inherited.purchaseDate, "2019-01-15")
+  assert.equal(inherited.purchaseDateSource, "model")
+  assert.equal(inherited.retireAfterMonths, 84)
+  assert.equal(inherited.retireAfterMonthsSource, "model")
+  assert.equal(inherited.retireOn, "2026-01-15")
+  assert.equal(inherited.retireOnSource, "computed")
+  assert.equal(inherited.state, "retired")
+  assert.equal(inherited.showRetired, true)
+})
+
+test("resolveAssetLifecycle prefers asset overrides over model defaults", () => {
+  const now = new Date("2026-09-26T12:00:00.000Z")
+  const overridden = resolveAssetLifecycle(
+    {
+      status: "in_service",
+      purchaseDate: "2024-06-01",
+      retireAfterMonths: 36,
+      retireOn: null,
+      modelDefaultPurchaseDate: "2019-01-15",
+      modelRetireAfterMonths: 84,
+    },
+    now
+  )
+  assert.equal(overridden.purchaseDateSource, "asset")
+  assert.equal(overridden.retireAfterMonthsSource, "asset")
+  assert.equal(overridden.retireOn, "2027-06-01")
+  assert.equal(overridden.state, "in_service")
+  assert.equal(overridden.showRetired, false)
+
+  const explicit = resolveAssetLifecycle(
+    {
+      status: "in_service",
+      purchaseDate: "2024-06-01",
+      retireAfterMonths: 36,
+      retireOn: "2026-09-26",
+      modelDefaultPurchaseDate: "2019-01-15",
+      modelRetireAfterMonths: 84,
+    },
+    now
+  )
+  assert.equal(explicit.retireOnSource, "asset")
+  assert.equal(explicit.retireOn, "2026-09-26")
+  assert.equal(explicit.state, "retired")
+})
+
+test("resolveAssetLifecycle retired boundary is inclusive on retire-on day", () => {
+  const dayOf = new Date("2026-01-15T23:59:00.000Z")
+  const before = new Date("2026-01-14T12:00:00.000Z")
+  const base = {
+    status: "in_service" as const,
+    purchaseDate: "2019-01-15",
+    retireAfterMonths: 84,
+    retireOn: null,
+    modelDefaultPurchaseDate: null,
+    modelRetireAfterMonths: null,
+  }
+  assert.equal(resolveAssetLifecycle(base, dayOf).state, "retired")
+  assert.equal(resolveAssetLifecycle(base, before).state, "due")
+  assert.equal(
+    resolveAssetLifecycle(base, new Date("2025-01-15T12:00:00.000Z")).state,
+    "in_service"
+  )
 })
 
 test("parseCsv handles quotes, commas, and blank lines", () => {

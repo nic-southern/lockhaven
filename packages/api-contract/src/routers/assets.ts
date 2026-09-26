@@ -28,6 +28,8 @@ import {
   customFieldValuesSchema,
   deriveConnectivity,
   parseAssetBulkCsv,
+  resolveAssetLifecycle,
+  retireAfterMonthsSchema,
   warrantyState,
   type AssetStatus,
 } from "@nms/shared"
@@ -73,6 +75,8 @@ const assetWriteInput = z.object({
   purchaseDate: isoDateInput,
   purchaseCost: moneySchema,
   warrantyExpiresOn: isoDateInput,
+  retireAfterMonths: retireAfterMonthsSchema,
+  retireOn: isoDateInput,
   notes: z.string().trim().max(4000).nullable().optional(),
   customFields: customFieldValuesSchema.optional(),
 })
@@ -153,9 +157,22 @@ function publicAsset(
     deviceModelName?: string | null
     deviceModelManufacturer?: string | null
     deviceModelCode?: string | null
+    modelDefaultPurchaseDate?: string | null
+    modelRetireAfterMonths?: number | null
   }
 ) {
   const linked = Boolean(extras.deviceId)
+  const lifecycle = resolveAssetLifecycle(
+    {
+      status: row.status,
+      purchaseDate: row.purchaseDate,
+      retireAfterMonths: row.retireAfterMonths,
+      retireOn: row.retireOn,
+      modelDefaultPurchaseDate: extras.modelDefaultPurchaseDate ?? null,
+      modelRetireAfterMonths: extras.modelRetireAfterMonths ?? null,
+    },
+    new Date()
+  )
   return {
     ...row,
     siteName: extras.siteName,
@@ -165,6 +182,8 @@ function publicAsset(
     deviceModelName: extras.deviceModelName ?? null,
     deviceModelManufacturer: extras.deviceModelManufacturer ?? null,
     deviceModelCode: extras.deviceModelCode ?? null,
+    modelDefaultPurchaseDate: extras.modelDefaultPurchaseDate ?? null,
+    modelRetireAfterMonths: extras.modelRetireAfterMonths ?? null,
     managed: linked,
     presence: linked ? "managed" : "unmanaged",
     connectivity: linked
@@ -174,6 +193,7 @@ function publicAsset(
         })
       : null,
     warranty: warrantyState(row.warrantyExpiresOn, new Date()),
+    lifecycle,
   }
 }
 
@@ -191,6 +211,8 @@ function assetBase(ctx: ApiContext) {
       deviceModelName: deviceModels.name,
       deviceModelManufacturer: deviceModels.manufacturer,
       deviceModelCode: deviceModels.model,
+      modelDefaultPurchaseDate: deviceModels.defaultPurchaseDate,
+      modelRetireAfterMonths: deviceModels.retireAfterMonths,
     })
     .from(assets)
     .innerJoin(organizations, eq(organizations.id, assets.organizationId))
@@ -238,6 +260,8 @@ function rowExtras(row: {
   deviceModelName: string | null
   deviceModelManufacturer: string | null
   deviceModelCode: string | null
+  modelDefaultPurchaseDate: string | null
+  modelRetireAfterMonths: number | null
 }) {
   return {
     siteName: row.siteName,
@@ -250,6 +274,8 @@ function rowExtras(row: {
     deviceModelName: row.deviceModelName,
     deviceModelManufacturer: row.deviceModelManufacturer,
     deviceModelCode: row.deviceModelCode,
+    modelDefaultPurchaseDate: row.modelDefaultPurchaseDate,
+    modelRetireAfterMonths: row.modelRetireAfterMonths,
   }
 }
 
@@ -404,6 +430,8 @@ export const assetsRouter = createTRPCRouter({
             purchaseDate: input.purchaseDate ?? null,
             purchaseCost: input.purchaseCost ?? null,
             warrantyExpiresOn: input.warrantyExpiresOn ?? null,
+            retireAfterMonths: input.retireAfterMonths ?? null,
+            retireOn: input.retireOn ?? null,
             notes: emptyToNull(input.notes),
             customFields: input.customFields ?? {},
           })
@@ -488,6 +516,12 @@ export const assetsRouter = createTRPCRouter({
       }
       if (input.warrantyExpiresOn !== undefined) {
         patch.warrantyExpiresOn = input.warrantyExpiresOn
+      }
+      if (input.retireAfterMonths !== undefined) {
+        patch.retireAfterMonths = input.retireAfterMonths
+      }
+      if (input.retireOn !== undefined) {
+        patch.retireOn = input.retireOn
       }
       if (input.notes !== undefined) patch.notes = emptyToNull(input.notes)
       if (input.customFields !== undefined) {

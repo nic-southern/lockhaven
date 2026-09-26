@@ -4,6 +4,8 @@ import * as React from "react"
 import { toast } from "sonner"
 import { PlusIcon } from "lucide-react"
 
+import { retireMonthsToYears, yearsToRetireMonths } from "@nms/shared"
+
 import { AccessDenied } from "@/components/dashboard/access-denied"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { EmptyState } from "@/components/dashboard/empty-state"
@@ -33,6 +35,8 @@ type ModelForm = {
   notes: string
   purchaseCost: string
   replacementCost: string
+  defaultPurchaseDate: string
+  retireAfterYears: string
 }
 
 const emptyForm: ModelForm = {
@@ -42,6 +46,8 @@ const emptyForm: ModelForm = {
   notes: "",
   purchaseCost: "",
   replacementCost: "",
+  defaultPurchaseDate: "",
+  retireAfterYears: "",
 }
 
 function formatCost(value: string | null | undefined) {
@@ -57,6 +63,20 @@ function formatCost(value: string | null | undefined) {
 function costPayload(value: string) {
   const trimmed = value.trim()
   return trimmed ? trimmed : null
+}
+
+function yearsPayload(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const years = Number(trimmed)
+  if (!Number.isFinite(years) || years <= 0) return null
+  return yearsToRetireMonths(years)
+}
+
+function formatRetireAfter(months: number | null | undefined) {
+  const years = retireMonthsToYears(months)
+  if (years == null) return "—"
+  return `${years} year${years === 1 ? "" : "s"}`
 }
 
 export default function DeviceModelsPage() {
@@ -124,7 +144,7 @@ export default function DeviceModelsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Device models"
-        description="Organization catalog used when creating or linking assets. Set purchase and replacement costs for expected-loss reporting."
+        description="Organization catalog used when creating or linking assets. Set costs for expected loss, and purchase date plus retire-after so assigned assets inherit a retirement schedule."
       />
 
       <FormField label="Organization" htmlFor="device-model-org">
@@ -227,6 +247,39 @@ export default function DeviceModelsPage() {
                 placeholder="0.00"
               />
             </FormField>
+            <FormField
+              label="Default purchase date"
+              htmlFor="device-model-purchase-date"
+            >
+              <Input
+                id="device-model-purchase-date"
+                type="date"
+                value={form.defaultPurchaseDate}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    defaultPurchaseDate: event.target.value,
+                  }))
+                }
+              />
+            </FormField>
+            <FormField
+              label="Retire after (years)"
+              htmlFor="device-model-retire-years"
+            >
+              <Input
+                id="device-model-retire-years"
+                inputMode="decimal"
+                value={form.retireAfterYears}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    retireAfterYears: event.target.value,
+                  }))
+                }
+                placeholder="7"
+              />
+            </FormField>
           </div>
           <Button
             className="mt-4"
@@ -245,6 +298,8 @@ export default function DeviceModelsPage() {
                 notes: form.notes || null,
                 purchaseCost: costPayload(form.purchaseCost),
                 replacementCost: costPayload(form.replacementCost),
+                defaultPurchaseDate: form.defaultPurchaseDate || null,
+                retireAfterMonths: yearsPayload(form.retireAfterYears),
               })
             }
           >
@@ -288,6 +343,10 @@ export default function DeviceModelsPage() {
                     Purchase {formatCost(item.purchaseCost)} · Replacement{" "}
                     {formatCost(item.replacementCost)}
                   </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Purchase date {item.defaultPurchaseDate ?? "—"} · Retire
+                    after {formatRetireAfter(item.retireAfterMonths)}
+                  </p>
                 </div>
                 {canManage ? (
                   <div className="flex flex-wrap gap-2">
@@ -295,6 +354,9 @@ export default function DeviceModelsPage() {
                       variant="outline"
                       onClick={() => {
                         setEditingId(item.id)
+                        const years = retireMonthsToYears(
+                          item.retireAfterMonths
+                        )
                         setEditForm({
                           name: item.name,
                           manufacturer: item.manufacturer ?? "",
@@ -302,6 +364,8 @@ export default function DeviceModelsPage() {
                           notes: item.notes ?? "",
                           purchaseCost: item.purchaseCost ?? "",
                           replacementCost: item.replacementCost ?? "",
+                          defaultPurchaseDate: item.defaultPurchaseDate ?? "",
+                          retireAfterYears: years == null ? "" : String(years),
                         })
                       }}
                     >
@@ -331,7 +395,8 @@ export default function DeviceModelsPage() {
           <DialogHeader>
             <DialogTitle>Edit device model</DialogTitle>
             <DialogDescription>
-              Update catalog details and costs used for expected-loss totals.
+              Update catalog details, costs, and retire-after defaults for
+              assigned assets.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -415,6 +480,39 @@ export default function DeviceModelsPage() {
                 placeholder="0.00"
               />
             </FormField>
+            <FormField
+              label="Default purchase date"
+              htmlFor="edit-model-purchase-date"
+            >
+              <Input
+                id="edit-model-purchase-date"
+                type="date"
+                value={editForm.defaultPurchaseDate}
+                onChange={(event) =>
+                  setEditForm((current) => ({
+                    ...current,
+                    defaultPurchaseDate: event.target.value,
+                  }))
+                }
+              />
+            </FormField>
+            <FormField
+              label="Retire after (years)"
+              htmlFor="edit-model-retire-years"
+            >
+              <Input
+                id="edit-model-retire-years"
+                inputMode="decimal"
+                value={editForm.retireAfterYears}
+                onChange={(event) =>
+                  setEditForm((current) => ({
+                    ...current,
+                    retireAfterYears: event.target.value,
+                  }))
+                }
+                placeholder="7"
+              />
+            </FormField>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingId(null)}>
@@ -437,6 +535,8 @@ export default function DeviceModelsPage() {
                   notes: editForm.notes || null,
                   purchaseCost: costPayload(editForm.purchaseCost),
                   replacementCost: costPayload(editForm.replacementCost),
+                  defaultPurchaseDate: editForm.defaultPurchaseDate || null,
+                  retireAfterMonths: yearsPayload(editForm.retireAfterYears),
                 })
               }}
             >
