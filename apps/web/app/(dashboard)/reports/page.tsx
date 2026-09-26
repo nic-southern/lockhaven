@@ -7,8 +7,10 @@ import { DownloadIcon, PlusIcon, Trash2Icon } from "lucide-react"
 
 import {
   alertKindLabels,
+  DEFAULT_ARO_PER_YEAR,
   formatDurationMs,
   formatUptimeRatio,
+  likelihoodClasses,
   reportCadenceLabels,
   reportTypeLabels,
   utcDayEnd,
@@ -52,7 +54,17 @@ import { formatDate } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
 
-type ReportTab = ReportType
+type ReportTab = ReportType | "risk"
+
+function formatMoney(value: string | null | undefined) {
+  if (!value) return "—"
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return value
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+  }).format(amount)
+}
 
 function dateInputValue(date: Date) {
   return utcDayStart(date).toISOString().slice(0, 10)
@@ -134,6 +146,16 @@ export default function ReportsPage() {
   const [tab, setTab] = React.useState<ReportTab>("uptime")
   const [exporting, setExporting] = React.useState(false)
   const [scheduleOpen, setScheduleOpen] = React.useState(false)
+  const [aroPerYear, setAroPerYear] = React.useState(
+    String(DEFAULT_ARO_PER_YEAR)
+  )
+  const [likelihoodClassId, setLikelihoodClassId] =
+    React.useState<(typeof likelihoodClasses)[number]["id"]>("org_default")
+
+  const parsedAro = (() => {
+    const value = Number(aroPerYear)
+    return Number.isFinite(value) && value >= 0 ? value : DEFAULT_ARO_PER_YEAR
+  })()
 
   const rangeInput = {
     from,
@@ -158,6 +180,14 @@ export default function ReportsPage() {
   const accessQuery = trpc.reports.accessLog.useQuery(rangeInput, {
     enabled: allowed && tab === "access",
   })
+  const assetRiskQuery = trpc.reports.assetRisk.useQuery(
+    {
+      organizationId: organizationId || undefined,
+      siteId: siteId || undefined,
+      aroPerYear: parsedAro,
+    },
+    { enabled: allowed && tab === "risk" }
+  )
   const schedulesQuery = trpc.reports.schedules.useQuery(
     { organizationId },
     { enabled: canManage && Boolean(organizationId) }
@@ -185,6 +215,10 @@ export default function ReportsPage() {
   }
 
   async function downloadCsv() {
+    if (tab === "risk") {
+      toast.error("Download is not available for expected loss yet.")
+      return
+    }
     setExporting(true)
     try {
       const result = await utils.reports.export.fetch({
@@ -209,20 +243,21 @@ export default function ReportsPage() {
     (tab === "uptime" && uptimeQuery.isLoading) ||
     (tab === "sessions" && sessionsQuery.isLoading) ||
     (tab === "alerts" && alertsQuery.isLoading) ||
-    (tab === "access" && accessQuery.isLoading)
+    (tab === "access" && accessQuery.isLoading) ||
+    (tab === "risk" && assetRiskQuery.isLoading)
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         badge="Reports"
         title="Operations reports"
-        description="Uptime, sessions, alerts, and access for the selected period. Download a spreadsheet or email one on a schedule."
+        description="Uptime, sessions, alerts, access, and expected loss for linked assets. Download a spreadsheet or email one on a schedule."
         actions={
           <Button
             variant="outline"
             className="w-full sm:w-auto"
             onClick={() => void downloadCsv()}
-            disabled={!allowed || exporting}
+            disabled={!allowed || exporting || tab === "risk"}
           >
             <DownloadIcon />
             Download CSV
@@ -260,40 +295,75 @@ export default function ReportsPage() {
             placeholder="All sites"
           />
         </FormField>
-        <FormField label="From" htmlFor="report-from">
-          <Input
-            id="report-from"
-            type="date"
-            value={dateInputValue(from)}
-            onChange={(event) => setFrom(fromDateInput(event.target.value))}
-          />
-        </FormField>
-        <FormField label="To" htmlFor="report-to">
-          <Input
-            id="report-to"
-            type="date"
-            value={dateInputValue(new Date(to.getTime() - 1))}
-            onChange={(event) =>
-              setTo(utcDayEnd(fromDateInput(event.target.value)))
-            }
-          />
-        </FormField>
+        {tab === "risk" ? (
+          <>
+            <FormField label="Likelihood preset" htmlFor="report-likelihood">
+              <SelectField
+                id="report-likelihood"
+                value={likelihoodClassId}
+                onValueChange={(value) => {
+                  const next = likelihoodClasses.find(
+                    (entry) => entry.id === value
+                  )
+                  if (!next) return
+                  setLikelihoodClassId(next.id)
+                  setAroPerYear(String(next.aroPerYear))
+                }}
+                options={likelihoodClasses.map((entry) => ({
+                  value: entry.id,
+                  label: entry.label,
+                }))}
+              />
+            </FormField>
+            <FormField label="Likelihood per year" htmlFor="report-aro">
+              <Input
+                id="report-aro"
+                inputMode="decimal"
+                value={aroPerYear}
+                onChange={(event) => setAroPerYear(event.target.value)}
+              />
+            </FormField>
+          </>
+        ) : (
+          <>
+            <FormField label="From" htmlFor="report-from">
+              <Input
+                id="report-from"
+                type="date"
+                value={dateInputValue(from)}
+                onChange={(event) => setFrom(fromDateInput(event.target.value))}
+              />
+            </FormField>
+            <FormField label="To" htmlFor="report-to">
+              <Input
+                id="report-to"
+                type="date"
+                value={dateInputValue(new Date(to.getTime() - 1))}
+                onChange={(event) =>
+                  setTo(utcDayEnd(fromDateInput(event.target.value)))
+                }
+              />
+            </FormField>
+          </>
+        )}
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => applyPreset(7)}>
-          Last 7 days
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => applyPreset(30)}>
-          Last 30 days
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => applyPreset("month")}
-        >
-          This month
-        </Button>
-      </div>
+      {tab !== "risk" ? (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => applyPreset(7)}>
+            Last 7 days
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => applyPreset(30)}>
+            Last 30 days
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => applyPreset("month")}
+          >
+            This month
+          </Button>
+        </div>
+      ) : null}
 
       <Tabs value={tab} onValueChange={(value) => setTab(value as ReportTab)}>
         <TabsList variant="line">
@@ -301,6 +371,7 @@ export default function ReportsPage() {
           <TabsTrigger value="sessions">Sessions</TabsTrigger>
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
           <TabsTrigger value="access">Access log</TabsTrigger>
+          <TabsTrigger value="risk">Expected loss</TabsTrigger>
         </TabsList>
 
         <TabsContent value="uptime" className="flex flex-col gap-4 pt-4">
@@ -594,6 +665,99 @@ export default function ReportsPage() {
                 ]}
               />
             </SectionCard>
+          )}
+        </TabsContent>
+
+        <TabsContent value="risk" className="flex flex-col gap-4 pt-4">
+          {loading ? (
+            <Skeleton className="h-48 w-full" />
+          ) : (
+            <>
+              <StatStrip
+                items={[
+                  {
+                    label: "In service (linked)",
+                    value: assetRiskQuery.data?.inServiceLinkedCount ?? 0,
+                  },
+                  {
+                    label: "Replacement value",
+                    value: formatMoney(
+                      assetRiskQuery.data?.totalReplacementValue
+                    ),
+                  },
+                  {
+                    label: "Expected loss",
+                    value: formatMoney(assetRiskQuery.data?.totalExpectedLoss),
+                    hint: "Per event at current asset value",
+                  },
+                  {
+                    label: "Annual expected loss",
+                    value: formatMoney(
+                      assetRiskQuery.data?.totalAnnualExpectedLoss
+                    ),
+                    hint: `Likelihood ${parsedAro} per year`,
+                  },
+                ]}
+              />
+              {(assetRiskQuery.data?.noCostCount ?? 0) > 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {assetRiskQuery.data?.noCostCount} linked in-service asset
+                  {assetRiskQuery.data?.noCostCount === 1 ? "" : "s"} excluded —
+                  no cost set on the device model (or asset purchase cost).
+                </p>
+              ) : null}
+              <SectionCard
+                title="Linked in-service assets"
+                description="Expected loss uses replacement cost when set, then purchase cost. Set costs under Settings → Device models."
+              >
+                <ReportTable
+                  rows={assetRiskQuery.data?.lines ?? []}
+                  emptyTitle="No valued assets yet"
+                  emptyDescription="Link in-service assets to devices and set replacement or purchase cost on their device model."
+                  columns={[
+                    {
+                      header: "Tracking tag",
+                      cell: (index) =>
+                        assetRiskQuery.data?.lines[index]?.tag ?? "—",
+                    },
+                    {
+                      header: "Site",
+                      cell: (index) =>
+                        assetRiskQuery.data?.lines[index]?.siteName ??
+                        "Unassigned",
+                    },
+                    {
+                      header: "Model",
+                      cell: (index) =>
+                        assetRiskQuery.data?.lines[index]?.deviceModelName ??
+                        "—",
+                    },
+                    {
+                      header: "Asset value",
+                      className: "text-right",
+                      cell: (index) =>
+                        formatMoney(assetRiskQuery.data?.lines[index]?.value),
+                    },
+                    {
+                      header: "Expected loss",
+                      className: "text-right",
+                      cell: (index) =>
+                        formatMoney(
+                          assetRiskQuery.data?.lines[index]?.expectedLoss
+                        ),
+                    },
+                    {
+                      header: "Annual expected loss",
+                      className: "text-right",
+                      cell: (index) =>
+                        formatMoney(
+                          assetRiskQuery.data?.lines[index]?.annualExpectedLoss
+                        ),
+                    },
+                  ]}
+                />
+              </SectionCard>
+            </>
           )}
         </TabsContent>
       </Tabs>
