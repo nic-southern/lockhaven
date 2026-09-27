@@ -84,6 +84,7 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   agent_release_updated: "notice",
   agent_release_deleted: "notice",
   agent_channel_updated: "notice",
+  organization_updated: "notice",
   device_command_enqueued: "notice",
   playbook_created: "notice",
   playbook_updated: "notice",

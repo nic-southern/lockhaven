@@ -6,15 +6,20 @@ import { useParams, useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
 import {
   ArrowLeftIcon,
+  DownloadIcon,
   PlusIcon,
   PrinterIcon,
   SettingsIcon,
 } from "lucide-react"
 import { keepPreviousData } from "@tanstack/react-query"
 import { toast } from "sonner"
+import type { RowSelectionState } from "@tanstack/react-table"
 
 import {
   assetStatusLabels,
+  buildAssetLabelCsvRow,
+  DEFAULT_TRACKING_TAG_PREFIX,
+  formatAssetLabelCsv,
   suggestAssetTrackingTag,
   type AssetStatus,
 } from "@nms/shared"
@@ -38,7 +43,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ConnectivityBadge } from "@/components/devices/connectivity-badge"
 import { formatRelativeTime, statusLabel, statusVariant } from "@/lib/dashboard"
-import { osFamilyLabel } from "@/lib/devices"
+import { downloadTextFile, osFamilyLabel } from "@/lib/devices"
 import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
 import type { RouterOutputs } from "@/lib/trpc"
@@ -124,6 +129,9 @@ function SiteDetail() {
         canUpdateAssets && Boolean(site?.organizationId) && Boolean(siteId),
     }
   )
+  const organizationsQuery = trpc.organizations.list.useQuery(undefined, {
+    enabled: canUpdateAssets && Boolean(siteId),
+  })
 
   const [addOpen, setAddOpen] = React.useState(false)
   const [serial, setSerial] = React.useState("")
@@ -131,9 +139,15 @@ function SiteDetail() {
   const [hostname, setHostname] = React.useState("")
   const [deviceModelId, setDeviceModelId] = React.useState("")
   const [tagTouched, setTagTouched] = React.useState(false)
+  const [assetRowSelection, setAssetRowSelection] =
+    React.useState<RowSelectionState>({})
 
   const devices = devicesQuery.data?.items ?? []
   const assets = assetsQuery.data?.items ?? []
+  const trackingTagPrefix =
+    (organizationsQuery.data ?? []).find(
+      (organization) => organization.id === site?.organizationId
+    )?.trackingTagPrefix ?? DEFAULT_TRACKING_TAG_PREFIX
 
   const createAsset = trpc.assets.create.useMutation({
     async onSuccess(created) {
@@ -147,6 +161,7 @@ function SiteDetail() {
       setHostname("")
       setDeviceModelId("")
       setTagTouched(false)
+      setAssetRowSelection({})
       toast.success("Asset added", {
         action: {
           label: "Print label",
@@ -164,6 +179,7 @@ function SiteDetail() {
       deviceId: siteId,
       serialNumber: "",
       attempt: assets.length,
+      prefix: trackingTagPrefix,
     })
     setSerial("")
     setTag(suggested)
@@ -181,9 +197,43 @@ function SiteDetail() {
           deviceId: siteId,
           serialNumber: value.trim() || null,
           attempt: assets.length,
+          prefix: trackingTagPrefix,
         })
       )
     }
+  }
+
+  function exportLabelCsv(selectedIds?: string[]) {
+    const selected =
+      selectedIds && selectedIds.length > 0
+        ? assets.filter((asset) => selectedIds.includes(asset.id))
+        : assets
+    const rows = selected
+      .map((asset) =>
+        buildAssetLabelCsvRow({
+          tag: asset.tag,
+          serial: asset.serial,
+          siteName: asset.siteName ?? site?.name ?? null,
+          companyName: asset.organizationName ?? null,
+        })
+      )
+      .filter((row): row is NonNullable<typeof row> => row != null)
+    if (rows.length === 0) {
+      toast.error("No labels to export.")
+      return
+    }
+    const stamp = new Date().toISOString().slice(0, 10)
+    const siteSlug = (site?.name ?? "site")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+    downloadTextFile(
+      `asset-labels-${siteSlug || "site"}-${stamp}.csv`,
+      formatAssetLabelCsv(rows)
+    )
+    toast.success(
+      `Exported ${rows.length} ${rows.length === 1 ? "label" : "labels"}`
+    )
   }
 
   async function submitAddAsset() {
@@ -580,14 +630,24 @@ function SiteDetail() {
                 </Button>
               ) : null}
               {assets.length > 0 ? (
-                <Button variant="outline" size="sm" asChild>
-                  <Link
-                    href={`/assets/labels?ids=${assets.map((asset) => asset.id).join(",")}`}
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => exportLabelCsv()}
                   >
-                    <PrinterIcon />
-                    Print labels
-                  </Link>
-                </Button>
+                    <DownloadIcon />
+                    Export labels
+                  </Button>
+                  <Button variant="outline" size="sm" asChild>
+                    <Link
+                      href={`/assets/labels?ids=${assets.map((asset) => asset.id).join(",")}`}
+                    >
+                      <PrinterIcon />
+                      Print labels
+                    </Link>
+                  </Button>
+                </>
               ) : null}
             </div>
           }
@@ -618,6 +678,30 @@ function SiteDetail() {
               onRowClick={(row) => router.push(`/assets?id=${row.id}`)}
               emptyTitle="No assets at this site"
               emptyDescription="Assets show up here when they are linked to this location."
+              enableRowSelection
+              rowSelection={assetRowSelection}
+              onRowSelectionChange={setAssetRowSelection}
+              bulkActions={(selected) => {
+                const ids = selected.map((row) => row.original.id)
+                return (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => exportLabelCsv(ids)}
+                    >
+                      <DownloadIcon />
+                      Export labels
+                    </Button>
+                    <Button size="sm" variant="outline" asChild>
+                      <Link href={`/assets/labels?ids=${ids.join(",")}`}>
+                        <PrinterIcon />
+                        Print labels
+                      </Link>
+                    </Button>
+                  </>
+                )
+              }}
             />
           )}
         </SectionCard>
@@ -649,7 +733,7 @@ function SiteDetail() {
                 setTag(event.target.value)
               }}
               className="font-mono"
-              placeholder="LH-…"
+              placeholder={`${trackingTagPrefix}-…`}
             />
           </FormField>
           <FormField label="Host name" htmlFor="site-asset-hostname">

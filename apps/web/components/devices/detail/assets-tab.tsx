@@ -8,6 +8,7 @@ import { PrinterIcon } from "lucide-react"
 import {
   assetStatusLabels,
   suggestAssetTrackingTag,
+  DEFAULT_TRACKING_TAG_PREFIX,
   type AssetStatus,
 } from "@nms/shared"
 
@@ -39,18 +40,37 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
     { organizationId: device.organizationId },
     { enabled: canUpdate || Boolean(device.assetId) }
   )
+  const organizationsQuery = trpc.organizations.list.useQuery(undefined, {
+    enabled: canUpdate && !device.assetId,
+  })
+  const trackingTagPrefix =
+    (organizationsQuery.data ?? []).find(
+      (organization) => organization.id === device.organizationId
+    )?.trackingTagPrefix ?? DEFAULT_TRACKING_TAG_PREFIX
 
   const [creating, setCreating] = React.useState(false)
-  const [tag, setTag] = React.useState(() =>
-    suggestAssetTrackingTag({
-      deviceId: device.id,
-      hostname: device.hostname,
-      serialNumber: device.serialNumber,
-    })
-  )
+  const [tag, setTag] = React.useState("")
   const [deviceModelId, setDeviceModelId] = React.useState("")
   const [serial, setSerial] = React.useState(device.serialNumber ?? "")
   const [hostname, setHostname] = React.useState(device.hostname ?? "")
+
+  React.useEffect(() => {
+    if (device.assetId) return
+    setTag(
+      suggestAssetTrackingTag({
+        deviceId: device.id,
+        hostname: device.hostname,
+        serialNumber: device.serialNumber,
+        prefix: trackingTagPrefix,
+      })
+    )
+  }, [
+    device.assetId,
+    device.id,
+    device.hostname,
+    device.serialNumber,
+    trackingTagPrefix,
+  ])
 
   const createAsset = trpc.assets.create.useMutation()
   const linkDevice = trpc.assets.linkDevice.useMutation()

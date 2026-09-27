@@ -434,6 +434,7 @@ export const auditEventTypeSchema = z.enum([
   "user_password_reset_forced",
   "credential_revealed",
   "organization_created",
+  "organization_updated",
   "device_created",
   "device_updated",
   "device_site_assigned",
