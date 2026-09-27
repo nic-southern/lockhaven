@@ -4,6 +4,7 @@ import test from "node:test"
 import {
   addMonthsToIsoDate,
   assetLabelQrPayload,
+  buildAssetLabelPrintPayload,
   fillEmptyAssetIdentity,
   initialAssetIdentityFromAgent,
   matchAssetToDevice,
@@ -54,6 +55,27 @@ test("assetLabelQrPayload is plain text tag and optional serial", () => {
   assert.ok(
     !assetLabelQrPayload({ tag: "LH-1", serial: null }).includes("http")
   )
+})
+
+test("buildAssetLabelPrintPayload matches QR text and keeps site display-only", () => {
+  const payload = buildAssetLabelPrintPayload({
+    tag: "LH-7K2MPQ",
+    serial: "SN-100",
+    siteName: "Main floor",
+  })
+  assert.deepEqual(payload, {
+    version: 1,
+    tag: "LH-7K2MPQ",
+    serial: "SN-100",
+    qrText: "LH-7K2MPQ\nSN-100",
+    siteName: "Main floor",
+  })
+  assert.equal(buildAssetLabelPrintPayload({ tag: "  ", serial: "SN" }), null)
+  const bare = buildAssetLabelPrintPayload({ tag: "LH-7K2MPQ" })
+  assert.equal(bare?.serial, null)
+  assert.equal(bare?.siteName, null)
+  assert.equal(bare?.qrText, "LH-7K2MPQ")
+  assert.ok(!bare?.qrText.includes("Main"))
 })
 
 test("matchDeviceModel prefers manufacturer and model together", () => {

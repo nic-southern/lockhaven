@@ -4,9 +4,9 @@ import * as React from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { QRCodeSVG } from "qrcode.react"
-import { ArrowLeftIcon, PrinterIcon } from "lucide-react"
+import { ArrowLeftIcon, DownloadIcon, PrinterIcon } from "lucide-react"
 
-import { assetLabelQrPayload } from "@nms/shared"
+import { buildAssetLabelPrintPayload } from "@nms/shared"
 
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { Button } from "@/components/ui/button"
@@ -33,11 +33,14 @@ function AssetLabelCard({
   tag: string
   serial: string | null
 }) {
-  const payload = assetLabelQrPayload({ tag, serial })
+  const payload = buildAssetLabelPrintPayload({ tag, serial })
+  const qrText = payload?.qrText ?? ""
   return (
     <div className="asset-label break-inside-avoid rounded-md border border-black bg-white p-4 text-black">
       <div className="flex items-center gap-4">
-        <QRCodeSVG value={payload} size={112} level="M" marginSize={0} />
+        {qrText ? (
+          <QRCodeSVG value={qrText} size={112} level="M" marginSize={0} />
+        ) : null}
         <div className="flex min-w-0 flex-col gap-1">
           <p className="text-xs tracking-wide text-neutral-600 uppercase">
             Tracking tag
@@ -57,6 +60,34 @@ function AssetLabelCard({
       </div>
     </div>
   )
+}
+
+function downloadLabelPayload(
+  items: { tag: string; serial: string | null; siteName: string | null }[]
+) {
+  const labels = items
+    .map((item) =>
+      buildAssetLabelPrintPayload({
+        tag: item.tag,
+        serial: item.serial,
+        siteName: item.siteName,
+      })
+    )
+    .filter((entry): entry is NonNullable<typeof entry> => entry != null)
+  if (labels.length === 0) return
+  const blob = new Blob([JSON.stringify({ version: 1, labels }, null, 2)], {
+    type: "application/json",
+  })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  const stamp = new Date().toISOString().slice(0, 10)
+  anchor.href = url
+  anchor.download =
+    labels.length === 1
+      ? `asset-label-${labels[0].tag}.json`
+      : `asset-labels-${stamp}.json`
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 function LabelsBody() {
@@ -124,10 +155,28 @@ function LabelsBody() {
             text. The same values are printed beside it.
           </p>
         </div>
-        <Button onClick={() => window.print()}>
-          <PrinterIcon />
-          Print
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            disabled={items.length === 0}
+            onClick={() =>
+              downloadLabelPayload(
+                items.map((item) => ({
+                  tag: item.tag,
+                  serial: item.serial,
+                  siteName: item.siteName ?? null,
+                }))
+              )
+            }
+          >
+            <DownloadIcon />
+            Download label data
+          </Button>
+          <Button onClick={() => window.print()}>
+            <PrinterIcon />
+            Print
+          </Button>
+        </div>
       </div>
 
       {pageQuery.isLoading ? (

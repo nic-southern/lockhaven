@@ -439,6 +439,41 @@ export function assetLabelQrPayload(input: {
   return serial ? `${tag}\n${serial}` : tag
 }
 
+/**
+ * Versioned label data for browser print and local tape helpers. QR text matches
+ * `assetLabelQrPayload`. Optional site name is display-only (not in the QR).
+ */
+export const assetLabelPrintPayloadSchema = z.object({
+  version: z.literal(1),
+  tag: z.string().trim().min(1).max(80),
+  serial: z.string().trim().min(1).max(120).nullable(),
+  qrText: z.string().trim().min(1).max(220),
+  siteName: z.string().trim().min(1).max(120).nullable(),
+})
+
+export type AssetLabelPrintPayload = z.infer<
+  typeof assetLabelPrintPayloadSchema
+>
+
+export function buildAssetLabelPrintPayload(input: {
+  tag: string
+  serial?: string | null
+  siteName?: string | null
+}): AssetLabelPrintPayload | null {
+  const tag = blankToNull(input.tag)
+  if (!tag) return null
+  const serial = blankToNull(input.serial)
+  const qrText = assetLabelQrPayload({ tag, serial })
+  if (!qrText) return null
+  return assetLabelPrintPayloadSchema.parse({
+    version: 1,
+    tag,
+    serial,
+    qrText,
+    siteName: blankToNull(input.siteName),
+  })
+}
+
 export const deviceModelInputSchema = z.object({
   organizationId: z.string().uuid(),
   name: z.string().trim().min(1).max(80),
