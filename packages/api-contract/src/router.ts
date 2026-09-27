@@ -111,6 +111,7 @@ import {
   siteBusinessHoursSchema,
   siteContactSchema,
   siteRoles,
+  trackingTagPrefixSchema,
   type ServiceType,
 } from "@nms/shared"
 import { recordingPathForConnection } from "@nms/shared/session-recording"
@@ -595,6 +596,13 @@ const serviceTypes = ["vnc", "rdp", "ssh", "winrm_https"] as const
 
 const organizationCreateInput = z.object({
   name: z.string().min(1),
+  trackingTagPrefix: trackingTagPrefixSchema.optional(),
+})
+
+const organizationUpdateInput = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(120).optional(),
+  trackingTagPrefix: trackingTagPrefixSchema.optional(),
 })
 
 const siteCreateInput = z.object({
@@ -1097,13 +1105,70 @@ export const appRouter = createTRPCRouter({
 
         const [record] = await ctx.db
           .insert(organizations)
-          .values({ name: input.name })
+          .values({
+            name: input.name,
+            ...(input.trackingTagPrefix
+              ? { trackingTagPrefix: input.trackingTagPrefix }
+              : {}),
+          })
           .returning()
 
         await writeAuditEvent(ctx, {
           organizationId: record.id,
           eventType: "organization_created",
-          eventData: { organizationId: record.id, name: record.name },
+          eventData: {
+            organizationId: record.id,
+            name: record.name,
+            trackingTagPrefix: record.trackingTagPrefix,
+          },
+        })
+
+        return record
+      }),
+    update: adminProcedure
+      .input(organizationUpdateInput)
+      .mutation(async ({ ctx, input }) => {
+        assertAuthorized(ctx.actor, "organization:admin", {
+          kind: "organization",
+          organizationId: input.id,
+        })
+
+        const [existing] = await ctx.db
+          .select()
+          .from(organizations)
+          .where(eq(organizations.id, input.id))
+        if (!existing) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        if (input.name === undefined && input.trackingTagPrefix === undefined) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Nothing to update.",
+          })
+        }
+
+        const [record] = await ctx.db
+          .update(organizations)
+          .set({
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.trackingTagPrefix !== undefined
+              ? { trackingTagPrefix: input.trackingTagPrefix }
+              : {}),
+          })
+          .where(eq(organizations.id, input.id))
+          .returning()
+
+        await writeAuditEvent(ctx, {
+          organizationId: record.id,
+          eventType: "organization_updated",
+          eventData: {
+            organizationId: record.id,
+            name: record.name,
+            trackingTagPrefix: record.trackingTagPrefix,
+            previousName: existing.name,
+            previousTrackingTagPrefix: existing.trackingTagPrefix,
+          },
         })
 
         return record

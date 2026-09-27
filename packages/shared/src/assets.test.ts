@@ -4,13 +4,16 @@ import test from "node:test"
 import {
   addMonthsToIsoDate,
   assetLabelQrPayload,
+  buildAssetLabelCsvRow,
   buildAssetLabelPrintPayload,
   fillEmptyAssetIdentity,
+  formatAssetLabelCsv,
   initialAssetIdentityFromAgent,
   matchAssetToDevice,
   matchDeviceModel,
   normalizeSerial,
   parseAssetBulkCsv,
+  parseAssetLabelCsv,
   parseCsv,
   parseDeviceBulkCsv,
   parseIsoDate,
@@ -45,6 +48,16 @@ test("suggestAssetTrackingTag is short and stable for the same seed", () => {
   assert.notEqual(first, "SN-LONG-SMBIOS-VALUE")
 })
 
+test("suggestAssetTrackingTag honors a custom prefix", () => {
+  const tag = suggestAssetTrackingTag({
+    deviceId: "11111111-1111-4111-8111-111111111111",
+    hostname: "kiosk-01",
+    serialNumber: "SN-100",
+    prefix: "nme",
+  })
+  assert.match(tag, /^NME-[0-9A-Z]{6}$/)
+})
+
 test("assetLabelQrPayload is plain text tag and optional serial", () => {
   assert.equal(assetLabelQrPayload({ tag: "LH-7K2MPQ" }), "LH-7K2MPQ")
   assert.equal(
@@ -57,11 +70,12 @@ test("assetLabelQrPayload is plain text tag and optional serial", () => {
   )
 })
 
-test("buildAssetLabelPrintPayload matches QR text and keeps site display-only", () => {
+test("buildAssetLabelPrintPayload matches QR text and keeps display-only fields out of QR", () => {
   const payload = buildAssetLabelPrintPayload({
     tag: "LH-7K2MPQ",
     serial: "SN-100",
     siteName: "Main floor",
+    companyName: "NewMarketEntertainment",
   })
   assert.deepEqual(payload, {
     version: 1,
@@ -69,13 +83,31 @@ test("buildAssetLabelPrintPayload matches QR text and keeps site display-only", 
     serial: "SN-100",
     qrText: "LH-7K2MPQ\nSN-100",
     siteName: "Main floor",
+    companyName: "NewMarketEntertainment",
   })
   assert.equal(buildAssetLabelPrintPayload({ tag: "  ", serial: "SN" }), null)
   const bare = buildAssetLabelPrintPayload({ tag: "LH-7K2MPQ" })
   assert.equal(bare?.serial, null)
   assert.equal(bare?.siteName, null)
+  assert.equal(bare?.companyName, null)
   assert.equal(bare?.qrText, "LH-7K2MPQ")
   assert.ok(!bare?.qrText.includes("Main"))
+  assert.ok(!bare?.qrText.includes("NewMarket"))
+})
+
+test("formatAssetLabelCsv and parseAssetLabelCsv round-trip schema v1", () => {
+  const row = buildAssetLabelCsvRow({
+    tag: "NME-7K2MPQ",
+    serial: "SN-100",
+    companyName: "NewMarketEntertainment",
+    siteName: "Floor A",
+  })
+  assert.ok(row)
+  const csv = formatAssetLabelCsv([row!])
+  assert.match(csv, /^schema_version,tag,serial,company_name,qr_text,site_name/)
+  const parsed = parseAssetLabelCsv(csv)
+  assert.equal(parsed.errors.length, 0)
+  assert.deepEqual(parsed.rows, [row])
 })
 
 test("matchDeviceModel prefers manufacturer and model together", () => {

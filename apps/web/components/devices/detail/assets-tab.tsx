@@ -8,6 +8,7 @@ import { PrinterIcon } from "lucide-react"
 import {
   assetStatusLabels,
   suggestAssetTrackingTag,
+  DEFAULT_TRACKING_TAG_PREFIX,
   type AssetStatus,
 } from "@nms/shared"
 
@@ -39,18 +40,27 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
     { organizationId: device.organizationId },
     { enabled: canUpdate || Boolean(device.assetId) }
   )
+  const organizationsQuery = trpc.organizations.list.useQuery(undefined, {
+    enabled: canUpdate && !device.assetId,
+  })
+  const trackingTagPrefix =
+    (organizationsQuery.data ?? []).find(
+      (organization) => organization.id === device.organizationId
+    )?.trackingTagPrefix ?? DEFAULT_TRACKING_TAG_PREFIX
+
+  const suggestedTag = suggestAssetTrackingTag({
+    deviceId: device.id,
+    hostname: device.hostname,
+    serialNumber: device.serialNumber,
+    prefix: trackingTagPrefix,
+  })
 
   const [creating, setCreating] = React.useState(false)
-  const [tag, setTag] = React.useState(() =>
-    suggestAssetTrackingTag({
-      deviceId: device.id,
-      hostname: device.hostname,
-      serialNumber: device.serialNumber,
-    })
-  )
+  const [tagOverride, setTagOverride] = React.useState<string | null>(null)
   const [deviceModelId, setDeviceModelId] = React.useState("")
   const [serial, setSerial] = React.useState(device.serialNumber ?? "")
   const [hostname, setHostname] = React.useState(device.hostname ?? "")
+  const tag = tagOverride ?? suggestedTag
 
   const createAsset = trpc.assets.create.useMutation()
   const linkDevice = trpc.assets.linkDevice.useMutation()
@@ -216,7 +226,7 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
               <Input
                 id="create-asset-tag"
                 value={tag}
-                onChange={(event) => setTag(event.target.value)}
+                onChange={(event) => setTagOverride(event.target.value)}
                 className="font-mono"
               />
             </FormField>

@@ -29,11 +29,13 @@ function parseIds(raw: string | null) {
 function AssetLabelCard({
   tag,
   serial,
+  companyName,
 }: {
   tag: string
   serial: string | null
+  companyName: string | null
 }) {
-  const payload = buildAssetLabelPrintPayload({ tag, serial })
+  const payload = buildAssetLabelPrintPayload({ tag, serial, companyName })
   const qrText = payload?.qrText ?? ""
   return (
     <div className="asset-label break-inside-avoid rounded-md border border-black bg-white p-4 text-black">
@@ -56,6 +58,14 @@ function AssetLabelCard({
               <p className="font-mono text-sm break-all">{serial}</p>
             </>
           ) : null}
+          {companyName ? (
+            <>
+              <p className="mt-2 text-xs tracking-wide text-neutral-600 uppercase">
+                Company
+              </p>
+              <p className="text-sm break-all">{companyName}</p>
+            </>
+          ) : null}
         </div>
       </div>
     </div>
@@ -63,7 +73,12 @@ function AssetLabelCard({
 }
 
 function downloadLabelPayload(
-  items: { tag: string; serial: string | null; siteName: string | null }[]
+  items: {
+    tag: string
+    serial: string | null
+    siteName: string | null
+    companyName: string | null
+  }[]
 ) {
   const labels = items
     .map((item) =>
@@ -71,6 +86,7 @@ function downloadLabelPayload(
         tag: item.tag,
         serial: item.serial,
         siteName: item.siteName,
+        companyName: item.companyName,
       })
     )
     .filter((entry): entry is NonNullable<typeof entry> => entry != null)
@@ -165,6 +181,7 @@ function LabelsBody() {
                   tag: item.tag,
                   serial: item.serial,
                   siteName: item.siteName ?? null,
+                  companyName: item.organizationName ?? null,
                 }))
               )
             }
@@ -189,7 +206,12 @@ function LabelsBody() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 print:grid-cols-2">
           {items.map((item) => (
-            <AssetLabelCard key={item.id} tag={item.tag} serial={item.serial} />
+            <AssetLabelCard
+              key={item.id}
+              tag={item.tag}
+              serial={item.serial}
+              companyName={item.organizationName ?? null}
+            />
           ))}
         </div>
       )}

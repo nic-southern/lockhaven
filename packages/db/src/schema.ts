@@ -87,6 +87,8 @@ export const organizations = pgTable("organizations", {
     .$type<AgentChannel>()
     .notNull()
     .default("stable"),
+  /** Prefix for generated asset tracking tags (`LH-…`, `NME-…`). */
+  trackingTagPrefix: text("tracking_tag_prefix").notNull().default("LH"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

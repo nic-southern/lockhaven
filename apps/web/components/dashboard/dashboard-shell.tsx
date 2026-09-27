@@ -273,6 +273,13 @@ const navSections: NavSection[] = [
         scopes: ["admin"],
       },
       {
+        href: "/settings/labels",
+        label: "Labels",
+        icon: TagIcon,
+        permissions: ["organization:admin"],
+        scopes: ["admin"],
+      },
+      {
         href: "/system",
         label: "System",
         icon: ServerIcon,

@@ -274,7 +274,31 @@ function isBlank(value: string | null | undefined) {
  */
 const TRACKING_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 
-export function generateTrackingTag(seed: string, length = 6): string {
+/** Default prefix for generated tags (`LH-7K2MPQ`). Override per organization. */
+export const DEFAULT_TRACKING_TAG_PREFIX = "LH"
+
+/**
+ * Org tracking-tag prefix: 1–8 alphanumeric characters, stored uppercase.
+ * Separated from the body with a hyphen (`NME-7K2MPQ`).
+ */
+export const trackingTagPrefixSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9]{1,8}$/, "Prefix must be 1–8 letters or numbers.")
+  .transform((value) => value.toUpperCase())
+
+export function normalizeTrackingTagPrefix(
+  value: string | null | undefined
+): string {
+  const parsed = trackingTagPrefixSchema.safeParse(value ?? "")
+  return parsed.success ? parsed.data : DEFAULT_TRACKING_TAG_PREFIX
+}
+
+export function generateTrackingTag(
+  seed: string,
+  length = 6,
+  prefix: string = DEFAULT_TRACKING_TAG_PREFIX
+): string {
   let hash = 2166136261
   for (let index = 0; index < seed.length; index += 1) {
     hash ^= seed.charCodeAt(index)
@@ -287,7 +311,7 @@ export function generateTrackingTag(seed: string, length = 6): string {
     value = Math.floor(value / TRACKING_ALPHABET.length)
     if (value === 0) value = hash >>> (index + 1) || 1
   }
-  return `LH-${body}`
+  return `${normalizeTrackingTagPrefix(prefix)}-${body}`
 }
 
 export function suggestAssetTrackingTag(input: {
@@ -295,6 +319,7 @@ export function suggestAssetTrackingTag(input: {
   hostname?: string | null
   serialNumber?: string | null
   attempt?: number
+  prefix?: string | null
 }) {
   const attempt = input.attempt ?? 0
   const seed = [
@@ -303,7 +328,11 @@ export function suggestAssetTrackingTag(input: {
     input.serialNumber ?? "",
     String(attempt),
   ].join("|")
-  return generateTrackingTag(seed, 6)
+  return generateTrackingTag(
+    seed,
+    6,
+    input.prefix ?? DEFAULT_TRACKING_TAG_PREFIX
+  )
 }
 
 export type AgentReportedAssetIdentity = {
@@ -441,7 +470,7 @@ export function assetLabelQrPayload(input: {
 
 /**
  * Versioned label data for browser print and local tape helpers. QR text matches
- * `assetLabelQrPayload`. Optional site name is display-only (not in the QR).
+ * `assetLabelQrPayload`. Company and site names are display-only (not in the QR).
  */
 export const assetLabelPrintPayloadSchema = z.object({
   version: z.literal(1),
@@ -449,6 +478,7 @@ export const assetLabelPrintPayloadSchema = z.object({
   serial: z.string().trim().min(1).max(120).nullable(),
   qrText: z.string().trim().min(1).max(220),
   siteName: z.string().trim().min(1).max(120).nullable(),
+  companyName: z.string().trim().min(1).max(120).nullable(),
 })
 
 export type AssetLabelPrintPayload = z.infer<
@@ -459,6 +489,7 @@ export function buildAssetLabelPrintPayload(input: {
   tag: string
   serial?: string | null
   siteName?: string | null
+  companyName?: string | null
 }): AssetLabelPrintPayload | null {
   const tag = blankToNull(input.tag)
   if (!tag) return null
@@ -471,7 +502,132 @@ export function buildAssetLabelPrintPayload(input: {
     serial,
     qrText,
     siteName: blankToNull(input.siteName),
+    companyName: blankToNull(input.companyName),
   })
+}
+
+/**
+ * Stable CSV schema for local tape helpers (e.g. Brother P-touch via
+ * `scripts/print-asset-labels.sh`). Bump `ASSET_LABEL_CSV_SCHEMA_VERSION` and
+ * document column changes when extending.
+ */
+export const ASSET_LABEL_CSV_SCHEMA_VERSION = 1 as const
+
+export const assetLabelCsvColumnKeys = [
+  "schema_version",
+  "tag",
+  "serial",
+  "company_name",
+  "qr_text",
+  "site_name",
+] as const
+
+export type AssetLabelCsvColumnKey = (typeof assetLabelCsvColumnKeys)[number]
+
+export type AssetLabelCsvRow = {
+  schemaVersion: typeof ASSET_LABEL_CSV_SCHEMA_VERSION
+  tag: string
+  serial: string | null
+  companyName: string | null
+  qrText: string
+  siteName: string | null
+}
+
+export function buildAssetLabelCsvRow(input: {
+  tag: string
+  serial?: string | null
+  siteName?: string | null
+  companyName?: string | null
+}): AssetLabelCsvRow | null {
+  const payload = buildAssetLabelPrintPayload(input)
+  if (!payload) return null
+  return {
+    schemaVersion: ASSET_LABEL_CSV_SCHEMA_VERSION,
+    tag: payload.tag,
+    serial: payload.serial,
+    companyName: payload.companyName,
+    qrText: payload.qrText,
+    siteName: payload.siteName,
+  }
+}
+
+function escapeAssetLabelCsvCell(value: unknown) {
+  if (value === null || value === undefined) return ""
+  const text = String(value)
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+export function formatAssetLabelCsv(rows: readonly AssetLabelCsvRow[]): string {
+  const header = assetLabelCsvColumnKeys.join(",")
+  const lines = rows.map((row) =>
+    [
+      row.schemaVersion,
+      row.tag,
+      row.serial ?? "",
+      row.companyName ?? "",
+      row.qrText,
+      row.siteName ?? "",
+    ]
+      .map(escapeAssetLabelCsvCell)
+      .join(",")
+  )
+  return `${[header, ...lines].join("\r\n")}\r\n`
+}
+
+export function parseAssetLabelCsv(text: string): {
+  rows: AssetLabelCsvRow[]
+  errors: Array<{ row: number; message: string }>
+} {
+  const { headers, rows: rawRows } = parseCsv(text)
+  const normalizedHeaders = headers.map(normalizeCsvHeader)
+  const errors: Array<{ row: number; message: string }> = []
+  const required = ["schema_version", "tag", "qr_text"] as const
+  for (const key of required) {
+    if (!normalizedHeaders.includes(key)) {
+      return {
+        rows: [],
+        errors: [
+          {
+            row: 0,
+            message: `Missing required column "${key}".`,
+          },
+        ],
+      }
+    }
+  }
+
+  const rows: AssetLabelCsvRow[] = []
+  rawRows.forEach((record, index) => {
+    const rowNumber = index + 2
+    const versionRaw = blankToNull(record.schema_version)
+    const version = versionRaw ? Number(versionRaw) : NaN
+    if (version !== ASSET_LABEL_CSV_SCHEMA_VERSION) {
+      errors.push({
+        row: rowNumber,
+        message: `Unsupported schema_version "${versionRaw ?? ""}".`,
+      })
+      return
+    }
+    const tag = blankToNull(record.tag)
+    const qrText = blankToNull(record.qr_text)
+    if (!tag || !qrText) {
+      errors.push({
+        row: rowNumber,
+        message: "Each row needs a tracking tag and QR text.",
+      })
+      return
+    }
+    rows.push({
+      schemaVersion: ASSET_LABEL_CSV_SCHEMA_VERSION,
+      tag,
+      serial: blankToNull(record.serial),
+      companyName: blankToNull(record.company_name),
+      qrText,
+      siteName: blankToNull(record.site_name),
+    })
+  })
+
+  return { rows, errors }
 }
 
 export const deviceModelInputSchema = z.object({

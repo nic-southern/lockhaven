@@ -1,6 +1,12 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 
-import { assets, auditEvents, deviceModels, devices } from "@nms/db"
+import {
+  assets,
+  auditEvents,
+  deviceModels,
+  devices,
+  organizations,
+} from "@nms/db"
 import { db } from "@nms/db/client"
 import {
   fillEmptyAssetIdentity,
@@ -86,12 +92,20 @@ async function allocateTrackingTag(
   device: LinkableDevice,
   reported: AgentReportedAssetIdentity
 ) {
+  const [organization] = await client
+    .select({ trackingTagPrefix: organizations.trackingTagPrefix })
+    .from(organizations)
+    .where(eq(organizations.id, device.organizationId))
+    .limit(1)
+  const prefix = organization?.trackingTagPrefix
+
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const tag = suggestAssetTrackingTag({
       deviceId: device.id,
       hostname: reported.hostname,
       serialNumber: reported.serialNumber,
       attempt,
+      prefix,
     })
     const [existing] = await client
       .select({ id: assets.id })
@@ -110,6 +124,7 @@ async function allocateTrackingTag(
     hostname: reported.hostname,
     serialNumber: `${Date.now()}`,
     attempt: 99,
+    prefix,
   })
 }
 
@@ -147,8 +162,9 @@ export function omitTakenSerialFromPatch<T extends { serial?: string | null }>(
   taken: boolean
 ): T {
   if (!taken || patch.serial == null) return patch
-  const { serial: _serial, ...rest } = patch
-  return rest as T
+  const rest = { ...patch }
+  delete rest.serial
+  return rest
 }
 
 async function fillLinkedAsset(
