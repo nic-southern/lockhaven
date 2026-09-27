@@ -4,23 +4,37 @@ import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { ArrowLeftIcon, PrinterIcon, SettingsIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  PlusIcon,
+  PrinterIcon,
+  SettingsIcon,
+} from "lucide-react"
 import { keepPreviousData } from "@tanstack/react-query"
+import { toast } from "sonner"
 
-import { assetStatusLabels, type AssetStatus } from "@nms/shared"
+import {
+  assetStatusLabels,
+  suggestAssetTrackingTag,
+  type AssetStatus,
+} from "@nms/shared"
 
 import { AccessDenied } from "@/components/dashboard/access-denied"
 import {
   DataTable,
   DataTableColumnHeader,
 } from "@/components/dashboard/data-table"
+import { DetailSheet } from "@/components/dashboard/detail-sheet"
 import { EmptyState } from "@/components/dashboard/empty-state"
+import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
+import { SelectField } from "@/components/dashboard/select-field"
 import { StatStrip } from "@/components/dashboard/stat-strip"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ConnectivityBadge } from "@/components/devices/connectivity-badge"
 import { formatRelativeTime, statusLabel, statusVariant } from "@/lib/dashboard"
@@ -66,8 +80,10 @@ function SiteDetail() {
   const siteId = params.id
   const { can, isLoading: permissionsLoading } = usePermissions()
   const canViewDevices = can("device:view")
+  const canUpdateAssets = can("device:update")
   const canViewValue = can("audit:view")
   const canManageSite = can("site:admin") || can("organization:admin")
+  const utils = trpc.useUtils()
 
   const sitesQuery = trpc.sites.list.useQuery(undefined, {
     enabled: !permissionsLoading,
@@ -101,9 +117,89 @@ function SiteDetail() {
       enabled: canViewValue && Boolean(siteId),
     }
   )
+  const modelsQuery = trpc.deviceModels.list.useQuery(
+    { organizationId: site?.organizationId ?? "" },
+    {
+      enabled:
+        canUpdateAssets && Boolean(site?.organizationId) && Boolean(siteId),
+    }
+  )
+
+  const [addOpen, setAddOpen] = React.useState(false)
+  const [serial, setSerial] = React.useState("")
+  const [tag, setTag] = React.useState("")
+  const [hostname, setHostname] = React.useState("")
+  const [deviceModelId, setDeviceModelId] = React.useState("")
+  const [tagTouched, setTagTouched] = React.useState(false)
 
   const devices = devicesQuery.data?.items ?? []
   const assets = assetsQuery.data?.items ?? []
+
+  const createAsset = trpc.assets.create.useMutation({
+    async onSuccess(created) {
+      await Promise.all([
+        utils.assets.page.invalidate(),
+        utils.reports.installedValue.invalidate({ siteId }),
+      ])
+      setAddOpen(false)
+      setSerial("")
+      setTag("")
+      setHostname("")
+      setDeviceModelId("")
+      setTagTouched(false)
+      toast.success("Asset added", {
+        action: {
+          label: "Print label",
+          onClick: () => router.push(`/assets/labels?ids=${created.id}`),
+        },
+      })
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't add the asset.")
+    },
+  })
+
+  function openAddAsset() {
+    const suggested = suggestAssetTrackingTag({
+      deviceId: siteId,
+      serialNumber: "",
+      attempt: assets.length,
+    })
+    setSerial("")
+    setTag(suggested)
+    setHostname("")
+    setDeviceModelId("")
+    setTagTouched(false)
+    setAddOpen(true)
+  }
+
+  function onSerialChange(value: string) {
+    setSerial(value)
+    if (!tagTouched) {
+      setTag(
+        suggestAssetTrackingTag({
+          deviceId: siteId,
+          serialNumber: value.trim() || null,
+          attempt: assets.length,
+        })
+      )
+    }
+  }
+
+  async function submitAddAsset() {
+    if (!site) return
+    const trimmedTag = tag.trim()
+    if (!trimmedTag) return
+    await createAsset.mutateAsync({
+      organizationId: site.organizationId,
+      siteId: site.id,
+      deviceModelId: deviceModelId || null,
+      tag: trimmedTag,
+      serial: serial.trim() || null,
+      hostname: hostname.trim() || null,
+      status: "in_service" satisfies AssetStatus,
+    })
+  }
 
   const deviceColumns = React.useMemo<ColumnDef<DeviceRow>[]>(
     () => [
@@ -476,16 +572,24 @@ function SiteDetail() {
           description="Assets linked to this location, including tracking tags from the agent."
           contentClassName="gap-4"
           actions={
-            assets.length > 0 ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link
-                  href={`/assets/labels?ids=${assets.map((asset) => asset.id).join(",")}`}
-                >
-                  <PrinterIcon />
-                  Print labels
-                </Link>
-              </Button>
-            ) : null
+            <div className="flex flex-wrap gap-2">
+              {canUpdateAssets ? (
+                <Button size="sm" onClick={openAddAsset}>
+                  <PlusIcon />
+                  Add asset
+                </Button>
+              ) : null}
+              {assets.length > 0 ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link
+                    href={`/assets/labels?ids=${assets.map((asset) => asset.id).join(",")}`}
+                  >
+                    <PrinterIcon />
+                    Print labels
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
           }
         >
           {assetsQuery.isLoading ? (
@@ -493,8 +597,16 @@ function SiteDetail() {
           ) : assets.length === 0 ? (
             <EmptyState
               title="No assets at this site"
-              description="Assets show up here when they are linked to this location, or when a device at this site creates one on check-in."
+              description="Add an asset with its serial to start a tracking tag, or wait for a device at this site to create one on check-in."
               bordered={false}
+              action={
+                canUpdateAssets ? (
+                  <Button onClick={openAddAsset}>
+                    <PlusIcon />
+                    Add asset
+                  </Button>
+                ) : undefined
+              }
             />
           ) : (
             <DataTable
@@ -510,6 +622,67 @@ function SiteDetail() {
           )}
         </SectionCard>
       ) : null}
+
+      <DetailSheet
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        title="Add asset"
+        description="Record hardware at this site, then print its tracking tag."
+        className="sm:max-w-lg"
+      >
+        <div className="grid gap-4">
+          <FormField label="Serial" htmlFor="site-asset-serial">
+            <Input
+              id="site-asset-serial"
+              value={serial}
+              onChange={(event) => onSerialChange(event.target.value)}
+              placeholder="Chassis or sticker serial"
+              autoFocus
+            />
+          </FormField>
+          <FormField label="Tracking tag" htmlFor="site-asset-tag">
+            <Input
+              id="site-asset-tag"
+              value={tag}
+              onChange={(event) => {
+                setTagTouched(true)
+                setTag(event.target.value)
+              }}
+              className="font-mono"
+              placeholder="LH-…"
+            />
+          </FormField>
+          <FormField label="Host name" htmlFor="site-asset-hostname">
+            <Input
+              id="site-asset-hostname"
+              value={hostname}
+              onChange={(event) => setHostname(event.target.value)}
+              placeholder="Optional"
+            />
+          </FormField>
+          <FormField label="Device model" htmlFor="site-asset-model">
+            <SelectField
+              id="site-asset-model"
+              value={deviceModelId}
+              onValueChange={setDeviceModelId}
+              placeholder="Optional"
+              emptyLabel="None"
+              options={(modelsQuery.data ?? []).map((model) => ({
+                value: model.id,
+                label: model.manufacturer
+                  ? `${model.name} · ${model.manufacturer} ${model.model}`
+                  : `${model.name} · ${model.model}`,
+              }))}
+            />
+          </FormField>
+          <Button
+            disabled={!tag.trim() || createAsset.isPending}
+            onClick={() => void submitAddAsset()}
+          >
+            Add asset
+          </Button>
+        </div>
+      </DetailSheet>
     </div>
   )
 }
