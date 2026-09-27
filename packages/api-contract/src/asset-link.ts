@@ -162,8 +162,9 @@ export function omitTakenSerialFromPatch<T extends { serial?: string | null }>(
   taken: boolean
 ): T {
   if (!taken || patch.serial == null) return patch
-  const { serial: _serial, ...rest } = patch
-  return rest as T
+  const rest = { ...patch }
+  delete rest.serial
+  return rest
 }
 
 async function fillLinkedAsset(

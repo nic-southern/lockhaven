@@ -48,29 +48,19 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
       (organization) => organization.id === device.organizationId
     )?.trackingTagPrefix ?? DEFAULT_TRACKING_TAG_PREFIX
 
+  const suggestedTag = suggestAssetTrackingTag({
+    deviceId: device.id,
+    hostname: device.hostname,
+    serialNumber: device.serialNumber,
+    prefix: trackingTagPrefix,
+  })
+
   const [creating, setCreating] = React.useState(false)
-  const [tag, setTag] = React.useState("")
+  const [tagOverride, setTagOverride] = React.useState<string | null>(null)
   const [deviceModelId, setDeviceModelId] = React.useState("")
   const [serial, setSerial] = React.useState(device.serialNumber ?? "")
   const [hostname, setHostname] = React.useState(device.hostname ?? "")
-
-  React.useEffect(() => {
-    if (device.assetId) return
-    setTag(
-      suggestAssetTrackingTag({
-        deviceId: device.id,
-        hostname: device.hostname,
-        serialNumber: device.serialNumber,
-        prefix: trackingTagPrefix,
-      })
-    )
-  }, [
-    device.assetId,
-    device.id,
-    device.hostname,
-    device.serialNumber,
-    trackingTagPrefix,
-  ])
+  const tag = tagOverride ?? suggestedTag
 
   const createAsset = trpc.assets.create.useMutation()
   const linkDevice = trpc.assets.linkDevice.useMutation()
@@ -236,7 +226,7 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
               <Input
                 id="create-asset-tag"
                 value={tag}
-                onChange={(event) => setTag(event.target.value)}
+                onChange={(event) => setTagOverride(event.target.value)}
                 className="font-mono"
               />
             </FormField>
