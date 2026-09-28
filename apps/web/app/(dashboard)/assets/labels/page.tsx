@@ -23,7 +23,7 @@ function parseIds(raw: string | null) {
         .map((value) => value.trim())
         .filter((value) => /^[0-9a-f-]{36}$/i.test(value))
     ),
-  ].slice(0, 50)
+  ].slice(0, 200)
 }
 
 function AssetLabelCard({
@@ -117,7 +117,7 @@ function LabelsBody() {
 
   const pageQuery = trpc.assets.page.useQuery(
     {
-      limit: 100,
+      limit: 200,
       filters: ids.length > 0 ? { id: ids } : undefined,
     },
     { enabled: canView && ids.length > 0 }

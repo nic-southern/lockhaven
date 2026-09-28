@@ -4,9 +4,11 @@ import * as React from "react"
 import Link from "next/link"
 import { keepPreviousData } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
-import { PlusIcon } from "lucide-react"
+import { FolderIcon, PlusIcon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+
+import { buildAssetLabelCsvRow, formatAssetLabelCsv } from "@nms/shared"
 
 import { AccessDenied } from "@/components/dashboard/access-denied"
 import {
@@ -19,9 +21,11 @@ import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SelectField } from "@/components/dashboard/select-field"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { downloadTextFile } from "@/lib/devices"
 import { trpc } from "@/lib/trpc"
 import type { RouterOutputs } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
@@ -54,7 +58,6 @@ function FoldersContent() {
   const [organizationId, setOrganizationId] = React.useState("")
   const [siteId, setSiteId] = React.useState("")
   const [tag, setTag] = React.useState("")
-
   const organizationsQuery = trpc.organizations.list.useQuery(undefined, {
     enabled: canView,
   })
@@ -62,7 +65,7 @@ function FoldersContent() {
   const pageQuery = trpc.assets.page.useQuery(
     {
       limit: 200,
-      filters: { isContainer: ["true"] },
+      filters: { isContainer: ["true"], parentAssetId: ["none"] },
     },
     { enabled: canView, placeholderData: keepPreviousData }
   )
@@ -87,6 +90,69 @@ function FoldersContent() {
     },
   })
 
+  async function exportFolderLabels(folder: FolderRow) {
+    try {
+      const children = await utils.assets.children.fetch({
+        parentAssetId: folder.id,
+      })
+      const rows: NonNullable<ReturnType<typeof buildAssetLabelCsvRow>>[] = []
+      const push = (item: {
+        tag: string
+        serial: string | null
+        siteName: string | null
+        organizationName: string | null
+      }) => {
+        const row = buildAssetLabelCsvRow({
+          tag: item.tag,
+          serial: item.serial,
+          siteName: item.siteName,
+          companyName: item.organizationName,
+        })
+        if (row) rows.push(row)
+      }
+      push(folder)
+      for (const child of children) push(child)
+      if (rows.length === 0) {
+        toast.error("No labels to export.")
+        return
+      }
+      const stamp = new Date().toISOString().slice(0, 10)
+      const slug = folder.tag
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+      downloadTextFile(
+        `asset-labels-${slug || "folder"}-${stamp}.csv`,
+        formatAssetLabelCsv(rows)
+      )
+      toast.success(
+        `Exported ${rows.length} ${rows.length === 1 ? "label" : "labels"}`
+      )
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "We couldn't export folder labels."
+      )
+    }
+  }
+
+  async function printFolderLabels(folder: FolderRow) {
+    try {
+      const children = await utils.assets.children.fetch({
+        parentAssetId: folder.id,
+      })
+      const ids = [folder.id, ...children.map((child) => child.id)]
+      router.push(`/assets/labels?ids=${ids.join(",")}`)
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "We couldn't open folder labels."
+      )
+    }
+  }
+
   const columns = React.useMemo<ColumnDef<FolderRow>[]>(
     () => [
       {
@@ -96,14 +162,38 @@ function FoldersContent() {
           <DataTableColumnHeader column={column} title="Tracking tag" />
         ),
         cell: ({ row }) => (
-          <Link
-            href={`/assets/${row.original.id}`}
-            className="font-mono text-sm font-medium hover:underline"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {row.original.tag}
-          </Link>
+          <div className="flex min-w-0 items-center gap-2">
+            <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+            <div className="flex min-w-0 flex-col gap-1">
+              <Link
+                href={`/assets/${row.original.id}`}
+                className="font-mono text-sm font-medium hover:underline"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {row.original.tag}
+              </Link>
+              <Badge variant="outline" className="w-fit">
+                Folder
+              </Badge>
+            </div>
+          </div>
         ),
+      },
+      {
+        id: "items",
+        accessorFn: (row) => row.childCount ?? 0,
+        meta: { label: "Items" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Items" />
+        ),
+        cell: ({ row }) => {
+          const count = row.original.childCount ?? 0
+          return (
+            <span className="text-sm tabular-nums">
+              {count} {count === 1 ? "item" : "items"}
+            </span>
+          )
+        },
       },
       {
         accessorKey: "siteName",
@@ -160,12 +250,22 @@ function FoldersContent() {
                 label: "Open folder",
                 onSelect: () => router.push(`/assets/${row.original.id}`),
               },
+              {
+                label: "Print labels",
+                onSelect: () => void printFolderLabels(row.original),
+              },
+              {
+                label: "Export labels",
+                onSelect: () => void exportFolderLabels(row.original),
+              },
             ]}
           />
         ),
       },
     ],
-    [router]
+    // print/export close over utils + router; recreate when those change
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable utils client
+    [router, utils]
   )
 
   if (accessLoading) {
@@ -188,7 +288,7 @@ function FoldersContent() {
       <PageHeader
         badge="Folders"
         title="Folders"
-        description="Top-level containers that hold tracked items. Open a folder to manage contents and labels."
+        description="Browse parent folders as containers. Open one to see contained assets and print their tracking tags."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
