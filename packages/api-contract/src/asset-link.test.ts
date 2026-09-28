@@ -3,7 +3,7 @@ import test from "node:test"
 
 import { fillEmptyAssetIdentity } from "@nms/shared"
 
-import { omitTakenSerialFromPatch } from "./asset-link"
+import { linkedAssetSitePatch, omitTakenSerialFromPatch } from "./asset-link"
 
 test("omitTakenSerialFromPatch drops serial when another asset owns it", () => {
   const patch = omitTakenSerialFromPatch(
@@ -45,4 +45,17 @@ test("shared placeholder serial fill would conflict without omitTakenSerialFromP
   const safe = omitTakenSerialFromPatch(patch, true)
   assert.ok(!("serial" in safe))
   assert.equal(Object.keys(safe).length, 0)
+})
+
+test("linkedAssetSitePatch moves asset when device site changes", () => {
+  assert.deepEqual(linkedAssetSitePatch("site-a", "site-b"), {
+    siteId: "site-b",
+  })
+  assert.deepEqual(linkedAssetSitePatch(null, "site-b"), { siteId: "site-b" })
+  assert.deepEqual(linkedAssetSitePatch("site-a", null), { siteId: null })
+})
+
+test("linkedAssetSitePatch is a no-op when sites already match", () => {
+  assert.equal(linkedAssetSitePatch("site-a", "site-a"), null)
+  assert.equal(linkedAssetSitePatch(null, null), null)
 })

@@ -1,5 +1,8 @@
 export {
+  linkedAssetSitePatch,
   omitTakenSerialFromPatch,
+  syncLinkedAssetSite,
+  syncLinkedAssetSites,
   tryLinkDeviceToAsset,
   tryLinkDevicesToAssets,
   upsertAssetFromDeviceReport,
