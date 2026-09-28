@@ -1,6 +1,8 @@
 import "package:flutter/material.dart";
 import "package:lockhaven_field/hub/hub_client.dart";
 import "package:lockhaven_field/hub/models.dart";
+import "package:lockhaven_field/labels/label_print_service.dart";
+import "package:lockhaven_field/screens/add_asset_screen.dart";
 import "package:lockhaven_field/screens/asset_search_screen.dart";
 import "package:lockhaven_field/screens/set_site_screen.dart";
 import "package:lockhaven_field/state/app_state.dart";
@@ -78,9 +80,16 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       setState(() {
         asset = row;
         children = kids;
-        nameController.text = row.name ?? "";
+        // Hub has no asset name column yet — folders store a display name in
+        // hostname (same as createFolder from Add folder).
+        if (row.isContainer) {
+          nameController.text = row.name ?? row.hostname ?? "";
+          hostnameController.text = "";
+        } else {
+          nameController.text = row.name ?? "";
+          hostnameController.text = row.hostname ?? "";
+        }
         serialController.text = row.serial ?? "";
-        hostnameController.text = row.hostname ?? "";
         vendorController.text = row.vendor ?? "";
         modelController.text = row.model ?? "";
         notesController.text = row.notes ?? "";
@@ -91,7 +100,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       if (!mounted) return;
       setState(() {
         loading = false;
-        error = err.toString();
+        error = err is HubException
+            ? err.message
+            : "This asset could not be loaded.";
       });
     }
   }
@@ -108,9 +119,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         "serial": serialController.text.trim().isEmpty
             ? null
             : serialController.text.trim(),
-        "hostname": hostnameController.text.trim().isEmpty
-            ? null
-            : hostnameController.text.trim(),
         "vendor": vendorController.text.trim().isEmpty
             ? null
             : vendorController.text.trim(),
@@ -122,9 +130,13 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             : notesController.text.trim(),
         "status": status,
       };
-      final name = nameController.text.trim();
-      if (name.isNotEmpty || current.name != null) {
-        fields["name"] = name.isEmpty ? null : name;
+      if (current.isContainer) {
+        final name = nameController.text.trim();
+        fields["hostname"] = name.isEmpty ? null : name;
+      } else {
+        fields["hostname"] = hostnameController.text.trim().isEmpty
+            ? null
+            : hostnameController.text.trim();
       }
       final updated = await widget.state.client.updateAsset(current.id, fields);
       if (!mounted) return;
@@ -230,7 +242,63 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     }
   }
 
-  Future<void> _openAddToContainer() async {
+  Future<void> _printLabel() async {
+    final current = asset;
+    if (current == null) return;
+    setState(() {
+      saving = true;
+      error = null;
+    });
+    try {
+      final org = widget.state.orgFor(current.organizationId);
+      final result = await LabelPrintService(config: widget.state.config)
+          .printAssetLabel(
+        asset: current,
+        companyName: org?.name ?? current.organizationName,
+        siteName: widget.site?.name ?? current.siteName,
+      );
+      if (!mounted) return;
+      setState(() => saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result.message ?? "Label ready.")),
+      );
+    } catch (err) {
+      if (!mounted) return;
+      setState(() {
+        saving = false;
+        error = "Could not prepare the label.";
+      });
+    }
+  }
+
+  Future<void> _openNewAssetInContainer() async {
+    final current = asset;
+    if (current == null || !current.isContainer) return;
+    final site = widget.site ??
+        (current.siteId == null
+            ? null
+            : SiteSummary(
+                id: current.siteId!,
+                organizationId: current.organizationId,
+                name: current.siteName ?? "Site",
+              ));
+    if (site == null) {
+      setState(() => error = "Set a site on this folder before adding assets.");
+      return;
+    }
+    await Navigator.of(context).push<AddAssetOutcome>(
+      MaterialPageRoute(
+        builder: (_) => AddAssetScreen(
+          state: widget.state,
+          site: site,
+          parentAsset: current,
+        ),
+      ),
+    );
+    if (mounted) await _load();
+  }
+
+  Future<void> _openAddExistingToContainer() async {
     final current = asset;
     if (current == null || !current.isContainer) return;
 
@@ -238,7 +306,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       MaterialPageRoute(
         builder: (_) => AssetSearchScreen(
           state: widget.state,
-          title: "Add to container",
+          title: "Find existing asset",
           subtitle: "Search by tag, serial, or name.",
           itemsOnly: true,
           excludeAssetId: current.id,
@@ -256,7 +324,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       if (!mounted) return;
       setState(() => saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Added to container")),
+        const SnackBar(content: Text("Added to folder")),
       );
       await _load();
     } catch (err) {
@@ -314,10 +382,16 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                   : "Asset",
         ),
         actions: [
+          if (current != null)
+            IconButton(
+              tooltip: "Print label",
+              onPressed: saving ? null : _printLabel,
+              icon: const Icon(Icons.print_outlined),
+            ),
           if (current != null && !current.isContainer)
             TextButton(
               onPressed: saving ? null : _openReassignContainer,
-              child: const Text("Container"),
+              child: const Text("Folder"),
             ),
           TextButton(
             onPressed: saving ? null : _save,
@@ -331,6 +405,13 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           ),
         ],
       ),
+      floatingActionButton: current != null && current.isContainer && !loading
+          ? FloatingActionButton.extended(
+              onPressed: saving ? null : _openNewAssetInContainer,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text("Add asset"),
+            )
+          : null,
       body: loading
           ? const Center(child: CircularProgressIndicator())
           : current == null
@@ -382,31 +463,39 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                     const SizedBox(height: 20),
                     TextField(
                       controller: nameController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: "Name",
-                        hintText: "How this asset is known on the floor",
+                        hintText: current.isContainer
+                            ? "Front cabinet, TRT-3, …"
+                            : "How this asset is known on the floor",
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: serialController,
-                      decoration: const InputDecoration(labelText: "Serial"),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: hostnameController,
-                      decoration: const InputDecoration(labelText: "Hostname"),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: vendorController,
-                      decoration: const InputDecoration(labelText: "Vendor"),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: modelController,
-                      decoration: const InputDecoration(labelText: "Model"),
-                    ),
+                    if (!current.isContainer) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: serialController,
+                        decoration:
+                            const InputDecoration(labelText: "Serial"),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: hostnameController,
+                        decoration:
+                            const InputDecoration(labelText: "Hostname"),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: vendorController,
+                        decoration:
+                            const InputDecoration(labelText: "Vendor"),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: modelController,
+                        decoration:
+                            const InputDecoration(labelText: "Model"),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       // ignore: deprecated_member_use
@@ -450,31 +539,46 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                     ),
                     if (current.isContainer) ...[
                       const SizedBox(height: 28),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              "Contents",
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          FilledButton.tonalIcon(
-                            onPressed: saving ? null : _openAddToContainer,
-                            icon: const Icon(Icons.search),
-                            label: const Text("Add"),
-                          ),
-                        ],
+                      Text(
+                        "Contents",
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        "Label print and CSV export stay on the laptop helper for now.",
+                        "Scan new serials into this folder, or attach an existing asset.",
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: scheme.onSurfaceVariant,
                             ),
                       ),
                       const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.tonalIcon(
+                              onPressed:
+                                  saving ? null : _openNewAssetInContainer,
+                              icon: const Icon(Icons.add),
+                              label: const Text("New asset"),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: saving
+                                  ? null
+                                  : _openAddExistingToContainer,
+                              icon: const Icon(Icons.search),
+                              label: const Text("Find existing"),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
                       if (children.isEmpty)
-                        const Text("No items in this container")
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 72),
+                          child: Text("No items in this folder yet"),
+                        )
                       else
                         ...children.map(
                           (child) => ListTile(
