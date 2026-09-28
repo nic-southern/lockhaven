@@ -39,7 +39,7 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
   const childrenQuery = trpc.assets.children.useQuery(
     { parentAssetId: device.assetId! },
     {
-      enabled: Boolean(device.assetId) && Boolean(assetQuery.data?.isFolder),
+      enabled: Boolean(device.assetId) && Boolean(assetQuery.data?.isContainer),
     }
   )
   const modelsQuery = trpc.deviceModels.list.useQuery(
@@ -125,9 +125,9 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
     return (
       <div className="flex flex-col gap-6">
         <SectionCard
-          title={asset.isFolder ? "Linked folder" : "Linked asset"}
+          title={asset.isContainer ? "Linked folder" : "Linked asset"}
           description={
-            asset.isFolder
+            asset.isContainer
               ? "This device’s tracking tag is the folder. Contained items are listed below."
               : "Tracking tag and identity for this device."
           }
@@ -140,7 +140,7 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
                 </Link>
               </Button>
               <Button variant="outline" asChild>
-                <Link href={`/assets?id=${asset.id}`}>Open in Assets</Link>
+                <Link href={`/assets/${asset.id}`}>Open asset</Link>
               </Button>
             </div>
           }
@@ -151,11 +151,11 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
                 label: "Tracking tag",
                 value: <span className="font-mono text-sm">{asset.tag}</span>,
               },
-              ...(asset.isFolder
+              ...(asset.isContainer
                 ? [
                     {
-                      label: "Folder type",
-                      value: asset.folderLabel ?? asset.folderKind ?? "—",
+                      label: "Type",
+                      value: "Folder",
                     },
                   ]
                 : []),
@@ -189,7 +189,7 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
           />
         </SectionCard>
 
-        {asset.isFolder ? (
+        {asset.isContainer ? (
           <SectionCard
             title="Contents"
             description="Items inside this folder. The VPN device stays linked to the folder only."
@@ -197,7 +197,7 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
             {(childrenQuery.data ?? []).length === 0 ? (
               <EmptyState
                 title="No items yet"
-                description="Add items from the Assets page while this folder is open."
+                description="Add items from the folder page."
                 bordered={false}
               />
             ) : (
@@ -205,7 +205,7 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
                 {(childrenQuery.data ?? []).map((child) => (
                   <li key={child.id} className="flex items-center gap-3">
                     <Link
-                      href={`/assets?id=${child.id}`}
+                      href={`/assets/${child.id}`}
                       className="font-mono text-sm hover:underline"
                     >
                       {child.tag}

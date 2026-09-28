@@ -2,21 +2,17 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { keepPreviousData } from "@tanstack/react-query"
 import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
-import { PlusIcon, PrinterIcon } from "lucide-react"
+import { PlusIcon } from "lucide-react"
 
 import {
-  assetFolderKinds,
-  assetFolderKindLabels,
   assetLifecycleStateLabels,
   assetStatusLabels,
   assetStatuses,
   definitionAppliesTo,
-  folderKindLabel,
-  retireMonthsToYears,
   yearsToRetireMonths,
   type AssetStatus,
 } from "@nms/shared"
@@ -39,6 +35,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { formatDate } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
@@ -52,11 +49,9 @@ type AssetForm = {
   organizationId: string
   siteId: string
   parentAssetId: string
-  folderKind: string
+  isContainer: boolean
   deviceModelId: string
   tag: string
-  vendor: string
-  model: string
   serial: string
   hostname: string
   status: AssetStatus
@@ -73,11 +68,9 @@ const emptyForm = (): AssetForm => ({
   organizationId: "",
   siteId: "",
   parentAssetId: "",
-  folderKind: "",
+  isContainer: false,
   deviceModelId: "",
   tag: "",
-  vendor: "",
-  model: "",
   serial: "",
   hostname: "",
   status: "stock",
@@ -95,35 +88,6 @@ const assetTemplate = [
   "LH-7K2MPQ,Example,Laser,SN-100,,Main,stock,2026-01-15,240.00,2028-01-15,Spare printer",
 ].join("\n")
 
-function formFromAsset(asset: AssetRow): AssetForm {
-  const years = retireMonthsToYears(asset.retireAfterMonths)
-  return {
-    organizationId: asset.organizationId,
-    siteId: asset.siteId ?? "",
-    parentAssetId: asset.parentAssetId ?? "",
-    folderKind: asset.folderKind ?? "",
-    deviceModelId: asset.deviceModelId ?? "",
-    tag: asset.tag,
-    vendor: asset.vendor ?? "",
-    model: asset.model ?? "",
-    serial: asset.serial ?? "",
-    hostname: asset.hostname ?? "",
-    status: asset.status,
-    purchaseDate: asset.purchaseDate ?? "",
-    purchaseCost: asset.purchaseCost ?? "",
-    warrantyExpiresOn: asset.warrantyExpiresOn ?? "",
-    retireAfterYears: years == null ? "" : String(years),
-    retireOn: asset.retireOn ?? "",
-    notes: asset.notes ?? "",
-    customFields: Object.fromEntries(
-      Object.entries(asset.customFields ?? {}).map(([key, value]) => [
-        key,
-        value == null ? "" : String(value),
-      ])
-    ),
-  }
-}
-
 export default function AssetsPage() {
   return (
     <React.Suspense
@@ -140,9 +104,8 @@ export default function AssetsPage() {
 }
 
 function AssetsContent() {
+  const router = useRouter()
   const { can, isLoading: accessLoading } = usePermissions()
-  const searchParams = useSearchParams()
-  const requestedId = searchParams.get("id") ?? ""
   const canView = can("device:view")
   const canUpdate = can("device:update")
   const utils = trpc.useUtils()
@@ -150,25 +113,15 @@ function AssetsContent() {
   const [createOpen, setCreateOpen] = React.useState(false)
   const [importOpen, setImportOpen] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState("")
-  const [detailOpen, setDetailOpen] = React.useState(false)
   const [deleteOpen, setDeleteOpen] = React.useState(false)
   const [ticketOpen, setTicketOpen] = React.useState(false)
   const [form, setForm] = React.useState<AssetForm>(emptyForm)
-  const [linkDeviceId, setLinkDeviceId] = React.useState("")
   const [importOrgId, setImportOrgId] = React.useState("")
-  const [addExistingId, setAddExistingId] = React.useState("")
-  const [addNewOpen, setAddNewOpen] = React.useState(false)
-  const [newChildTag, setNewChildTag] = React.useState("")
-  const [newChildSerial, setNewChildSerial] = React.useState("")
-  const [newChildModelId, setNewChildModelId] = React.useState("")
 
   const organizationsQuery = trpc.organizations.list.useQuery(undefined, {
     enabled: canView,
   })
   const sitesQuery = trpc.sites.list.useQuery(undefined, { enabled: canView })
-  const devicesQuery = trpc.devices.list.useQuery(undefined, {
-    enabled: canUpdate,
-  })
   const pageQuery = trpc.assets.page.useQuery(
     { limit: 200 },
     { enabled: canView, placeholderData: keepPreviousData }
@@ -176,7 +129,6 @@ function AssetsContent() {
 
   const organizations = organizationsQuery.data ?? []
   const sites = sitesQuery.data ?? []
-  const devices = devicesQuery.data ?? []
   const items = pageQuery.data?.items ?? []
   const resolvedImportOrgId = importOrgId || organizations[0]?.id || ""
   const fieldOrgId = form.organizationId || resolvedImportOrgId
@@ -188,108 +140,41 @@ function AssetsContent() {
     { organizationId: fieldOrgId },
     { enabled: canView && Boolean(fieldOrgId) }
   )
+  const foldersQuery = trpc.assets.page.useQuery(
+    {
+      limit: 200,
+      filters: { isContainer: ["true"] },
+    },
+    {
+      enabled: canView && createOpen && !form.isContainer,
+      placeholderData: keepPreviousData,
+    }
+  )
 
   const selected = items.find((item) => item.id === selectedId) ?? null
-  const childrenQuery = trpc.assets.children.useQuery(
-    { parentAssetId: selectedId },
-    { enabled: canView && Boolean(selectedId) && Boolean(selected?.isFolder) }
-  )
-  const [formAssetId, setFormAssetId] = React.useState("")
-  const [openedFromQuery, setOpenedFromQuery] = React.useState("")
-  if (selected && selected.id !== formAssetId) {
-    setFormAssetId(selected.id)
-    setForm(formFromAsset(selected))
-    setLinkDeviceId(selected.deviceId ?? "")
-    setAddExistingId("")
-    setAddNewOpen(false)
-    setNewChildTag("")
-    setNewChildSerial("")
-    setNewChildModelId("")
-  }
-  if (
-    requestedId &&
-    requestedId !== openedFromQuery &&
-    items.some((item) => item.id === requestedId)
-  ) {
-    setOpenedFromQuery(requestedId)
-    setCreateOpen(false)
-    setSelectedId(requestedId)
-    setDetailOpen(true)
-  }
 
   const createAsset = trpc.assets.create.useMutation({
-    async onSuccess(_data, variables) {
-      await Promise.all([
-        utils.assets.page.invalidate(),
-        variables.parentAssetId
-          ? utils.assets.children.invalidate({
-              parentAssetId: variables.parentAssetId,
-            })
-          : Promise.resolve(),
-      ])
-      if (!variables.parentAssetId) {
-        setCreateOpen(false)
-        setForm(emptyForm())
-        toast.success("Asset added")
-      } else {
-        setAddNewOpen(false)
-        setNewChildTag("")
-        setNewChildSerial("")
-        setNewChildModelId("")
-        toast.success("Item added to folder")
-      }
+    async onSuccess(record) {
+      await utils.assets.page.invalidate()
+      setCreateOpen(false)
+      setForm(emptyForm())
+      toast.success(record.isContainer ? "Folder added" : "Asset added")
+      router.push(`/assets/${record.id}`)
     },
     onError(error) {
       toast.error(error.message || "We couldn't add the asset.")
     },
   })
   const createFolder = trpc.assets.createFolder.useMutation({
-    async onSuccess() {
+    async onSuccess(record) {
       await utils.assets.page.invalidate()
       setCreateOpen(false)
       setForm(emptyForm())
       toast.success("Folder added")
+      router.push(`/assets/${record.id}`)
     },
     onError(error) {
       toast.error(error.message || "We couldn't add the folder.")
-    },
-  })
-  const addChild = trpc.assets.addChild.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.assets.page.invalidate(),
-        utils.assets.children.invalidate({ parentAssetId: selectedId }),
-      ])
-      setAddExistingId("")
-      toast.success("Item added to folder")
-    },
-    onError(error) {
-      toast.error(error.message || "We couldn't add that item.")
-    },
-  })
-  const removeChild = trpc.assets.removeChild.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.assets.page.invalidate(),
-        utils.assets.children.invalidate({ parentAssetId: selectedId }),
-      ])
-      toast.success("Item removed from folder")
-    },
-    onError(error) {
-      toast.error(error.message || "We couldn't remove that item.")
-    },
-  })
-  const updateAsset = trpc.assets.update.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.assets.page.invalidate(),
-        utils.assets.children.invalidate(),
-        utils.devices.list.invalidate(),
-      ])
-      toast.success("Asset updated")
-    },
-    onError(error) {
-      toast.error(error.message || "We couldn't update the asset.")
     },
   })
   const deleteAsset = trpc.assets.delete.useMutation({
@@ -297,36 +182,10 @@ function AssetsContent() {
       await utils.assets.page.invalidate()
       setDeleteOpen(false)
       setSelectedId("")
-      setDetailOpen(false)
       toast.success("Asset removed")
     },
     onError() {
       toast.error("We couldn't remove the asset.")
-    },
-  })
-  const linkDevice = trpc.assets.linkDevice.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.assets.page.invalidate(),
-        utils.devices.list.invalidate(),
-      ])
-      toast.success("Device linked")
-    },
-    onError(error) {
-      toast.error(error.message || "We couldn't link that device.")
-    },
-  })
-  const unlinkDevice = trpc.assets.unlinkDevice.useMutation({
-    async onSuccess() {
-      await Promise.all([
-        utils.assets.page.invalidate(),
-        utils.devices.list.invalidate(),
-      ])
-      setLinkDeviceId("")
-      toast.success("Device unlinked")
-    },
-    onError() {
-      toast.error("We couldn't unlink that device.")
     },
   })
   const importCsv = trpc.assets.importCsv.useMutation()
@@ -352,58 +211,48 @@ function AssetsContent() {
         ),
         cell: ({ row }) => (
           <div className="flex min-w-0 flex-col gap-1">
-            <span className="font-mono text-sm font-medium">
+            <Link
+              href={`/assets/${row.original.id}`}
+              className="font-mono text-sm font-medium hover:underline"
+              onClick={(event) => event.stopPropagation()}
+            >
               {row.original.tag}
-            </span>
-            {row.original.isFolder ? (
-              <Badge variant="outline">
-                {row.original.folderLabel ?? "Folder"}
-              </Badge>
+            </Link>
+            {row.original.isContainer ? (
+              <Badge variant="outline">Folder</Badge>
             ) : null}
           </div>
         ),
       },
       {
         id: "folder",
-        accessorFn: (row) =>
-          row.parentTag ??
-          (row.isFolder ? (row.folderLabel ?? row.folderKind ?? "") : ""),
+        accessorFn: (row) => row.parentTag ?? (row.isContainer ? "Folder" : ""),
         meta: { label: "Folder" },
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Folder" />
         ),
         cell: ({ row }) => {
-          if (row.original.isFolder) {
-            return (
-              row.original.folderLabel ??
-              folderKindLabel(row.original.folderKind)
-            )
+          if (row.original.isContainer) {
+            return "Folder"
           }
           if (row.original.parentAssetId && row.original.parentTag) {
             return (
-              <button
-                type="button"
+              <Link
+                href={`/assets/${row.original.parentAssetId}`}
                 className="font-mono text-xs hover:underline"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setSelectedId(row.original.parentAssetId!)
-                  setDetailOpen(true)
-                }}
+                onClick={(event) => event.stopPropagation()}
               >
                 {row.original.parentTag}
-                {row.original.parentFolderLabel
-                  ? ` · ${row.original.parentFolderLabel}`
-                  : ""}
-              </button>
+              </Link>
             )
           }
           return "—"
         },
       },
       {
-        id: "folderKind",
-        accessorFn: (row) => row.folderKind ?? "item",
-        meta: { label: "Folder type", className: "hidden" },
+        id: "isContainer",
+        accessorFn: (row) => (row.isContainer ? "true" : "false"),
+        meta: { label: "Folder", className: "hidden" },
         header: () => null,
         cell: () => null,
         enableHiding: false,
@@ -555,12 +404,8 @@ function AssetsContent() {
             label={row.original.tag}
             actions={[
               {
-                label: "Edit asset",
-                onSelect: () => {
-                  setCreateOpen(false)
-                  setSelectedId(row.original.id)
-                  setDetailOpen(true)
-                },
+                label: "Open asset",
+                onSelect: () => router.push(`/assets/${row.original.id}`),
               },
               ...(canUpdate
                 ? [
@@ -587,7 +432,7 @@ function AssetsContent() {
         ),
       },
     ],
-    [canUpdate]
+    [canUpdate, router]
   )
 
   if (accessLoading) {
@@ -609,12 +454,10 @@ function AssetsContent() {
     return {
       organizationId: form.organizationId,
       siteId: form.siteId || null,
-      parentAssetId: form.folderKind ? null : form.parentAssetId || null,
-      folderKind: form.folderKind || null,
+      parentAssetId: form.isContainer ? null : form.parentAssetId || null,
+      isContainer: form.isContainer,
       deviceModelId: form.deviceModelId || null,
       tag: form.tag,
-      vendor: form.deviceModelId ? null : form.vendor || null,
-      model: form.deviceModelId ? null : form.model || null,
       serial: form.serial || null,
       hostname: form.hostname || null,
       status: form.status,
@@ -630,296 +473,8 @@ function AssetsContent() {
     }
   }
 
-  const folderOptions = items.filter(
-    (item) =>
-      item.isFolder &&
-      item.organizationId === (form.organizationId || selected?.organizationId)
-  )
-  const attachableItems = items.filter(
-    (item) =>
-      selected &&
-      !item.isFolder &&
-      item.organizationId === selected.organizationId &&
-      item.id !== selected.id &&
-      item.parentAssetId !== selected.id
-  )
-
-  const selectedLifecycle = selected?.lifecycle
-  const purchaseHint =
-    !form.purchaseDate && selectedLifecycle?.purchaseDateSource === "model"
-      ? `From model: ${selectedLifecycle.purchaseDate}`
-      : !form.purchaseDate &&
-          (modelsQuery.data ?? []).find(
-            (model) => model.id === form.deviceModelId
-          )?.defaultPurchaseDate
-        ? `From model: ${(modelsQuery.data ?? []).find((model) => model.id === form.deviceModelId)?.defaultPurchaseDate}`
-        : null
-  const selectedModel = (modelsQuery.data ?? []).find(
-    (model) => model.id === form.deviceModelId
-  )
-  const modelRetireYears = retireMonthsToYears(
-    selectedModel?.retireAfterMonths ?? null
-  )
-  const retireAfterHint =
-    !form.retireAfterYears && modelRetireYears != null
-      ? `From model: ${modelRetireYears} year${modelRetireYears === 1 ? "" : "s"}`
-      : null
-  const retireOnHint =
-    selectedLifecycle?.retireOn &&
-    selectedLifecycle.retireOnSource === "computed" &&
-    !form.retireOn
-      ? `Computed: ${selectedLifecycle.retireOn}`
-      : null
-
-  const formFields = (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {!selected ? (
-        <FormField label="Organization" htmlFor="asset-org">
-          <SelectField
-            id="asset-org"
-            value={form.organizationId}
-            onValueChange={(value) =>
-              setForm((current) => ({
-                ...current,
-                organizationId: value,
-                siteId: "",
-                deviceModelId: "",
-              }))
-            }
-            placeholder="Choose an organization"
-            options={organizations.map((organization) => ({
-              value: organization.id,
-              label: organization.name,
-            }))}
-          />
-        </FormField>
-      ) : null}
-      <FormField label="Tracking tag" htmlFor="asset-tag">
-        <Input
-          id="asset-tag"
-          value={form.tag}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, tag: event.target.value }))
-          }
-          className="font-mono"
-        />
-      </FormField>
-      <FormField label="Folder type" htmlFor="asset-folder-kind">
-        <SelectField
-          id="asset-folder-kind"
-          value={form.folderKind}
-          onValueChange={(value) =>
-            setForm((current) => ({
-              ...current,
-              folderKind: value,
-              parentAssetId: value ? "" : current.parentAssetId,
-            }))
-          }
-          placeholder="Not a folder"
-          emptyLabel="Not a folder"
-          options={assetFolderKinds.map((kind) => ({
-            value: kind,
-            label: assetFolderKindLabels[kind],
-          }))}
-        />
-      </FormField>
-      {!form.folderKind ? (
-        <FormField label="Inside folder" htmlFor="asset-parent">
-          <SelectField
-            id="asset-parent"
-            value={form.parentAssetId}
-            onValueChange={(value) =>
-              setForm((current) => ({ ...current, parentAssetId: value }))
-            }
-            placeholder="Standalone"
-            emptyLabel="Standalone"
-            options={folderOptions.map((folder) => ({
-              value: folder.id,
-              label: `${folder.tag}${folder.folderLabel ? ` · ${folder.folderLabel}` : ""}`,
-            }))}
-          />
-        </FormField>
-      ) : null}
-      <FormField label="Device model" htmlFor="asset-device-model">
-        <SelectField
-          id="asset-device-model"
-          value={form.deviceModelId}
-          onValueChange={(value) =>
-            setForm((current) => ({ ...current, deviceModelId: value }))
-          }
-          placeholder="Choose a model"
-          emptyLabel="Not assigned"
-          options={(modelsQuery.data ?? []).map((model) => ({
-            value: model.id,
-            label: model.label,
-          }))}
-        />
-      </FormField>
-      <FormField label="Serial" htmlFor="asset-serial">
-        <Input
-          id="asset-serial"
-          value={form.serial}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, serial: event.target.value }))
-          }
-        />
-      </FormField>
-      <FormField label="Host name" htmlFor="asset-hostname">
-        <Input
-          id="asset-hostname"
-          value={form.hostname}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              hostname: event.target.value,
-            }))
-          }
-        />
-      </FormField>
-      <FormField label="Site" htmlFor="asset-site">
-        <SelectField
-          id="asset-site"
-          value={form.siteId}
-          onValueChange={(value) =>
-            setForm((current) => ({ ...current, siteId: value }))
-          }
-          placeholder="No site"
-          emptyLabel="No site"
-          options={sites
-            .filter(
-              (site) =>
-                !form.organizationId ||
-                site.organizationId === form.organizationId
-            )
-            .map((site) => ({ value: site.id, label: site.name }))}
-        />
-      </FormField>
-      <FormField label="Status" htmlFor="asset-status">
-        <SelectField
-          id="asset-status"
-          value={form.status}
-          onValueChange={(value) =>
-            setForm((current) => ({
-              ...current,
-              status: value as AssetStatus,
-            }))
-          }
-          options={assetStatuses.map((status) => ({
-            value: status,
-            label: assetStatusLabels[status],
-          }))}
-        />
-      </FormField>
-      <FormField label="Purchase date" htmlFor="asset-purchased">
-        <Input
-          id="asset-purchased"
-          type="date"
-          value={form.purchaseDate}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              purchaseDate: event.target.value,
-            }))
-          }
-        />
-        {purchaseHint ? (
-          <p className="mt-1 text-xs text-muted-foreground">{purchaseHint}</p>
-        ) : null}
-      </FormField>
-      <FormField label="Cost" htmlFor="asset-cost">
-        <Input
-          id="asset-cost"
-          inputMode="decimal"
-          value={form.purchaseCost}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              purchaseCost: event.target.value,
-            }))
-          }
-        />
-      </FormField>
-      <FormField label="Retire after (years)" htmlFor="asset-retire-years">
-        <Input
-          id="asset-retire-years"
-          inputMode="decimal"
-          value={form.retireAfterYears}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              retireAfterYears: event.target.value,
-            }))
-          }
-          placeholder={modelRetireYears != null ? String(modelRetireYears) : ""}
-        />
-        {retireAfterHint ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            {retireAfterHint}
-          </p>
-        ) : null}
-      </FormField>
-      <FormField label="Retire on" htmlFor="asset-retire-on">
-        <Input
-          id="asset-retire-on"
-          type="date"
-          value={form.retireOn}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              retireOn: event.target.value,
-            }))
-          }
-        />
-        {retireOnHint ? (
-          <p className="mt-1 text-xs text-muted-foreground">{retireOnHint}</p>
-        ) : null}
-      </FormField>
-      <FormField label="Warranty ends" htmlFor="asset-warranty">
-        <Input
-          id="asset-warranty"
-          type="date"
-          value={form.warrantyExpiresOn}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              warrantyExpiresOn: event.target.value,
-            }))
-          }
-        />
-      </FormField>
-      <FormField label="Notes" htmlFor="asset-notes" className="sm:col-span-2">
-        <Textarea
-          id="asset-notes"
-          value={form.notes}
-          onChange={(event) =>
-            setForm((current) => ({ ...current, notes: event.target.value }))
-          }
-        />
-      </FormField>
-      {(customFieldsQuery.data ?? [])
-        .filter((field) => definitionAppliesTo(field.appliesTo, "asset"))
-        .map((field) => (
-          <FormField
-            key={field.id}
-            label={field.label}
-            htmlFor={`asset-field-${field.key}`}
-          >
-            <Input
-              id={`asset-field-${field.key}`}
-              value={form.customFields[field.key] ?? ""}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  customFields: {
-                    ...current.customFields,
-                    [field.key]: event.target.value,
-                  },
-                }))
-              }
-            />
-          </FormField>
-        ))}
-    </div>
+  const folderOptions = (foldersQuery.data?.items ?? []).filter(
+    (item) => item.isContainer && item.organizationId === form.organizationId
   )
 
   return (
@@ -931,18 +486,20 @@ function AssetsContent() {
         actions={
           canUpdate ? (
             <>
+              <Button variant="outline" asChild>
+                <Link href="/assets/folders">Folders</Link>
+              </Button>
               <Button variant="outline" onClick={() => setImportOpen(true)}>
                 Import
               </Button>
               <Button
                 variant="outline"
                 onClick={() => {
-                  setDetailOpen(false)
-                  setSelectedId("")
                   setForm({
                     ...emptyForm(),
                     organizationId: organizations[0]?.id ?? "",
-                    folderKind: "cabinet",
+                    isContainer: true,
+                    status: "in_service",
                   })
                   setCreateOpen(true)
                 }}
@@ -952,8 +509,6 @@ function AssetsContent() {
               </Button>
               <Button
                 onClick={() => {
-                  setDetailOpen(false)
-                  setSelectedId("")
                   setForm({
                     ...emptyForm(),
                     organizationId: organizations[0]?.id ?? "",
@@ -965,7 +520,11 @@ function AssetsContent() {
                 Add asset
               </Button>
             </>
-          ) : null
+          ) : (
+            <Button variant="outline" asChild>
+              <Link href="/assets/folders">Folders</Link>
+            </Button>
+          )
         }
       />
 
@@ -1011,14 +570,11 @@ function AssetsContent() {
             ],
           },
           {
-            columnId: "folderKind",
-            title: "Folder type",
+            columnId: "isContainer",
+            title: "Folder",
             options: [
-              ...assetFolderKinds.map((kind) => ({
-                value: kind,
-                label: assetFolderKindLabels[kind],
-              })),
-              { value: "item", label: "Items only" },
+              { value: "true", label: "Folders" },
+              { value: "false", label: "Items only" },
             ],
           },
           {
@@ -1031,12 +587,7 @@ function AssetsContent() {
           },
         ]}
         initialSorting={[{ id: "tag", desc: false }]}
-        onRowClick={(row) => {
-          setCreateOpen(false)
-          setSelectedId(row.id)
-          setDetailOpen(true)
-        }}
-        isRowActive={(row) => row.id === selectedId}
+        onRowClick={(row) => router.push(`/assets/${row.id}`)}
         emptyTitle="No assets yet"
         emptyDescription="Add printers, switches, spares, and other hardware even if they never enroll."
       />
@@ -1046,255 +597,6 @@ function AssetsContent() {
           title="No assets yet"
           description="Assets do not need a tunnel or an enrolled device."
         />
-      ) : null}
-
-      {selected ? (
-        <DetailSheet
-          open={detailOpen}
-          onOpenChange={(open) => {
-            setDetailOpen(open)
-            if (!open && !deleteOpen && !ticketOpen) {
-              setSelectedId("")
-            }
-          }}
-          title={selected.tag}
-          description={
-            selected.isFolder
-              ? "Folder record. Contained items and the linked device move with this folder’s site."
-              : "Financial and physical record. Unmanaged means nothing has checked in against this asset."
-          }
-          className="sm:max-w-xl"
-        >
-          {formFields}
-          {selected.isFolder ? (
-            <div className="flex flex-col gap-4 border-t pt-4">
-              <div>
-                <h3 className="text-sm font-medium">Contents</h3>
-                <p className="text-sm text-muted-foreground">
-                  Items inside this folder. They inherit the folder’s site while
-                  attached.
-                </p>
-              </div>
-              {(childrenQuery.data ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">No items yet.</p>
-              ) : (
-                <ul className="flex flex-col gap-2">
-                  {(childrenQuery.data ?? []).map((child) => (
-                    <li
-                      key={child.id}
-                      className="flex items-center justify-between gap-2"
-                    >
-                      <button
-                        type="button"
-                        className="min-w-0 truncate text-left font-mono text-sm hover:underline"
-                        onClick={() => {
-                          setSelectedId(child.id)
-                        }}
-                      >
-                        {child.tag}
-                        {child.deviceModelName || child.model
-                          ? ` · ${child.deviceModelName ?? child.model}`
-                          : ""}
-                      </button>
-                      {canUpdate ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={removeChild.isPending}
-                          onClick={() =>
-                            void removeChild.mutateAsync({
-                              childAssetId: child.id,
-                            })
-                          }
-                        >
-                          Remove
-                        </Button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {canUpdate ? (
-                <div className="flex flex-col gap-3">
-                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                    <SelectField
-                      value={addExistingId}
-                      onValueChange={setAddExistingId}
-                      placeholder="Add existing item"
-                      emptyLabel="Choose an item"
-                      options={attachableItems.map((item) => ({
-                        value: item.id,
-                        label: item.tag,
-                      }))}
-                    />
-                    <Button
-                      variant="outline"
-                      disabled={!addExistingId || addChild.isPending}
-                      onClick={() =>
-                        void addChild.mutateAsync({
-                          parentAssetId: selected.id,
-                          childAssetId: addExistingId,
-                        })
-                      }
-                    >
-                      Add existing
-                    </Button>
-                  </div>
-                  {addNewOpen ? (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <FormField label="Tracking tag" htmlFor="child-tag">
-                        <Input
-                          id="child-tag"
-                          value={newChildTag}
-                          onChange={(event) =>
-                            setNewChildTag(event.target.value)
-                          }
-                          className="font-mono"
-                        />
-                      </FormField>
-                      <FormField label="Serial" htmlFor="child-serial">
-                        <Input
-                          id="child-serial"
-                          value={newChildSerial}
-                          onChange={(event) =>
-                            setNewChildSerial(event.target.value)
-                          }
-                          className="font-mono"
-                        />
-                      </FormField>
-                      <FormField
-                        label="Device model"
-                        htmlFor="child-model"
-                        className="sm:col-span-2"
-                      >
-                        <SelectField
-                          id="child-model"
-                          value={newChildModelId}
-                          onValueChange={setNewChildModelId}
-                          placeholder="Choose a model"
-                          emptyLabel="Not assigned"
-                          options={(modelsQuery.data ?? []).map((model) => ({
-                            value: model.id,
-                            label: model.label,
-                          }))}
-                        />
-                      </FormField>
-                      <div className="flex flex-wrap gap-2 sm:col-span-2">
-                        <Button
-                          disabled={
-                            !newChildTag.trim() || createAsset.isPending
-                          }
-                          onClick={() =>
-                            void createAsset.mutateAsync({
-                              organizationId: selected.organizationId,
-                              siteId: selected.siteId,
-                              parentAssetId: selected.id,
-                              deviceModelId: newChildModelId || null,
-                              tag: newChildTag.trim(),
-                              serial: newChildSerial.trim() || null,
-                              status: "in_service",
-                            })
-                          }
-                        >
-                          Add new
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          onClick={() => setAddNewOpen(false)}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      onClick={() => setAddNewOpen(true)}
-                    >
-                      Add new
-                    </Button>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          {canUpdate ? (
-            <div className="flex flex-col gap-4">
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <SelectField
-                  value={linkDeviceId}
-                  onValueChange={setLinkDeviceId}
-                  placeholder="Link a device"
-                  emptyLabel="Not linked"
-                  options={devices
-                    .filter(
-                      (device) =>
-                        device.organizationId === selected.organizationId &&
-                        (!device.assetId || device.assetId === selected.id)
-                    )
-                    .map((device) => ({
-                      value: device.id,
-                      label: device.displayName,
-                    }))}
-                />
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    disabled={!linkDeviceId || linkDevice.isPending}
-                    onClick={() =>
-                      void linkDevice.mutateAsync({
-                        id: selected.id,
-                        deviceId: linkDeviceId,
-                      })
-                    }
-                  >
-                    Link
-                  </Button>
-                  {selected.deviceId ? (
-                    <Button
-                      variant="ghost"
-                      disabled={unlinkDevice.isPending}
-                      onClick={() =>
-                        void unlinkDevice.mutateAsync({ id: selected.id })
-                      }
-                    >
-                      Unlink
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" asChild>
-                  <Link href={`/assets/labels?ids=${selected.id}`}>
-                    <PrinterIcon />
-                    Print label
-                  </Link>
-                </Button>
-                <Button variant="outline" onClick={() => setTicketOpen(true)}>
-                  Open ticket
-                </Button>
-                <Button
-                  disabled={!form.tag || updateAsset.isPending}
-                  onClick={() =>
-                    void updateAsset.mutateAsync({
-                      id: selected.id,
-                      ...payloadFromForm(),
-                    })
-                  }
-                >
-                  Save changes
-                </Button>
-                <Button
-                  variant="outline"
-                  className="text-destructive"
-                  onClick={() => setDeleteOpen(true)}
-                >
-                  Remove
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </DetailSheet>
       ) : null}
 
       <CsvImportDialog
@@ -1316,15 +618,193 @@ function AssetsContent() {
       <DetailSheet
         open={createOpen}
         onOpenChange={setCreateOpen}
-        title={form.folderKind ? "New folder" : "New asset"}
+        title={form.isContainer ? "New folder" : "New asset"}
         description={
-          form.folderKind
+          form.isContainer
             ? "A folder has its own tracking tag and can hold contained items."
             : "Record hardware that may never enroll."
         }
         className="sm:max-w-xl"
       >
-        {formFields}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField label="Organization" htmlFor="asset-org">
+            <SelectField
+              id="asset-org"
+              value={form.organizationId}
+              onValueChange={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  organizationId: value,
+                  siteId: "",
+                  deviceModelId: "",
+                  parentAssetId: "",
+                }))
+              }
+              placeholder="Choose an organization"
+              options={organizations.map((organization) => ({
+                value: organization.id,
+                label: organization.name,
+              }))}
+            />
+          </FormField>
+          <FormField label="Tracking tag" htmlFor="asset-tag">
+            <Input
+              id="asset-tag"
+              value={form.tag}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, tag: event.target.value }))
+              }
+              className="font-mono"
+            />
+          </FormField>
+          <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 sm:col-span-2">
+            <div>
+              <p className="text-sm font-medium">Folder</p>
+              <p className="text-sm text-muted-foreground">
+                Hold other assets. Differentiate by tracking tag.
+              </p>
+            </div>
+            <Switch
+              checked={form.isContainer}
+              onCheckedChange={(checked) =>
+                setForm((current) => ({
+                  ...current,
+                  isContainer: checked,
+                  parentAssetId: checked ? "" : current.parentAssetId,
+                }))
+              }
+            />
+          </div>
+          {!form.isContainer ? (
+            <FormField label="Inside folder" htmlFor="asset-parent">
+              <SelectField
+                id="asset-parent"
+                value={form.parentAssetId}
+                onValueChange={(value) =>
+                  setForm((current) => ({ ...current, parentAssetId: value }))
+                }
+                placeholder="Standalone"
+                emptyLabel="Standalone"
+                options={folderOptions.map((folder) => ({
+                  value: folder.id,
+                  label: folder.tag,
+                }))}
+              />
+            </FormField>
+          ) : null}
+          <FormField label="Device model" htmlFor="asset-device-model">
+            <SelectField
+              id="asset-device-model"
+              value={form.deviceModelId}
+              onValueChange={(value) =>
+                setForm((current) => ({ ...current, deviceModelId: value }))
+              }
+              placeholder="Choose a model"
+              emptyLabel="Not assigned"
+              options={(modelsQuery.data ?? []).map((model) => ({
+                value: model.id,
+                label: model.label,
+              }))}
+            />
+          </FormField>
+          <FormField label="Serial" htmlFor="asset-serial">
+            <Input
+              id="asset-serial"
+              value={form.serial}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  serial: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Host name" htmlFor="asset-hostname">
+            <Input
+              id="asset-hostname"
+              value={form.hostname}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  hostname: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          <FormField label="Site" htmlFor="asset-site">
+            <SelectField
+              id="asset-site"
+              value={form.siteId}
+              onValueChange={(value) =>
+                setForm((current) => ({ ...current, siteId: value }))
+              }
+              placeholder="No site"
+              emptyLabel="No site"
+              options={sites
+                .filter(
+                  (site) =>
+                    !form.organizationId ||
+                    site.organizationId === form.organizationId
+                )
+                .map((site) => ({ value: site.id, label: site.name }))}
+            />
+          </FormField>
+          <FormField label="Status" htmlFor="asset-status">
+            <SelectField
+              id="asset-status"
+              value={form.status}
+              onValueChange={(value) =>
+                setForm((current) => ({
+                  ...current,
+                  status: value as AssetStatus,
+                }))
+              }
+              options={assetStatuses.map((status) => ({
+                value: status,
+                label: assetStatusLabels[status],
+              }))}
+            />
+          </FormField>
+          <FormField
+            label="Notes"
+            htmlFor="asset-notes"
+            className="sm:col-span-2"
+          >
+            <Textarea
+              id="asset-notes"
+              value={form.notes}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  notes: event.target.value,
+                }))
+              }
+            />
+          </FormField>
+          {(customFieldsQuery.data ?? [])
+            .filter((field) => definitionAppliesTo(field.appliesTo, "asset"))
+            .map((field) => (
+              <FormField
+                key={field.id}
+                label={field.label}
+                htmlFor={`asset-field-${field.key}`}
+              >
+                <Input
+                  id={`asset-field-${field.key}`}
+                  value={form.customFields[field.key] ?? ""}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      customFields: {
+                        ...current.customFields,
+                        [field.key]: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </FormField>
+            ))}
+        </div>
         <Button
           disabled={
             !form.organizationId ||
@@ -1334,17 +814,14 @@ function AssetsContent() {
           }
           onClick={() => {
             const payload = payloadFromForm()
-            if (payload.folderKind) {
-              void createFolder.mutateAsync({
-                ...payload,
-                folderKind: payload.folderKind,
-              })
+            if (payload.isContainer) {
+              void createFolder.mutateAsync(payload)
             } else {
               void createAsset.mutateAsync(payload)
             }
           }}
         >
-          {form.folderKind ? "Add folder" : "Add asset"}
+          {form.isContainer ? "Add folder" : "Add asset"}
         </Button>
       </DetailSheet>
 
@@ -1352,7 +829,7 @@ function AssetsContent() {
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="Remove this asset?"
-        description="The financial record will be removed. Linked devices stay in inventory."
+        description="The inventory record will be removed. Linked devices stay enrolled."
         confirmLabel="Remove asset"
         destructive
         pending={deleteAsset.isPending}

@@ -3,7 +3,6 @@ import test from "node:test"
 
 import {
   addMonthsToIsoDate,
-  assetFolderKindSchema,
   assetLabelQrPayload,
   assertCanAttachChild,
   assertCanDetachChild,
@@ -11,9 +10,9 @@ import {
   buildAssetLabelPrintPayload,
   childSiteFromFolder,
   fillEmptyAssetIdentity,
-  folderKindLabel,
   formatAssetLabelCsv,
   initialAssetIdentityFromAgent,
+  isContainerAsset,
   isFolderAsset,
   matchAssetToDevice,
   matchDeviceModel,
@@ -448,31 +447,30 @@ test("parseIsoDate and parseMoney reject garbage", () => {
   assert.equal(parseMoney("(12.5)"), "-12.50")
 })
 
-test("isFolderAsset and folderKindLabel", () => {
-  assert.equal(isFolderAsset({ folderKind: "cabinet" }), true)
-  assert.equal(isFolderAsset({ folderKind: null }), false)
-  assert.equal(isFolderAsset({ folderKind: "" }), false)
-  assert.equal(folderKindLabel("cabinet"), "Cabinet")
-  assert.equal(folderKindLabel("custom_bay"), "Custom bay")
+test("isContainerAsset treats boolean flag", () => {
+  assert.equal(isContainerAsset({ isContainer: true }), true)
+  assert.equal(isContainerAsset({ isContainer: false }), false)
+  assert.equal(isContainerAsset({ isContainer: null }), false)
+  assert.equal(isFolderAsset({ isContainer: true }), true)
 })
 
 test("assertCanAttachChild enforces one-level folders only", () => {
   const folder = {
     id: "f1",
     organizationId: "org",
-    folderKind: "cabinet",
+    isContainer: true,
     parentAssetId: null,
   }
   const item = {
     id: "i1",
     organizationId: "org",
-    folderKind: null,
+    isContainer: false,
     parentAssetId: null,
   }
   assert.equal(assertCanAttachChild({ parent: folder, child: item }).ok, true)
   assert.equal(
     assertCanAttachChild({
-      parent: { ...folder, folderKind: null },
+      parent: { ...folder, isContainer: false },
       child: item,
     }).ok,
     false
@@ -480,7 +478,7 @@ test("assertCanAttachChild enforces one-level folders only", () => {
   assert.equal(
     assertCanAttachChild({
       parent: folder,
-      child: { ...item, folderKind: "trt" },
+      child: { ...item, isContainer: true },
     }).ok,
     false
   )
@@ -503,7 +501,7 @@ test("assertCanDetachChild requires an attached non-folder", () => {
       child: {
         id: "i1",
         organizationId: "org",
-        folderKind: null,
+        isContainer: false,
         parentAssetId: "f1",
       },
     }).ok,
@@ -514,7 +512,7 @@ test("assertCanDetachChild requires an attached non-folder", () => {
       child: {
         id: "i1",
         organizationId: "org",
-        folderKind: null,
+        isContainer: false,
         parentAssetId: null,
       },
     }).ok,
@@ -525,10 +523,4 @@ test("assertCanDetachChild requires an attached non-folder", () => {
 test("childSiteFromFolder copies folder site", () => {
   assert.deepEqual(childSiteFromFolder("site-a"), { siteId: "site-a" })
   assert.deepEqual(childSiteFromFolder(null), { siteId: null })
-})
-
-test("assetFolderKindSchema accepts known and extensible kinds", () => {
-  assert.equal(assetFolderKindSchema.parse("Cabinet"), "cabinet")
-  assert.equal(assetFolderKindSchema.parse("custom_bay"), "custom_bay")
-  assert.equal(assetFolderKindSchema.safeParse("Bad Kind").success, false)
 })
