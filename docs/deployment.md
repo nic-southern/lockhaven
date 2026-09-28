@@ -8,19 +8,21 @@
 
 ## Production Deploy
 
-Lockhaven has two production deployment paths, plus optional auto-deploy from
-GitHub Actions after images publish to GHCR.
+Lockhaven has two host deployment paths, plus a **manual** GitHub Actions
+deploy after images publish to GHCR.
 
-### Auto-deploy from GitHub Actions
+### Manual deploy from GitHub Actions
 
 On every successful `main` push, CI publishes `lockhaven-web` and
-`lockhaven-worker` to GHCR. When auto-deploy is enabled, a follow-up job SSHs
-to the production host, syncs `deploy/production.compose.yml` plus the host
-helpers in `infra/systemd/` (`vpnctl` and `install-flow-logging.sh`), pulls the
-new images, runs migrations, and restarts the stack via
+`lockhaven-worker` to GHCR. Production is **not** updated automatically.
+When you are ready, run the **Deploy** workflow (Actions → Deploy → Run
+workflow) and type `deploy` to confirm. That job SSHs to the host, syncs
+`deploy/production.compose.yml` plus the host helpers in `infra/systemd/`
+(`vpnctl` and `install-flow-logging.sh`), pulls the new images, runs
+migrations, and restarts the stack via
 [`scripts/remote-compose-update.sh`](../scripts/remote-compose-update.sh).
 
-Enable it once:
+One-time setup:
 
 1. Create a dedicated SSH key for deploys (do not reuse a personal laptop key
    if you can avoid it).
@@ -30,10 +32,10 @@ Enable it once:
    - `DEPLOY_HOST` — droplet IP or hostname (for example `159.89.33.148`)
    - `DEPLOY_SSH_PRIVATE_KEY` — the matching private key
    - `DEPLOY_SSH_USER` — optional; defaults to `root`
-4. Add repository variable `AUTO_DEPLOY` with value `true`.
+4. Remove repository variable `AUTO_DEPLOY` if it is still set (auto-deploy
+   on `main` is no longer used).
 
-Until `AUTO_DEPLOY=true`, publish still runs but the deploy job is skipped.
-Manual updates remain available with
+You can also update the host with
 `DEPLOY_ONLY=1 DEPLOY_HOST=<ip> bash scripts/deploy-production.sh`.
 
 ### Terraform Deploy
@@ -132,7 +134,7 @@ Optional worker settings:
 - `FLOW_RETENTION_DAYS` — raw connection events to keep (default `30`).
 - `FLOW_ROLLUP_RETENTION_DAYS` — daily rollups to keep (default `365`).
 
-Both deploy scripts, Terraform, and the auto-deploy job run the installer; it is
+Both deploy scripts, Terraform, and the manual Deploy workflow run the installer; it is
 idempotent and only restarts `ulogd2` when its config changes.
 
 ### Outbound mail
@@ -183,7 +185,7 @@ See [Single sign-on](sso.md).
 
 - Use the published Lockhaven images, or build and push your own customized web
   and worker images.
-- Prefer auto-deploy from GitHub Actions after `main` publishes, or pull and
+- Prefer the manual Deploy workflow after `main` publishes, or pull and
   restart Docker Compose manually.
 - Run database migrations through the worker image after each deploy.
 - Keep Postgres, Redis, and Guacamole on private Docker networks.

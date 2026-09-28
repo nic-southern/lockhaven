@@ -1,0 +1,87 @@
+name: Deploy
+
+# Manual production deploy. Images still publish from CI on main pushes;
+# run this workflow when you want the host to pull and restart.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type deploy to confirm a production update"
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm manual deploy
+        if: ${{ inputs.confirm != 'deploy' }}
+        run: |
+          echo "Type deploy (exactly) in the confirm input to run a production update." >&2
+          exit 1
+
+      - name: Check deploy secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_SSH_PRIVATE_KEY" ]; then
+            echo "Set repository secrets DEPLOY_HOST and DEPLOY_SSH_PRIVATE_KEY." >&2
+            exit 1
+          fi
+
+      - name: Install SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+
+      - name: Add host to known_hosts
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Sync compose and update script
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+        run: |
+          user="${DEPLOY_SSH_USER:-root}"
+          host="$DEPLOY_HOST"
+          ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=yes)
+          ssh "${ssh_opts[@]}" "${user}@${host}" "mkdir -p /opt/lockhaven/deploy /opt/lockhaven/scripts /opt/lockhaven/infra/systemd"
+          scp "${ssh_opts[@]}" \
+            deploy/production.compose.yml \
+            "${user}@${host}:/opt/lockhaven/deploy/production.compose.yml"
+          scp "${ssh_opts[@]}" \
+            scripts/remote-compose-update.sh \
+            scripts/backup.sh \
+            scripts/restore.sh \
+            "${user}@${host}:/opt/lockhaven/scripts/"
+          scp "${ssh_opts[@]}" \
+            infra/systemd/vpnctl \
+            infra/systemd/install-flow-logging.sh \
+            infra/systemd/install-backup.sh \
+            infra/systemd/lockhaven-backup.service \
+            infra/systemd/lockhaven-backup.timer \
+            "${user}@${host}:/opt/lockhaven/infra/systemd/"
+          ssh "${ssh_opts[@]}" "${user}@${host}" \
+            "chmod 0755 /opt/lockhaven/scripts/remote-compose-update.sh /opt/lockhaven/scripts/backup.sh /opt/lockhaven/scripts/restore.sh /opt/lockhaven/infra/systemd/vpnctl /opt/lockhaven/infra/systemd/install-flow-logging.sh /opt/lockhaven/infra/systemd/install-backup.sh"
+
+      - name: Pull images, migrate, and restart
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+        run: |
+          user="${DEPLOY_SSH_USER:-root}"
+          host="$DEPLOY_HOST"
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "${user}@${host}" \
+            "/opt/lockhaven/scripts/remote-compose-update.sh"
