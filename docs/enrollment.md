@@ -23,7 +23,12 @@
    values and common BIOS placeholders (`To be filled by O.E.M.`, `Not
 Specified`, `None`, `Default string`, `System Serial Number`, `0`,
    `XXXXXXXX`, and similar) are omitted so Hub can auto-link assets by serial.
-   Existing hostname and secret fields stay required.
+   When a real chassis serial is reported, Hub replaces a stored device (and
+   linked asset) serial that is empty, an OEM placeholder, or synthetic —
+   DMI `product_uuid` / RFC UUID (with or without hyphens) or Linux
+   `/etc/machine-id` (32 hex) from older enroll paths. A different real SMBIOS
+   serial already stored is left alone. Existing hostname and secret fields
+   stay required.
 10. Check-in responses may include `desired_agent_version`, `download_url`,
     `commands`, and `modules`. Commands are a closed whitelist (`reboot`,
     `restart`, `update`) — never a shell or SSH string. The client refuses

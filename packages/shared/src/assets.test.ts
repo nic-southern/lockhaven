@@ -15,6 +15,8 @@ import {
   isContainerAsset,
   isFolderAsset,
   isPlaceholderHardwareSerial,
+  isReplaceableHardwareSerial,
+  isSyntheticHardwareSerial,
   matchAssetToDevice,
   matchDeviceModel,
   normalizeSerial,
@@ -30,6 +32,7 @@ import {
   planTrackingTagPrefixRetarget,
   retargetTrackingTag,
   sanitizeHardwareSerial,
+  shouldAdoptHardwareSerial,
   suggestAssetTrackingTag,
   trackingTagBodyAfterPrefix,
   warrantyState,
@@ -60,6 +63,120 @@ test("sanitizeHardwareSerial drops DMI placeholders", () => {
   }
   assert.equal(sanitizeHardwareSerial(" PF1A2B3C "), "PF1A2B3C")
   assert.equal(isPlaceholderHardwareSerial("PF1A2B3C"), false)
+})
+
+test("isSyntheticHardwareSerial matches product_uuid and machine-id", () => {
+  const uuid = "03000200-0400-0500-0006-000700080009"
+  const uuidNoHyphen = "03000200040005000006000700080009"
+  const machineId = "a1b2c3d4e5f6789012345678abcdef01"
+  for (const value of [uuid, uuid.toUpperCase(), uuidNoHyphen, machineId]) {
+    assert.equal(isSyntheticHardwareSerial(value), true, value)
+    assert.equal(sanitizeHardwareSerial(value), null, value)
+    assert.equal(isReplaceableHardwareSerial(value), true, value)
+  }
+  assert.equal(isSyntheticHardwareSerial("PF1A2B3C"), false)
+  assert.equal(isSyntheticHardwareSerial("To be filled by O.E.M."), false)
+  assert.equal(isSyntheticHardwareSerial(""), false)
+  assert.equal(isSyntheticHardwareSerial(null), false)
+  // Shorter hex is not machine-id / UUID.
+  assert.equal(isSyntheticHardwareSerial("abcdef0123456789"), false)
+})
+
+test("shouldAdoptHardwareSerial replaces UUID and placeholders with chassis serial", () => {
+  assert.equal(
+    shouldAdoptHardwareSerial(
+      "03000200-0400-0500-0006-000700080009",
+      "PF1A2B3C"
+    ),
+    true
+  )
+  assert.equal(
+    shouldAdoptHardwareSerial("a1b2c3d4e5f6789012345678abcdef01", "PF1A2B3C"),
+    true
+  )
+  assert.equal(shouldAdoptHardwareSerial(null, "PF1A2B3C"), true)
+  assert.equal(shouldAdoptHardwareSerial("", "PF1A2B3C"), true)
+  assert.equal(
+    shouldAdoptHardwareSerial("To be filled by O.E.M.", "PF1A2B3C"),
+    true
+  )
+})
+
+test("shouldAdoptHardwareSerial does not clobber a different real SMBIOS serial", () => {
+  assert.equal(shouldAdoptHardwareSerial("SN-REAL-1", "SN-REAL-2"), false)
+  assert.equal(shouldAdoptHardwareSerial("PF1A2B3C", "PF1A2B3C"), false)
+  assert.equal(shouldAdoptHardwareSerial(" pf1a2b3c ", "PF1A2B3C"), false)
+  assert.equal(
+    shouldAdoptHardwareSerial("03000200-0400-0500-0006-000700080009", null),
+    false
+  )
+  assert.equal(
+    shouldAdoptHardwareSerial(
+      "SN-REAL-1",
+      "03000200-0400-0500-0006-000700080009"
+    ),
+    false
+  )
+})
+
+test("fillEmptyAssetIdentity replaces synthetic UUID serial with chassis serial", () => {
+  const patch = fillEmptyAssetIdentity(
+    {
+      serial: "03000200-0400-0500-0006-000700080009",
+      hostname: "cab-1",
+      vendor: null,
+      model: null,
+      deviceModelId: null,
+    },
+    {
+      serialNumber: "PF1A2B3C",
+      hostname: "cab-1",
+      manufacturer: null,
+      model: null,
+    },
+    null
+  )
+  assert.deepEqual(patch, { serial: "PF1A2B3C" })
+})
+
+test("fillEmptyAssetIdentity does not replace a real serial with another", () => {
+  const patch = fillEmptyAssetIdentity(
+    {
+      serial: "SN-KEEP",
+      hostname: "cab-1",
+      vendor: null,
+      model: null,
+      deviceModelId: null,
+    },
+    {
+      serialNumber: "SN-NEW",
+      hostname: "cab-1",
+      manufacturer: null,
+      model: null,
+    },
+    null
+  )
+  assert.ok(!("serial" in patch))
+})
+
+test("fillEmptyAssetIdentity ignores reported UUID / machine-id serials", () => {
+  const patch = fillEmptyAssetIdentity(
+    {
+      serial: null,
+      hostname: "cab-1",
+      vendor: null,
+      model: null,
+      deviceModelId: null,
+    },
+    {
+      serialNumber: "03000200-0400-0500-0006-000700080009",
+      hostname: "cab-1",
+      manufacturer: null,
+      model: null,
+    },
+    null
+  )
+  assert.ok(!("serial" in patch))
 })
 
 test("suggestAssetTrackingTag is short and stable for the same seed", () => {
