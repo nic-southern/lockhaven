@@ -136,7 +136,7 @@ export function OverviewTab({
                 label: "Asset",
                 value: device.assetTag ? (
                   <Link
-                    href={`/assets?id=${device.assetId}`}
+                    href={`/assets/${device.assetId}`}
                     className="font-mono text-sm hover:underline"
                   >
                     {device.assetTag}

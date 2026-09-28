@@ -223,7 +223,7 @@ function DeviceDetail() {
                 <>
                   <span aria-hidden>·</span>
                   <Link
-                    href={`/assets?id=${device.assetId}`}
+                    href={`/assets/${device.assetId}`}
                     className="hover:underline"
                   >
                     {device.assetTag}
