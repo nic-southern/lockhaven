@@ -47,6 +47,6 @@ cabinet.
 
 ## Commands
 
-Operators with device update access can queue an action from Fleet. Hub stores
-it in `device_commands` and includes `{ id, kind }` only. Unknown kinds are
-refused.
+Operators with device update access can queue an action from Fleet or from a
+device's Agent tab. Hub stores it in `device_commands` and includes
+`{ id, kind }` only. Unknown kinds are refused.

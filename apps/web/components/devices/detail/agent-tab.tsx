@@ -4,8 +4,15 @@ import * as React from "react"
 import { DownloadIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import {
+  agentCommandKindLabels,
+  agentCommandKinds,
+  type AgentCommandKind,
+} from "@nms/shared"
+
 import { Button } from "@/components/ui/button"
 import { CodeBlock } from "@/components/dashboard/code-block"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { CopyableText } from "@/components/dashboard/copyable-text"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { SectionCard } from "@/components/dashboard/section-card"
@@ -22,7 +29,21 @@ import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
 
 import { DefinitionList } from "./definition-list"
-import { type DeviceDetail } from "./shared"
+import { type DeviceDetail, useInvalidateDevice } from "./shared"
+
+const deviceAgentActions = agentCommandKinds.filter(
+  (kind) => kind !== "restart_service"
+)
+
+const commandHelp: Record<
+  Exclude<AgentCommandKind, "restart_service">,
+  string
+> = {
+  reboot: "The device will restart. It will be unreachable for a short time.",
+  restart: "The agent on this device will restart.",
+  update:
+    "The device will install the published agent version for its channel.",
+}
 
 const ENROLLMENT_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -75,6 +96,8 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
   const { can } = usePermissions()
   const canEnroll = can("device:enroll")
   const canUpdate = can("device:update")
+  const invalidateDevice = useInvalidateDevice(device.id)
+  const utils = trpc.useUtils()
   const observationsQuery = trpc.agentModules.observations.useQuery(
     { deviceId: device.id },
     { enabled: can("device:view") }
@@ -83,12 +106,30 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
     { deviceId: device.id },
     { enabled: can("device:view") }
   )
-  const enqueueService = trpc.fleet.enqueueCommand.useMutation({
-    onSuccess() {
-      toast.success("Restart requested")
+  const [pendingAction, setPendingAction] = React.useState<Exclude<
+    AgentCommandKind,
+    "restart_service"
+  > | null>(null)
+  const enqueueCommand = trpc.fleet.enqueueCommand.useMutation({
+    async onSuccess(_data, variables) {
+      await Promise.all([
+        invalidateDevice(),
+        utils.fleet.overview.invalidate(),
+        utils.fleet.devices.invalidate(),
+      ])
+      if (variables.kind === "restart_service") {
+        toast.success("Restart requested")
+        return
+      }
+      setPendingAction(null)
+      toast.success("Action queued. It will run on the next check-in.")
     },
-    onError(error) {
-      toast.error(error.message || "We couldn't restart that service.")
+    onError(error, variables) {
+      if (variables.kind === "restart_service") {
+        toast.error(error.message || "We couldn't restart that service.")
+        return
+      }
+      toast.error(error.message || "We couldn't queue that action.")
     },
   })
   const createToken = trpc.enrollmentTokens.create.useMutation()
@@ -217,6 +258,27 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
         />
       </SectionCard>
 
+      {canUpdate ? (
+        <SectionCard
+          title="Actions"
+          description="Send an allowed action to this device. It runs on the next check-in."
+        >
+          <div className="flex flex-wrap gap-2">
+            {deviceAgentActions.map((kind) => (
+              <Button
+                key={kind}
+                size="sm"
+                variant="outline"
+                disabled={enqueueCommand.isPending}
+                onClick={() => setPendingAction(kind)}
+              >
+                {agentCommandKindLabels[kind]}
+              </Button>
+            ))}
+          </div>
+        </SectionCard>
+      ) : null}
+
       {(observationsQuery.data?.length ?? 0) > 0 ? (
         <SectionCard
           title="Observations"
@@ -259,9 +321,9 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={enqueueService.isPending}
+                    disabled={enqueueCommand.isPending}
                     onClick={() =>
-                      enqueueService.mutate({
+                      enqueueCommand.mutate({
                         deviceId: device.id,
                         kind: "restart_service",
                         serviceName: service.name,
@@ -382,6 +444,28 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
           ) : null}
         </div>
       </SectionCard>
+
+      <ConfirmDialog
+        open={Boolean(pendingAction)}
+        onOpenChange={(open) => {
+          if (!open) setPendingAction(null)
+        }}
+        title={
+          pendingAction
+            ? `${agentCommandKindLabels[pendingAction]} for ${device.displayName}?`
+            : "Send this action?"
+        }
+        description={pendingAction ? commandHelp[pendingAction] : ""}
+        confirmLabel="Queue action"
+        pending={enqueueCommand.isPending}
+        onConfirm={() => {
+          if (!pendingAction) return
+          enqueueCommand.mutate({
+            deviceId: device.id,
+            kind: pendingAction,
+          })
+        }}
+      />
     </div>
   )
 }

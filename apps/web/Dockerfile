@@ -1,10 +1,10 @@
 FROM golang:1.22-alpine AS agent
 WORKDIR /src
 COPY apps/lockhaven-agent ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.0" -o /out/lockhaven-agent-linux-amd64 ./cmd/lockhaven-agent
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.0" -o /out/lockhaven-agent-linux-arm64 ./cmd/lockhaven-agent
-RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.0" -o /out/lockhaven-agent-windows-amd64.exe ./cmd/lockhaven-agent
-RUN CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.0" -o /out/lockhaven-agent-windows-arm64.exe ./cmd/lockhaven-agent
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.1" -o /out/lockhaven-agent-linux-amd64 ./cmd/lockhaven-agent  # pragma: allowlist secret
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.1" -o /out/lockhaven-agent-linux-arm64 ./cmd/lockhaven-agent  # pragma: allowlist secret
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.1" -o /out/lockhaven-agent-windows-amd64.exe ./cmd/lockhaven-agent  # pragma: allowlist secret
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -trimpath -ldflags="-s -w -X github.com/nic-southern/lockhaven/apps/lockhaven-agent/internal/version.Version=0.3.1" -o /out/lockhaven-agent-windows-arm64.exe ./cmd/lockhaven-agent  # pragma: allowlist secret
 RUN set -eu; \
   for bin in /out/lockhaven-agent-linux-amd64 /out/lockhaven-agent-linux-arm64 /out/lockhaven-agent-windows-amd64.exe /out/lockhaven-agent-windows-arm64.exe; do \
     sha256sum "$bin" | awk '{print $1}' > "$bin.sha256"; \
