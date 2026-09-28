@@ -198,7 +198,16 @@ function DeviceDetail() {
               {device.hostname && device.hostname !== device.displayName ? (
                 <span className="font-mono text-xs">{device.hostname}</span>
               ) : null}
-              <span>{device.siteName ?? "No site"}</span>
+              {device.siteId && device.siteName ? (
+                <Link
+                  href={`/sites/${device.siteId}`}
+                  className="hover:underline"
+                >
+                  {device.siteName}
+                </Link>
+              ) : (
+                <span>{device.siteName ?? "No site"}</span>
+              )}
               <span aria-hidden>·</span>
               <span>{osFamilyLabel(device.osFamily)}</span>
               {device.vpnIdentity?.vpnIpv4 ? (
