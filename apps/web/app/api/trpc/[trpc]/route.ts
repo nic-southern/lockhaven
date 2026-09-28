@@ -20,7 +20,7 @@ async function createTRPCContext(req: Request): Promise<ApiContext> {
   const session = await auth.api.getSession({
     headers: req.headers,
   })
-  let email = session?.user?.email ?? null
+  const email = session?.user?.email ?? null
 
   if (!email) {
     const bearer = parseBearerToken(req.headers.get("authorization"))
