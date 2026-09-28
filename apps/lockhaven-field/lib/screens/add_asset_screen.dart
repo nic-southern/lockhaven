@@ -1,6 +1,7 @@
 import "package:flutter/material.dart";
 import "package:lockhaven_field/hub/hub_client.dart";
 import "package:lockhaven_field/hub/models.dart";
+import "package:lockhaven_field/hub/tracking_tag.dart";
 import "package:lockhaven_field/state/app_state.dart";
 
 class AddAssetScreen extends StatefulWidget {
@@ -25,9 +26,11 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
   final hostnameController = TextEditingController();
   final notesController = TextEditingController();
   bool tagTouched = false;
+  bool suggesting = false;
   bool saving = false;
   String? error;
   int attempt = 0;
+  String prefix = defaultTrackingTagPrefix;
 
   @override
   void initState() {
@@ -36,6 +39,10 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
       serialController.text = widget.initialSerial!;
     }
     serialController.addListener(_onSerialChanged);
+    final org = widget.state.orgFor(widget.site.organizationId);
+    if (org != null) {
+      prefix = normalizeTrackingTagPrefix(org.trackingTagPrefix);
+    }
     _suggestTag();
   }
 
@@ -48,9 +55,25 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
     super.dispose();
   }
 
-  Future<void> _suggestTag() async {
+  String _localSuggestion() {
+    return suggestAssetTrackingTag(
+      deviceId: widget.site.id,
+      serialNumber: serialController.text.trim().isEmpty
+          ? null
+          : serialController.text.trim(),
+      hostname: hostnameController.text.trim().isEmpty
+          ? null
+          : hostnameController.text.trim(),
+      attempt: attempt,
+      prefix: prefix,
+    );
+  }
+
+  Future<void> _suggestTag({bool force = false}) async {
+    if (tagTouched && !force) return;
+    setState(() => suggesting = true);
     try {
-      final tag = await widget.state.client.suggestTag(
+      final remote = await widget.state.client.suggestTag(
         organizationId: widget.site.organizationId,
         siteId: widget.site.id,
         serial: serialController.text.trim().isEmpty
@@ -58,11 +81,24 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
             : serialController.text.trim(),
         attempt: attempt,
       );
-      if (!mounted || tagTouched) return;
-      setState(() => tagController.text = tag);
+      if (!mounted) return;
+      if (remote.isNotEmpty) {
+        setState(() {
+          tagController.text = remote;
+          tagTouched = false;
+          suggesting = false;
+        });
+        return;
+      }
     } catch (_) {
-      // Operator can still type a tag.
+      // Fall back to local suggestion matching Hub rules.
     }
+    if (!mounted) return;
+    setState(() {
+      tagController.text = _localSuggestion();
+      tagTouched = false;
+      suggesting = false;
+    });
   }
 
   void _onSerialChanged() {
@@ -71,8 +107,20 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
     }
   }
 
+  Future<void> _regenerateTag() async {
+    setState(() {
+      attempt += 1;
+      tagTouched = false;
+    });
+    await _suggestTag(force: true);
+  }
+
   Future<void> _save() async {
-    final tag = tagController.text.trim();
+    var tag = tagController.text.trim();
+    if (tag.isEmpty) {
+      tag = _localSuggestion();
+      tagController.text = tag;
+    }
     if (tag.isEmpty) {
       setState(() => error = "Tracking tag is required.");
       return;
@@ -106,7 +154,7 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
         if (error!.toLowerCase().contains("already exists")) {
           attempt += 1;
           tagTouched = false;
-          _suggestTag();
+          _suggestTag(force: true);
         }
       });
     }
@@ -138,7 +186,20 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: tagController,
-            decoration: const InputDecoration(labelText: "Tracking tag"),
+            decoration: InputDecoration(
+              labelText: "Tracking tag",
+              suffixIcon: IconButton(
+                tooltip: "Generate another tag",
+                onPressed: suggesting ? null : _regenerateTag,
+                icon: suggesting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh),
+              ),
+            ),
             onChanged: (_) => tagTouched = true,
           ),
           const SizedBox(height: 12),

@@ -91,7 +91,9 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       if (!mounted) return;
       setState(() {
         loading = false;
-        error = err.toString();
+        error = err is HubException
+            ? err.message
+            : "This asset could not be loaded.";
       });
     }
   }

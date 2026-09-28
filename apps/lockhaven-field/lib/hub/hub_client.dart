@@ -3,6 +3,7 @@ import "dart:io";
 
 import "package:http/http.dart" as http;
 import "package:lockhaven_field/hub/models.dart";
+import "package:lockhaven_field/hub/tracking_tag.dart";
 
 class HubException implements Exception {
   HubException(this.message, {this.statusCode});
@@ -46,7 +47,9 @@ class HubClient {
   Future<dynamic> _trpcGet(String procedure, [Object? input]) async {
     final query = <String, String>{};
     if (input != null) {
-      query["input"] = jsonEncode({"json": input});
+      // Hub uses the default identity transformer — send the bare input
+      // object, not a `{ "json": ... }` envelope.
+      query["input"] = jsonEncode(input);
     }
     final response = await _http.get(
       _uri("/api/trpc/$procedure", query.isEmpty ? null : query),
@@ -59,7 +62,7 @@ class HubClient {
     final response = await _http.post(
       _uri("/api/trpc/$procedure"),
       headers: await _headers(jsonBody: true),
-      body: jsonEncode({"json": input}),
+      body: jsonEncode(input),
     );
     return _decodeTrpc(response);
   }
@@ -82,8 +85,6 @@ class HubClient {
       throw HubException("Unexpected response from Hub.");
     }
 
-    // httpBatchLink single-procedure shape: { result: { data: { json: ... }}}
-    // or error: { error: { json: { message } } }
     if (body.containsKey("error")) {
       throw HubException(_extractError(body) ?? "Request failed.");
     }
@@ -91,14 +92,16 @@ class HubClient {
     final result = body["result"];
     if (result is Map<String, dynamic>) {
       final data = result["data"];
-      if (data is Map<String, dynamic> && data.containsKey("json")) {
+      // Tolerate optional `{ json: ... }` envelopes from older transformers.
+      if (data is Map<String, dynamic> &&
+          data.length == 1 &&
+          data.containsKey("json")) {
         return data["json"];
       }
       return data;
     }
 
-    // Some adapters return { json: ... } directly.
-    if (body.containsKey("json")) {
+    if (body.containsKey("json") && body.length <= 2) {
       return body["json"];
     }
 
@@ -109,16 +112,22 @@ class HubClient {
     if (body == null) return null;
     final error = body["error"];
     if (error is Map<String, dynamic>) {
-      final json = error["json"];
-      if (json is Map<String, dynamic>) {
-        final message = json["message"];
-        if (message is String && message.isNotEmpty) return message;
+      final nested = error["json"];
+      if (nested is Map<String, dynamic>) {
+        final message = nested["message"];
+        if (message is String && message.isNotEmpty) {
+          return humanizeHubError(message);
+        }
       }
       final message = error["message"];
-      if (message is String && message.isNotEmpty) return message;
+      if (message is String && message.isNotEmpty) {
+        return humanizeHubError(message);
+      }
     }
     final message = body["message"];
-    if (message is String && message.isNotEmpty) return message;
+    if (message is String && message.isNotEmpty) {
+      return humanizeHubError(message);
+    }
     return null;
   }
 
