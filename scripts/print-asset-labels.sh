@@ -10,10 +10,14 @@
 #   ./scripts/print-asset-labels.sh --dry-run labels.csv   # write PNGs only
 #   SETTLE_SECONDS=4 ./scripts/print-asset-labels.sh labels.csv
 #
-# Requires: python3, Pillow, qrcode, ptouch-print
-#   pip install --user pillow qrcode
+# Requires: python3, ptouch-print. Pillow/qrcode install into a repo-local
+# venv on first run (scripts/.venv-labels) — no global pip needed.
 # CSV schema v1 columns: schema_version,tag,serial,company_name,qr_text,site_name
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="${LOCKHAVEN_LABEL_VENV:-$SCRIPT_DIR/.venv-labels}"
+REQ_FILE="$SCRIPT_DIR/requirements-labels.txt"
 
 SETTLE_SECONDS="${SETTLE_SECONDS:-3}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-30}"
@@ -22,6 +26,62 @@ CSV_PATH=""
 
 usage() {
   sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+python_has_label_deps() {
+  "$1" -c 'import qrcode; from PIL import Image, ImageDraw, ImageFont' 2>/dev/null
+}
+
+ensure_label_venv() {
+  local python_bin="$VENV_DIR/bin/python"
+
+  # Prefer a repo-local venv so Field/CI do not depend on global pip state.
+  if [[ -x "$python_bin" ]] && python_has_label_deps "$python_bin"; then
+    LABEL_PYTHON="$python_bin"
+    return 0
+  fi
+
+  if [[ -x "$python_bin" ]]; then
+    echo "Installing label print packages into $VENV_DIR …" >&2
+    "$python_bin" -m pip install -r "$REQ_FILE"
+    if python_has_label_deps "$python_bin"; then
+      LABEL_PYTHON="$python_bin"
+      return 0
+    fi
+  fi
+
+  if [[ ! -d "$VENV_DIR" ]] || [[ ! -x "$python_bin" ]]; then
+    echo "Creating label print venv at $VENV_DIR …" >&2
+    if python3 -m venv "$VENV_DIR" >/dev/null 2>&1; then
+      python_bin="$VENV_DIR/bin/python"
+      "$python_bin" -m pip install --upgrade pip >/dev/null
+      "$python_bin" -m pip install -r "$REQ_FILE"
+      if python_has_label_deps "$python_bin"; then
+        LABEL_PYTHON="$python_bin"
+        return 0
+      fi
+      rm -rf "$VENV_DIR"
+    else
+      rm -rf "$VENV_DIR"
+      echo "python3-venv unavailable; falling back to user-site packages." >&2
+    fi
+  fi
+
+  # Fallback: system/user site-packages (pip install --user).
+  if python_has_label_deps python3; then
+    LABEL_PYTHON="python3"
+    return 0
+  fi
+  echo "Installing pillow/qrcode for the current user …" >&2
+  python3 -m pip install --user -r "$REQ_FILE"
+  if python_has_label_deps python3; then
+    LABEL_PYTHON="python3"
+    return 0
+  fi
+
+  echo "Could not import pillow/qrcode." >&2
+  echo "Install python3-venv, or: python3 -m pip install --user -r $REQ_FILE" >&2
+  exit 1
 }
 
 while [[ $# -gt 0 ]]; do
@@ -68,10 +128,7 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
   need ptouch-print
 fi
 
-if ! python3 -c 'import qrcode; from PIL import Image, ImageDraw, ImageFont' 2>/dev/null; then
-  echo "Python packages required: pip install --user pillow qrcode" >&2
-  exit 1
-fi
+ensure_label_venv
 
 OUT_DIR="${OUT_DIR:-$(mktemp -d -t lockhaven-labels.XXXXXX)}"
 mkdir -p "$OUT_DIR"
@@ -83,7 +140,7 @@ export LOCKHAVEN_LABEL_DRY_RUN="$DRY_RUN"
 export LOCKHAVEN_LABEL_SETTLE="$SETTLE_SECONDS"
 export LOCKHAVEN_LABEL_TIMEOUT="$TIMEOUT_SECONDS"
 
-python3 <<'PY'
+"$LABEL_PYTHON" <<'PY'
 import csv
 import os
 import subprocess

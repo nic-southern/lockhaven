@@ -1,7 +1,5 @@
 import "package:flutter_test/flutter_test.dart";
 import "package:lockhaven_field/labels/label_print_service.dart";
-import "package:lockhaven_field/labels/label_renderer.dart";
-import "package:image/image.dart" as img;
 
 void main() {
   test("printHelperEnvironment prepends ~/.local/bin for ptouch-print", () {
@@ -13,31 +11,16 @@ void main() {
     expect(env["PATH"], contains("/usr/bin"));
   });
 
-  test("ptouchSearchCandidates covers common install paths", () {
+  test("scriptSearchCandidates includes monorepo and Nic checkout paths", () {
+    final candidates = scriptSearchCandidates(
+      cwd: "/home/nic/git/lockhaven/apps/lockhaven-field",
+      home: "/home/nic",
+      executable:
+          "/home/nic/git/lockhaven/apps/lockhaven-field/build/linux/x64/debug/bundle/lockhaven_field",
+    );
     expect(
-      ptouchSearchCandidates(home: "/home/tech"),
-      contains("/home/tech/.local/bin/ptouch-print"),
+      candidates,
+      contains("/home/nic/git/lockhaven/scripts/print-asset-labels.sh"),
     );
-  });
-
-  test("renderAssetLabelPng produces a 210×120 PNG with QR payload", () {
-    final bytes = renderAssetLabelPng(
-      tag: "LH-ABC123",
-      serial: "SN-9",
-      companyName: "NewMarketEntertainment",
-    );
-    final decoded = img.decodePng(bytes);
-    expect(decoded, isNotNull);
-    expect(decoded!.width, labelWidth);
-    expect(decoded.height, labelHeight);
-    // QR area should have some black pixels.
-    var black = 0;
-    for (var y = 14; y < 14 + 40; y += 1) {
-      for (var x = 4; x < 4 + 40; x += 1) {
-        final p = decoded.getPixel(x, y);
-        if (p.r < 128) black += 1;
-      }
-    }
-    expect(black, greaterThan(20));
   });
 }

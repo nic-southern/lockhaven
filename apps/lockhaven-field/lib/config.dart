@@ -1,29 +1,28 @@
 /// Runtime config for the field app.
 ///
 /// Override Hub base URL with `--dart-define=HUB_BASE_URL=https://console.example`.
-/// Optional USB printer binary:
-/// `--dart-define=PTOUCH_PRINT=/path/to/ptouch-print`.
+/// Optional label helper:
+/// `--dart-define=LABEL_PRINT_SCRIPT=/path/to/print-asset-labels.sh`.
 class FieldConfig {
   const FieldConfig({
     required this.hubBaseUrl,
-    this.ptouchPrintPath,
+    this.labelPrintScript,
   });
 
   final String hubBaseUrl;
 
-  /// Absolute path to `ptouch-print` when it is not on PATH.
-  final String? ptouchPrintPath;
+  /// Absolute path to `print-asset-labels.sh` when not discovered automatically.
+  final String? labelPrintScript;
 
   static FieldConfig fromEnvironment() {
     const raw = String.fromEnvironment(
       "HUB_BASE_URL",
       defaultValue: "http://127.0.0.1:3000",
     );
-    const ptouch = String.fromEnvironment("PTOUCH_PRINT");
-    // Back-compat: older builds used LABEL_PRINT_SCRIPT; ignore for print path.
+    const script = String.fromEnvironment("LABEL_PRINT_SCRIPT");
     return FieldConfig(
       hubBaseUrl: raw.replaceAll(RegExp(r"/$"), ""),
-      ptouchPrintPath: ptouch.trim().isEmpty ? null : ptouch.trim(),
+      labelPrintScript: script.trim().isEmpty ? null : script.trim(),
     );
   }
 }

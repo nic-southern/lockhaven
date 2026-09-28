@@ -72,3 +72,6 @@ apps/lockhaven-field/build/
 apps/lockhaven-field/**/ephemeral/
 **/*.iml
 .idea/
+
+# Label print helper local venv (auto-created by print-asset-labels.sh)
+scripts/.venv-labels/
