@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { keepPreviousData } from "@tanstack/react-query"
+import type { ColumnDef, RowSelectionState } from "@tanstack/react-table"
 import { ArrowLeftIcon, DownloadIcon, PrinterIcon } from "lucide-react"
 import { toast } from "sonner"
 
@@ -20,6 +21,10 @@ import {
 
 import { AccessDenied } from "@/components/dashboard/access-denied"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
+import {
+  DataTable,
+  DataTableColumnHeader,
+} from "@/components/dashboard/data-table"
 import { EmptyState } from "@/components/dashboard/empty-state"
 import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -165,6 +170,7 @@ function AssetEditor({
   onDeleted: () => void
   invalidate: () => Promise<unknown>
 }) {
+  const router = useRouter()
   const [form, setForm] = React.useState(() => formFromAsset(asset))
   const [linkDeviceId, setLinkDeviceId] = React.useState(asset.deviceId ?? "")
   const [deleteOpen, setDeleteOpen] = React.useState(false)
@@ -175,6 +181,8 @@ function AssetEditor({
   const [newChildSerial, setNewChildSerial] = React.useState("")
   const [newChildModelId, setNewChildModelId] = React.useState("")
   const [addNewOpen, setAddNewOpen] = React.useState(false)
+  const [childRowSelection, setChildRowSelection] =
+    React.useState<RowSelectionState>({})
 
   React.useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -264,6 +272,7 @@ function AssetEditor({
     async onSuccess() {
       await invalidate()
       setAddQuery("")
+      setChildRowSelection({})
       toast.success("Item added to folder")
     },
     onError(error) {
@@ -273,6 +282,7 @@ function AssetEditor({
   const removeChild = trpc.assets.removeChild.useMutation({
     async onSuccess() {
       await invalidate()
+      setChildRowSelection({})
       toast.success("Item removed from folder")
     },
     onError(error) {
@@ -286,6 +296,7 @@ function AssetEditor({
       setNewChildTag("")
       setNewChildSerial("")
       setNewChildModelId("")
+      setChildRowSelection({})
       toast.success("Item added to folder")
     },
     onError(error) {
@@ -335,7 +346,10 @@ function AssetEditor({
     }
   }
 
-  function exportLabels(scope: "folder" | "contents" | "all") {
+  function exportLabels(
+    scope: "folder" | "contents" | "all" | "selected",
+    selectedIds?: string[]
+  ) {
     const rows: NonNullable<ReturnType<typeof buildAssetLabelCsvRow>>[] = []
     const push = (item: {
       tag: string
@@ -359,6 +373,12 @@ function AssetEditor({
         push(child)
       }
     }
+    if (scope === "selected") {
+      const selected = new Set(selectedIds ?? [])
+      for (const child of childrenQuery.data ?? []) {
+        if (selected.has(child.id)) push(child)
+      }
+    }
     if (rows.length === 0) {
       toast.error("No labels to export.")
       return
@@ -377,11 +397,90 @@ function AssetEditor({
     )
   }
 
+  const children = childrenQuery.data ?? []
   const labelIds = React.useMemo(() => {
     const ids = [asset.id]
     for (const child of childrenQuery.data ?? []) ids.push(child.id)
     return ids
   }, [asset.id, childrenQuery.data])
+
+  const childColumns = React.useMemo<ColumnDef<AssetChild>[]>(
+    () => [
+      {
+        accessorKey: "tag",
+        meta: { label: "Tracking tag" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Tracking tag" />
+        ),
+        cell: ({ row }) => (
+          <Link
+            href={`/assets/${row.original.id}`}
+            className="font-mono text-sm font-medium hover:underline"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {row.original.tag}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "serial",
+        meta: { label: "Serial" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Serial" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">
+            {row.original.serial ?? "—"}
+          </span>
+        ),
+      },
+      {
+        id: "deviceModel",
+        accessorFn: (row) => row.deviceModelName ?? row.model ?? "",
+        meta: { label: "Device model" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Device model" />
+        ),
+        cell: ({ row }) =>
+          row.original.deviceModelName ??
+          ([row.original.vendor, row.original.model]
+            .filter(Boolean)
+            .join(" ") ||
+            "—"),
+      },
+      {
+        accessorKey: "hostname",
+        meta: { label: "Host name" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Host name" />
+        ),
+        cell: ({ row }) => row.original.hostname ?? "—",
+      },
+      {
+        id: "actions",
+        enableSorting: false,
+        enableHiding: false,
+        meta: { className: "w-24" },
+        cell: ({ row }) =>
+          canUpdate ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={removeChild.isPending}
+              onClick={(event) => {
+                event.stopPropagation()
+                void removeChild.mutateAsync({
+                  childAssetId: row.original.id,
+                })
+              }}
+            >
+              Remove
+            </Button>
+          ) : null,
+      },
+    ],
+    [canUpdate, removeChild]
+  )
 
   const selectedModel = (modelsQuery.data ?? []).find(
     (model) => model.id === form.deviceModelId
@@ -421,17 +520,36 @@ function AssetEditor({
         title={asset.tag}
         description={
           asset.isContainer
-            ? "Folder details, contained items, and labels."
+            ? "Contained assets inherit this folder’s site. Print or export tracking tags for the folder and its contents."
             : "Tracking tag, placement, and inventory details."
         }
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" asChild>
-              <Link href={`/assets/labels?ids=${asset.id}`}>
-                <PrinterIcon />
-                Print label
-              </Link>
-            </Button>
+            {asset.isContainer ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => exportLabels("all")}
+                  disabled={childrenQuery.isLoading}
+                >
+                  <DownloadIcon />
+                  Export labels
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link href={`/assets/labels?ids=${labelIds.join(",")}`}>
+                    <PrinterIcon />
+                    Print labels
+                  </Link>
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" asChild>
+                <Link href={`/assets/labels?ids=${asset.id}`}>
+                  <PrinterIcon />
+                  Print label
+                </Link>
+              </Button>
+            )}
             {canUpdate ? (
               <Button variant="outline" onClick={() => setTicketOpen(true)}>
                 Open ticket
@@ -440,6 +558,231 @@ function AssetEditor({
           </div>
         }
       />
+
+      {asset.isContainer || form.isContainer ? (
+        <>
+          <SectionCard
+            title={
+              children.length === 1
+                ? "Contents (1 item)"
+                : `Contents (${children.length} items)`
+            }
+            description="Assets inside this folder. Select rows to print or export a subset. Export labels downloads CSV for the local print helper."
+            contentClassName="gap-4"
+            actions={
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportLabels("folder")}
+                >
+                  <DownloadIcon />
+                  Export folder label
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportLabels("contents")}
+                  disabled={children.length === 0}
+                >
+                  <DownloadIcon />
+                  Export contents
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => exportLabels("all")}
+                >
+                  <DownloadIcon />
+                  Export all
+                </Button>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/assets/labels?ids=${labelIds.join(",")}`}>
+                    <PrinterIcon />
+                    Print labels
+                  </Link>
+                </Button>
+              </div>
+            }
+          >
+            {childrenQuery.isLoading ? (
+              <Skeleton className="h-40 w-full" />
+            ) : children.length === 0 ? (
+              <EmptyState
+                title="No items yet"
+                description="Search for an existing asset below, or add a new one to this folder."
+                bordered={false}
+              />
+            ) : (
+              <DataTable
+                columns={childColumns}
+                data={children}
+                getRowId={(row) => row.id}
+                searchPlaceholder="Search contents"
+                initialSorting={[{ id: "tag", desc: false }]}
+                onRowClick={(row) => router.push(`/assets/${row.id}`)}
+                enableRowSelection
+                rowSelection={childRowSelection}
+                onRowSelectionChange={setChildRowSelection}
+                emptyTitle="No items yet"
+                emptyDescription="Add assets to this folder to track them together."
+                bulkActions={(selected) => {
+                  const ids = selected.map((row) => row.original.id)
+                  return (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => exportLabels("selected", ids)}
+                      >
+                        <DownloadIcon />
+                        Export labels
+                      </Button>
+                      <Button size="sm" variant="outline" asChild>
+                        <Link href={`/assets/labels?ids=${ids.join(",")}`}>
+                          <PrinterIcon />
+                          Print labels
+                        </Link>
+                      </Button>
+                    </>
+                  )
+                }}
+              />
+            )}
+          </SectionCard>
+
+          {canUpdate ? (
+            <SectionCard
+              title="Add to folder"
+              description="Search by tracking tag, serial, or host name."
+            >
+              <div className="flex flex-col gap-4">
+                <FormField label="Search existing" htmlFor="folder-add-search">
+                  <Input
+                    id="folder-add-search"
+                    value={addQuery}
+                    onChange={(event) => setAddQuery(event.target.value)}
+                    placeholder="Tracking tag, serial, or host name"
+                    className="font-mono"
+                  />
+                </FormField>
+                {debouncedAddQuery.length >= 1 ? (
+                  searchHits.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {searchQuery.isFetching
+                        ? "Searching…"
+                        : "No matching assets."}
+                    </p>
+                  ) : (
+                    <ul className="flex flex-col gap-2">
+                      {searchHits.map((hit) => (
+                        <li
+                          key={hit.id}
+                          className="flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-mono text-sm">{hit.tag}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {[hit.serial, hit.hostname, hit.siteName]
+                                .filter(Boolean)
+                                .join(" · ") || "—"}
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={addChild.isPending}
+                            onClick={() =>
+                              void addChild.mutateAsync({
+                                parentAssetId: asset.id,
+                                childAssetId: hit.id,
+                              })
+                            }
+                          >
+                            Add
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Type to find an asset to place in this folder.
+                  </p>
+                )}
+
+                {addNewOpen ? (
+                  <div className="grid gap-3 border-t pt-4 sm:grid-cols-2">
+                    <FormField label="Tracking tag" htmlFor="child-tag">
+                      <Input
+                        id="child-tag"
+                        value={newChildTag}
+                        onChange={(event) => setNewChildTag(event.target.value)}
+                        className="font-mono"
+                      />
+                    </FormField>
+                    <FormField label="Serial" htmlFor="child-serial">
+                      <Input
+                        id="child-serial"
+                        value={newChildSerial}
+                        onChange={(event) =>
+                          setNewChildSerial(event.target.value)
+                        }
+                        className="font-mono"
+                      />
+                    </FormField>
+                    <FormField
+                      label="Device model"
+                      htmlFor="child-model"
+                      className="sm:col-span-2"
+                    >
+                      <SelectField
+                        id="child-model"
+                        value={newChildModelId}
+                        onValueChange={setNewChildModelId}
+                        placeholder="Choose a model"
+                        emptyLabel="Not assigned"
+                        options={(modelsQuery.data ?? []).map((model) => ({
+                          value: model.id,
+                          label: model.label,
+                        }))}
+                      />
+                    </FormField>
+                    <div className="flex flex-wrap gap-2 sm:col-span-2">
+                      <Button
+                        disabled={!newChildTag.trim() || createAsset.isPending}
+                        onClick={() =>
+                          void createAsset.mutateAsync({
+                            organizationId: asset.organizationId,
+                            siteId: asset.siteId,
+                            parentAssetId: asset.id,
+                            deviceModelId: newChildModelId || null,
+                            tag: newChildTag.trim(),
+                            serial: newChildSerial.trim() || null,
+                            status: "in_service",
+                          })
+                        }
+                      >
+                        Add new
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setAddNewOpen(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button variant="outline" onClick={() => setAddNewOpen(true)}>
+                    Add new asset
+                  </Button>
+                )}
+              </div>
+            </SectionCard>
+          ) : null}
+        </>
+      ) : null}
 
       <SectionCard
         title="Details"
@@ -791,220 +1134,6 @@ function AssetEditor({
             </p>
           ) : null}
         </SectionCard>
-      ) : null}
-
-      {asset.isContainer || form.isContainer ? (
-        <>
-          <SectionCard
-            title="Contents"
-            description="Items inside this folder. They inherit the folder’s site while attached."
-            actions={
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => exportLabels("folder")}
-                >
-                  <DownloadIcon />
-                  Export folder label
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => exportLabels("contents")}
-                  disabled={(childrenQuery.data ?? []).length === 0}
-                >
-                  <DownloadIcon />
-                  Export contents
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => exportLabels("all")}
-                >
-                  <DownloadIcon />
-                  Export all
-                </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/assets/labels?ids=${labelIds.join(",")}`}>
-                    <PrinterIcon />
-                    Print labels
-                  </Link>
-                </Button>
-              </div>
-            }
-          >
-            {(childrenQuery.data ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">No items yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {(childrenQuery.data ?? []).map((child: AssetChild) => (
-                  <li
-                    key={child.id}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <Link
-                      href={`/assets/${child.id}`}
-                      className="min-w-0 truncate font-mono text-sm hover:underline"
-                    >
-                      {child.tag}
-                      {child.serial ? ` · ${child.serial}` : ""}
-                      {child.hostname ? ` · ${child.hostname}` : ""}
-                      {child.deviceModelName || child.model
-                        ? ` · ${child.deviceModelName ?? child.model}`
-                        : ""}
-                    </Link>
-                    {canUpdate ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={removeChild.isPending}
-                        onClick={() =>
-                          void removeChild.mutateAsync({
-                            childAssetId: child.id,
-                          })
-                        }
-                      >
-                        Remove
-                      </Button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </SectionCard>
-
-          {canUpdate ? (
-            <SectionCard
-              title="Add to folder"
-              description="Search by tracking tag, serial, or host name."
-            >
-              <div className="flex flex-col gap-4">
-                <FormField label="Search existing" htmlFor="folder-add-search">
-                  <Input
-                    id="folder-add-search"
-                    value={addQuery}
-                    onChange={(event) => setAddQuery(event.target.value)}
-                    placeholder="Tracking tag, serial, or host name"
-                    className="font-mono"
-                  />
-                </FormField>
-                {debouncedAddQuery.length >= 1 ? (
-                  searchHits.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {searchQuery.isFetching
-                        ? "Searching…"
-                        : "No matching assets."}
-                    </p>
-                  ) : (
-                    <ul className="flex flex-col gap-2">
-                      {searchHits.map((hit) => (
-                        <li
-                          key={hit.id}
-                          className="flex items-center justify-between gap-2"
-                        >
-                          <div className="min-w-0">
-                            <p className="font-mono text-sm">{hit.tag}</p>
-                            <p className="truncate text-xs text-muted-foreground">
-                              {[hit.serial, hit.hostname, hit.siteName]
-                                .filter(Boolean)
-                                .join(" · ") || "—"}
-                            </p>
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={addChild.isPending}
-                            onClick={() =>
-                              void addChild.mutateAsync({
-                                parentAssetId: asset.id,
-                                childAssetId: hit.id,
-                              })
-                            }
-                          >
-                            Add
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  )
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Type to find an asset to place in this folder.
-                  </p>
-                )}
-
-                {addNewOpen ? (
-                  <div className="grid gap-3 border-t pt-4 sm:grid-cols-2">
-                    <FormField label="Tracking tag" htmlFor="child-tag">
-                      <Input
-                        id="child-tag"
-                        value={newChildTag}
-                        onChange={(event) => setNewChildTag(event.target.value)}
-                        className="font-mono"
-                      />
-                    </FormField>
-                    <FormField label="Serial" htmlFor="child-serial">
-                      <Input
-                        id="child-serial"
-                        value={newChildSerial}
-                        onChange={(event) =>
-                          setNewChildSerial(event.target.value)
-                        }
-                        className="font-mono"
-                      />
-                    </FormField>
-                    <FormField
-                      label="Device model"
-                      htmlFor="child-model"
-                      className="sm:col-span-2"
-                    >
-                      <SelectField
-                        id="child-model"
-                        value={newChildModelId}
-                        onValueChange={setNewChildModelId}
-                        placeholder="Choose a model"
-                        emptyLabel="Not assigned"
-                        options={(modelsQuery.data ?? []).map((model) => ({
-                          value: model.id,
-                          label: model.label,
-                        }))}
-                      />
-                    </FormField>
-                    <div className="flex flex-wrap gap-2 sm:col-span-2">
-                      <Button
-                        disabled={!newChildTag.trim() || createAsset.isPending}
-                        onClick={() =>
-                          void createAsset.mutateAsync({
-                            organizationId: asset.organizationId,
-                            siteId: asset.siteId,
-                            parentAssetId: asset.id,
-                            deviceModelId: newChildModelId || null,
-                            tag: newChildTag.trim(),
-                            serial: newChildSerial.trim() || null,
-                            status: "in_service",
-                          })
-                        }
-                      >
-                        Add new
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setAddNewOpen(false)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <Button variant="outline" onClick={() => setAddNewOpen(true)}>
-                    Add new asset
-                  </Button>
-                )}
-              </div>
-            </SectionCard>
-          ) : null}
-        </>
       ) : null}
 
       {asset.parentAssetId && asset.parentTag ? (

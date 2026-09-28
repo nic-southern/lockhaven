@@ -155,6 +155,28 @@ async function loadAsset(ctx: ApiContext, id: string) {
   return record
 }
 
+async function childCountsByParentId(
+  ctx: ApiContext,
+  parentIds: string[]
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>()
+  if (parentIds.length === 0) return counts
+  const rows = await ctx.db
+    .select({
+      parentAssetId: assets.parentAssetId,
+      total: count(),
+    })
+    .from(assets)
+    .where(inArray(assets.parentAssetId, parentIds))
+    .groupBy(assets.parentAssetId)
+  for (const row of rows) {
+    if (row.parentAssetId) {
+      counts.set(row.parentAssetId, Number(row.total ?? 0))
+    }
+  }
+  return counts
+}
+
 function publicAsset(
   row: typeof assets.$inferSelect,
   extras: {
@@ -172,6 +194,7 @@ function publicAsset(
     modelRetireAfterMonths?: number | null
     parentTag?: string | null
     parentIsContainer?: boolean | null
+    childCount?: number | null
   }
 ) {
   const linked = Boolean(extras.deviceId)
@@ -186,6 +209,7 @@ function publicAsset(
     },
     new Date()
   )
+  const isContainer = isContainerAsset(row)
   return {
     ...row,
     siteName: extras.siteName,
@@ -199,8 +223,9 @@ function publicAsset(
     modelRetireAfterMonths: extras.modelRetireAfterMonths ?? null,
     parentTag: extras.parentTag ?? null,
     parentIsContainer: Boolean(extras.parentIsContainer),
-    isContainer: isContainerAsset(row),
-    isFolder: isContainerAsset(row),
+    isContainer,
+    isFolder: isContainer,
+    childCount: isContainer ? Number(extras.childCount ?? 0) : 0,
     managed: linked,
     presence: linked ? "managed" : "unmanaged",
     connectivity: linked
@@ -482,8 +507,18 @@ export const assetsRouter = createTRPCRouter({
           .offset(query.offset),
       ])
 
+      const folderIds = rows
+        .filter((row) => isContainerAsset(row.asset))
+        .map((row) => row.asset.id)
+      const childCounts = await childCountsByParentId(ctx, folderIds)
+
       return paginate(
-        rows.map((row) => publicAsset(row.asset, rowExtras(row))),
+        rows.map((row) =>
+          publicAsset(row.asset, {
+            ...rowExtras(row),
+            childCount: childCounts.get(row.asset.id) ?? 0,
+          })
+        ),
         query,
         Number(totalRow?.total ?? 0)
       )
@@ -494,7 +529,16 @@ export const assetsRouter = createTRPCRouter({
     const rows = await assetBase(ctx)
       .where(scope.kind === "where" ? scope.condition : undefined)
       .orderBy(desc(assets.createdAt))
-    return rows.map((row) => publicAsset(row.asset, rowExtras(row)))
+    const folderIds = rows
+      .filter((row) => isContainerAsset(row.asset))
+      .map((row) => row.asset.id)
+    const childCounts = await childCountsByParentId(ctx, folderIds)
+    return rows.map((row) =>
+      publicAsset(row.asset, {
+        ...rowExtras(row),
+        childCount: childCounts.get(row.asset.id) ?? 0,
+      })
+    )
   }),
   byId: permissionProcedure("device:view")
     .input(z.object({ id: z.string().uuid() }))
@@ -507,8 +551,14 @@ export const assetsRouter = createTRPCRouter({
         siteId: row.asset.siteId,
       })
       const definitions = await loadDefinitions(ctx, row.asset.organizationId)
+      const childCounts = isContainerAsset(row.asset)
+        ? await childCountsByParentId(ctx, [row.asset.id])
+        : new Map<string, number>()
       return {
-        ...publicAsset(row.asset, rowExtras(row)),
+        ...publicAsset(row.asset, {
+          ...rowExtras(row),
+          childCount: childCounts.get(row.asset.id) ?? 0,
+        }),
         definitions,
       }
     }),
