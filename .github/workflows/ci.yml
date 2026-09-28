@@ -56,10 +56,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  flutter-field:
+    name: flutter/field
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/lockhaven-field
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter analyze --fatal-infos
+
+      - run: flutter test
+
   publish-containers:
     needs:
       - semgrep
       - verify
+      - flutter-field
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:

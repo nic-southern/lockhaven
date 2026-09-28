@@ -416,6 +416,8 @@ export const permissionSetSchema = z.array(z.enum(permissions))
 export const auditEventTypeSchema = z.enum([
   "admin_login",
   "admin_login_failed",
+  "field_session_issued",
+  "field_session_revoked",
   "admin_logout",
   "two_factor_enrolled",
   "two_factor_reset",

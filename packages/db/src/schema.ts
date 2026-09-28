@@ -259,6 +259,32 @@ export const session = pgTable(
   (table) => [index("session_user_id_idx").on(table.userId)]
 )
 
+/**
+ * One-time codes that hand a browser Console session to the field desktop
+ * app via loopback redirect. Codes are hashed at rest and expire quickly.
+ */
+export const fieldAuthHandoffs = pgTable(
+  "field_auth_handoffs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    codeHash: text("code_hash").notNull().unique(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    redirectUri: text("redirect_uri").notNull(),
+    state: text("state"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("field_auth_handoffs_user_id_idx").on(table.userId),
+    index("field_auth_handoffs_expires_at_idx").on(table.expiresAt),
+  ]
+)
+
 export const account = pgTable(
   "account",
   {
@@ -1692,6 +1718,7 @@ export type DeviceModel = typeof deviceModels.$inferSelect
 export type CustomFieldDefinition = typeof customFieldDefinitions.$inferSelect
 export type AuthUser = typeof user.$inferSelect
 export type AuthSession = typeof session.$inferSelect
+export type FieldAuthHandoff = typeof fieldAuthHandoffs.$inferSelect
 export type Passkey = typeof passkey.$inferSelect
 export type UserInvitation = typeof userInvitations.$inferSelect
 export type Device = typeof devices.$inferSelect

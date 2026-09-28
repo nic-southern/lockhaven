@@ -9,14 +9,34 @@ import {
   requestInfoFromHeaders,
   type ApiContext,
 } from "@nms/api-contract"
-import { resolveAdminPrincipalByEmail } from "@nms/auth/server"
+import { parseBearerToken } from "@nms/auth"
+import {
+  resolveAdminPrincipalByEmail,
+  resolveSessionPrincipal,
+} from "@nms/auth/server"
 import { db } from "@nms/db/client"
 
 async function createTRPCContext(req: Request): Promise<ApiContext> {
   const session = await auth.api.getSession({
     headers: req.headers,
   })
-  const email = session?.user?.email
+  const email = session?.user?.email ?? null
+
+  if (!email) {
+    const bearer = parseBearerToken(req.headers.get("authorization"))
+    if (bearer) {
+      const actor = await resolveSessionPrincipal(bearer)
+      if (actor) {
+        return {
+          db,
+          actor,
+          requestId: randomUUID(),
+          request: requestInfoFromHeaders(req.headers),
+        }
+      }
+    }
+  }
+
   const actor = email ? await resolveAdminPrincipalByEmail(email) : null
 
   return {
@@ -39,6 +59,8 @@ function trustedOrigins() {
 const handler = (req: Request) => {
   // Mutations ride on the session cookie, so a request that did not come
   // from a Console page must not be allowed to change anything.
+  // Bearer session tokens (field app) are not cookie CSRF targets: the
+  // origin guard already allows scripted callers without cookies.
   const verdict = verifyRequestOrigin({
     method: req.method,
     headers: req.headers,
