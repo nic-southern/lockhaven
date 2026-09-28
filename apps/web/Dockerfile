@@ -36,7 +36,8 @@ RUN mkdir -p apps/web/public/install \
   && cp scripts/uninstall-windows.ps1 apps/web/public/install/uninstall-windows.ps1 \
   && cp scripts/uninstall-linux.sh apps/web/public/install/uninstall-linux.sh \
   && cp scripts/install-lockhaven-agent.sh apps/web/public/install/install-lockhaven-agent.sh \
-  && cp scripts/install-lockhaven-agent.ps1 apps/web/public/install/install-lockhaven-agent.ps1
+  && cp scripts/install-lockhaven-agent.ps1 apps/web/public/install/install-lockhaven-agent.ps1 \
+  && cp scripts/print-asset-labels.sh apps/web/public/install/print-asset-labels.sh
 COPY --from=agent /out/lockhaven-agent-linux-amd64 apps/web/public/install/lockhaven-agent-linux-amd64
 COPY --from=agent /out/lockhaven-agent-linux-arm64 apps/web/public/install/lockhaven-agent-linux-arm64
 COPY --from=agent /out/lockhaven-agent-windows-amd64.exe apps/web/public/install/lockhaven-agent-windows-amd64.exe
