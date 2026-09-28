@@ -114,10 +114,6 @@ function RetargetExistingTags({
   const [toPrefix, setToPrefix] = React.useState(currentPrefix)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
 
-  React.useEffect(() => {
-    setToPrefix(currentPrefix)
-  }, [currentPrefix])
-
   const fromNormalized = normalizeTrackingTagPrefix(fromPrefix)
   const toNormalized = normalizeTrackingTagPrefix(toPrefix)
   const canPreview =
