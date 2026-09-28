@@ -2,8 +2,9 @@
 # Print Lockhaven asset labels from a site CSV export on a Brother PT-D460BT
 # (PT-D460BTVP) using ptouch-print.
 #
-# Layout (18 mm tape, locked): QR left + three text lines (tag, serial, company).
-# Canvas ~210×120 px. Settles between jobs and uses --timeout=30 (Phase 0).
+# Layout (18 mm tape): QR left + tag / serial (wrap) / company.
+# Canvas 340×120 px (readable type; long serials wrap instead of shrinking).
+# Settles between jobs and uses --timeout=30 (Phase 0).
 #
 # Usage:
 #   ./scripts/print-asset-labels.sh path/to/asset-labels-….csv
@@ -156,9 +157,12 @@ dry_run = os.environ["LOCKHAVEN_LABEL_DRY_RUN"] == "1"
 settle = float(os.environ["LOCKHAVEN_LABEL_SETTLE"])
 timeout = os.environ["LOCKHAVEN_LABEL_TIMEOUT"]
 
-WIDTH, HEIGHT = 210, 120
-QR_SIZE = 92
-TEXT_X = 104
+# 18 mm tape printable height is ~120 px. Widen the label so long serials
+# stay at readable point sizes (truncate/wrap instead of shrinking to 7–8 pt).
+WIDTH, HEIGHT = 340, 120
+QR_SIZE = 90
+TEXT_X = 100
+TEXT_RIGHT_PAD = 4
 
 
 def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
@@ -177,7 +181,10 @@ def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
             path = Path(root) / name
             if path.is_file():
                 return ImageFont.truetype(str(path), size=size)
-    return ImageFont.load_default()
+    raise SystemExit(
+        "DejaVu fonts not found (needed for readable tape text). "
+        "Install fonts-dejavu-core or place DejaVuSans*.ttf under /usr/share/fonts."
+    )
 
 
 def fit_text(
@@ -197,20 +204,73 @@ def fit_text(
     return (trimmed + ellipsis) if trimmed else ellipsis
 
 
-def font_that_fits(
+def wrap_text(
     draw: ImageDraw.ImageDraw,
     text: str,
+    font: ImageFont.ImageFont,
     max_width: int,
-    preferred: int,
-    minimum: int,
-    bold: bool = False,
-) -> tuple[ImageFont.ImageFont, str]:
-    for size in range(preferred, minimum - 1, -1):
-        font = load_font(size, bold=bold)
-        if draw.textlength(text or "—", font=font) <= max_width:
-            return font, text or "—"
-    font = load_font(minimum, bold=bold)
-    return font, fit_text(draw, text or "—", font, max_width)
+    max_lines: int,
+) -> list[str]:
+    """Wrap on spaces when possible; otherwise hard-break long tokens."""
+    text = (text or "").strip() or "—"
+    if max_lines <= 1:
+        return [fit_text(draw, text, font, max_width)]
+
+    def hard_wrap(token: str) -> list[str]:
+        lines: list[str] = []
+        remaining = token
+        while remaining and len(lines) < max_lines:
+            if len(lines) == max_lines - 1:
+                lines.append(fit_text(draw, remaining, font, max_width))
+                break
+            cut = len(remaining)
+            while cut > 1 and draw.textlength(remaining[:cut], font=font) > max_width:
+                cut -= 1
+            lines.append(remaining[:cut])
+            remaining = remaining[cut:]
+        return lines
+
+    words = text.split()
+    if len(words) <= 1:
+        return hard_wrap(text) if draw.textlength(text, font=font) > max_width else [text]
+
+    lines: list[str] = []
+    current = ""
+    pending = list(words)
+    while pending:
+        word = pending.pop(0)
+        candidate = word if not current else f"{current} {word}"
+        if draw.textlength(candidate, font=font) <= max_width:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+            pending.insert(0, word)
+            if len(lines) == max_lines - 1:
+                lines.append(fit_text(draw, " ".join(pending), font, max_width))
+                return lines
+            continue
+        chunk_lines = hard_wrap(word)
+        if len(lines) + len(chunk_lines) > max_lines:
+            room = max_lines - len(lines)
+            lines.extend(chunk_lines[:room])
+            return lines
+        lines.extend(chunk_lines[:-1])
+        current = chunk_lines[-1] if chunk_lines else ""
+        if len(lines) == max_lines - 1 and pending:
+            lines.append(
+                fit_text(
+                    draw,
+                    (current + " " + " ".join(pending)).strip(),
+                    font,
+                    max_width,
+                )
+            )
+            return lines
+    if current:
+        lines.append(current)
+    return lines[:max_lines] or ["—"]
 
 
 def build_label(tag: str, serial: str, company: str, qr_text: str) -> Image.Image:
@@ -225,20 +285,39 @@ def build_label(tag: str, serial: str, company: str, qr_text: str) -> Image.Imag
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white").convert("1")
     qr_img = qr_img.resize((QR_SIZE, QR_SIZE), Image.Resampling.NEAREST)
-    canvas.paste(qr_img, (4, 14))
+    qr_y = max(0, (HEIGHT - QR_SIZE) // 2)
+    canvas.paste(qr_img, (4, qr_y))
 
     draw = ImageDraw.Draw(canvas)
-    max_text = WIDTH - TEXT_X - 2
-    font_tag, tag_text = font_that_fits(draw, tag, max_text, 13, 9, bold=True)
-    font_serial, serial_text = font_that_fits(
-        draw, serial or "—", max_text, 10, 8, bold=False
+    max_text = WIDTH - TEXT_X - TEXT_RIGHT_PAD
+
+    # Fixed readable sizes for 180 dpi tape — wrap/truncate, never shrink.
+    font_tag = load_font(20, bold=True)
+    font_serial = load_font(14, bold=True)
+    font_company = load_font(12, bold=False)
+
+    tag_text = fit_text(draw, tag.strip() or "—", font_tag, max_text)
+    serial_lines = wrap_text(
+        draw,
+        serial.strip() if serial else "—",
+        font_serial,
+        max_text,
+        max_lines=2,
     )
-    font_company, company_text = font_that_fits(
-        draw, company or "—", max_text, 9, 7, bold=False
+    company_text = fit_text(
+        draw,
+        company.strip() if company else "—",
+        font_company,
+        max_text,
     )
-    draw.text((TEXT_X, 10), tag_text, fill=0, font=font_tag)
-    draw.text((TEXT_X, 40), serial_text, fill=0, font=font_serial)
-    draw.text((TEXT_X, 68), company_text, fill=0, font=font_company)
+
+    draw.text((TEXT_X, 6), tag_text, fill=0, font=font_tag)
+    y = 34
+    for line in serial_lines:
+        draw.text((TEXT_X, y), line, fill=0, font=font_serial)
+        y += 18
+    company_y = min(max(y + 4, 88), HEIGHT - 18)
+    draw.text((TEXT_X, company_y), company_text, fill=0, font=font_company)
     return canvas
 
 
