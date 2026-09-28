@@ -31,16 +31,31 @@ No organization API keys and no enrollment tokens.
 ## Features (MVP)
 
 - Sites list → site assets → asset detail (edit fields Hub already allows)
-- Add asset (serial-first, suggested tracking tag)
+- **Add asset** / **Add folder** — serial-first items; folders named (cabinet, TRT, …)
+- **Save** or **Save & print** on add (print via local helper or Hub labels page)
+- Stay-in-flow after saving an item: scan the next serial without leaving the screen
+- Folder detail: **Add asset** into the folder, or find an existing item
 - Find by scan (HID keyboard wedge / paste into the scan field)
 - Container: set site on a container (Hub cascades children + linked device)
-- Item: reassign container via `setParent` (search by tag/serial/name)
+- Item: reassign folder via `setParent` (search by tag/serial/name)
 - Full-page navigation for assets and containers (no sidebar sheets)
+
+## Label printing
+
+Save & print writes the same CSV schema as Console (`schema_version,tag,serial,…`)
+and:
+
+1. Runs `print-asset-labels.sh` when found (`--dart-define=LABEL_PRINT_SCRIPT=…`
+   or the monorepo `scripts/` path), or
+2. Opens Hub `/assets/labels?ids=…` in the system browser.
+
+USB / Brother access stays in the laptop helper — the Flutter app does not talk
+to the printer directly.
 
 ## Deferred
 
 - Camera barcode on desktop (HID wedge is the primary scan path)
-- USB / Brother label print (laptop helper remains the print path)
+- In-process USB print (helper remains the print path)
 - Passkey quick unlock and device-grant pairing
 - Offline write queue
 

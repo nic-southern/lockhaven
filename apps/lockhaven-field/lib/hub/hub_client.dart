@@ -249,6 +249,7 @@ class HubClient {
     String? model,
     String? notes,
     String? parentAssetId,
+    bool isContainer = false,
     String status = "in_service",
   }) async {
     final data = await _trpcPost("assets.create", {
@@ -261,6 +262,27 @@ class HubClient {
       "model": model,
       "notes": notes,
       "parentAssetId": parentAssetId,
+      "isContainer": isContainer,
+      "status": status,
+    });
+    return AssetSummary.fromJson(data as Map<String, dynamic>);
+  }
+
+  /// Create a site folder (container). Differentiated by tag / name, not a kind.
+  Future<AssetSummary> createFolder({
+    required String organizationId,
+    required String siteId,
+    required String tag,
+    String? hostname,
+    String? notes,
+    String status = "in_service",
+  }) async {
+    final data = await _trpcPost("assets.createFolder", {
+      "organizationId": organizationId,
+      "siteId": siteId,
+      "tag": tag,
+      "hostname": hostname,
+      "notes": notes,
       "status": status,
     });
     return AssetSummary.fromJson(data as Map<String, dynamic>);
