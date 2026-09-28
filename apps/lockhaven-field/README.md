@@ -42,21 +42,22 @@ No organization API keys and no enrollment tokens.
 
 ## Label printing (Linux USB)
 
-Save & print / Print render the 18 mm label **inside Flutter** (QR + tag /
-serial / company), then call `ptouch-print --image` over USB.
-
-No Python / pillow / qrcode required for Field. Brother mobile SDKs are not
-used (Android/iOS only). The Console CSV helper script remains for bulk export.
+Save & print / Print write a one-row CSV and run
+`scripts/print-asset-labels.sh` — the same Python/Pillow + DejaVu layout that
+passed the Brother spike (readable text + QR). The helper creates
+`scripts/.venv-labels` with pillow/qrcode on first run.
 
 Requirements on the laptop:
 
-- `ptouch-print` on PATH (often `~/.local/bin` from the Phase 0 spike)
+- `ptouch-print` on PATH (often `~/.local/bin`)
+- `python3` + `python3-venv` (for the local helper venv)
 - Printer on, USB connected (PT-D460BT / PT-D460BTVP)
+- DejaVu fonts (`/usr/share/fonts/…/DejaVuSans*.ttf`) for crisp text
 
 ```bash
 flutter run -d linux \
   --dart-define=HUB_BASE_URL=https://your-console.example \
-  --dart-define=PTOUCH_PRINT=$HOME/.local/bin/ptouch-print
+  --dart-define=LABEL_PRINT_SCRIPT=$PWD/../../scripts/print-asset-labels.sh
 ```
 
 ## Deferred
