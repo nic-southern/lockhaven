@@ -306,6 +306,83 @@ function reportedIdentity(
 }
 
 /**
+ * Pure decision for operator-driven device site moves: copy the device site
+ * onto the linked asset when they differ (including clearing to null).
+ * Agent check-in/fill paths must not call this — operators own asset site.
+ */
+export function linkedAssetSitePatch(
+  assetSiteId: string | null,
+  deviceSiteId: string | null
+): { siteId: string | null } | null {
+  if (assetSiteId === deviceSiteId) return null
+  return { siteId: deviceSiteId }
+}
+
+/**
+ * Keep a linked asset on the same site as its device after an operator moves
+ * (or clears) the device site. No-op when there is no linked asset or the
+ * asset is already on that site.
+ */
+export async function syncLinkedAssetSite(
+  client: AssetLinkDb,
+  device: { assetId: string | null; siteId: string | null }
+) {
+  if (!device.assetId) return null
+
+  const [existing] = await client
+    .select({ id: assets.id, siteId: assets.siteId })
+    .from(assets)
+    .where(eq(assets.id, device.assetId))
+    .limit(1)
+  if (!existing) return null
+
+  const patch = linkedAssetSitePatch(existing.siteId, device.siteId)
+  if (!patch) {
+    return { assetId: existing.id, siteId: existing.siteId, changed: false }
+  }
+
+  await client
+    .update(assets)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(assets.id, existing.id))
+  return { assetId: existing.id, siteId: patch.siteId, changed: true }
+}
+
+/**
+ * Bulk variant for assign-site: move every linked asset onto `siteId`.
+ * Skips devices with no linked asset. Already-matching rows are left alone.
+ */
+export async function syncLinkedAssetSites(
+  client: AssetLinkDb,
+  rows: Array<{ assetId: string | null }>,
+  siteId: string | null
+) {
+  const assetIds = [
+    ...new Set(
+      rows
+        .map((row) => row.assetId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    ),
+  ]
+  if (assetIds.length === 0) return { updated: 0 }
+
+  const matched = await client
+    .select({ id: assets.id, siteId: assets.siteId })
+    .from(assets)
+    .where(inArray(assets.id, assetIds))
+  const toUpdate = matched
+    .filter((row) => linkedAssetSitePatch(row.siteId, siteId) !== null)
+    .map((row) => row.id)
+  if (toUpdate.length === 0) return { updated: 0 }
+
+  await client
+    .update(assets)
+    .set({ siteId, updatedAt: new Date() })
+    .where(inArray(assets.id, toUpdate))
+  return { updated: toUpdate.length }
+}
+
+/**
  * On attach/check-in: fill an existing linked asset, link a matching unmatched
  * asset (serial preferred), or create a short-tag asset and link it.
  */

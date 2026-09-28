@@ -50,6 +50,7 @@ import {
 import { buildClientAllowedIps, normalizeVpnIpv4 } from "@nms/vpn"
 
 import { assertAuthorized } from "../access"
+import { syncLinkedAssetSite, syncLinkedAssetSites } from "../asset-link"
 import { writeAuditEvent } from "../audit"
 import {
   requestDeviceInfrastructureAccess,
@@ -874,11 +875,17 @@ export const devicesRouter = createTRPCRouter({
         .where(eq(devices.id, input.id))
         .returning()
 
+      const siteChanged =
+        input.siteId !== undefined && input.siteId !== existing.siteId
+      if (siteChanged && record) {
+        await syncLinkedAssetSite(ctx.db, {
+          assetId: record.assetId,
+          siteId: record.siteId,
+        })
+      }
+
       await writeAuditEvent(ctx, {
-        eventType:
-          input.siteId !== undefined && input.siteId !== existing.siteId
-            ? "device_site_assigned"
-            : "device_updated",
+        eventType: siteChanged ? "device_site_assigned" : "device_updated",
         organizationId: existing.organizationId,
         deviceId: existing.id,
         eventData: {
@@ -1195,6 +1202,7 @@ export const devicesRouter = createTRPCRouter({
               .update(devices)
               .set({ siteId: input.siteId, updatedAt: now })
               .where(inArray(devices.id, ids))
+            await syncLinkedAssetSites(tx, allowed, input.siteId)
             for (const device of allowed) {
               await writeAuditEvent(scoped, {
                 eventType: "device_site_assigned",
@@ -1437,6 +1445,16 @@ export const devicesRouter = createTRPCRouter({
         }
 
         await ctx.db.update(devices).set(patch).where(eq(devices.id, device.id))
+        if (
+          row.site &&
+          siteId !== device.siteId &&
+          (assetId ?? device.assetId)
+        ) {
+          await syncLinkedAssetSite(ctx.db, {
+            assetId: assetId ?? device.assetId,
+            siteId,
+          })
+        }
         await writeAuditEvent(ctx, {
           eventType: "device_updated",
           organizationId: device.organizationId,
