@@ -42,28 +42,22 @@ No organization API keys and no enrollment tokens.
 
 ## Label printing (Linux USB)
 
-Save & print / Print call the laptop helper — **not** Brother’s mobile Flutter
-SDKs (those are Android/iOS only and do not cover desktop Linux).
+Save & print / Print render the 18 mm label **inside Flutter** (QR + tag /
+serial / company), then call `ptouch-print --image` over USB.
 
-1. Writes the shared CSV schema (`schema_version,tag,serial,…`)
-2. Runs `scripts/print-asset-labels.sh` → Python layout → `ptouch-print` USB
+No Python / pillow / qrcode required for Field. Brother mobile SDKs are not
+used (Android/iOS only). The Console CSV helper script remains for bulk export.
 
 Requirements on the laptop:
 
-- `ptouch-print` on PATH (Nic’s spike used `~/.local/bin`)
-- `python3` + `pillow` + `qrcode`
+- `ptouch-print` on PATH (often `~/.local/bin` from the Phase 0 spike)
 - Printer on, USB connected (PT-D460BT / PT-D460BTVP)
-
-Point at the helper explicitly if needed:
 
 ```bash
 flutter run -d linux \
   --dart-define=HUB_BASE_URL=https://your-console.example \
-  --dart-define=LABEL_PRINT_SCRIPT=$PWD/../../scripts/print-asset-labels.sh
+  --dart-define=PTOUCH_PRINT=$HOME/.local/bin/ptouch-print
 ```
-
-Print failures surface the helper stderr (missing script, printer off, etc.)
-instead of opening the browser.
 
 ## Deferred
 
