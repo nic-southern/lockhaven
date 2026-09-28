@@ -544,6 +544,7 @@ export const auditEventTypeSchema = z.enum([
   "asset_deleted",
   "asset_linked",
   "asset_unlinked",
+  "asset_tracking_tags_retargeted",
   "device_model_created",
   "device_model_updated",
   "device_model_deleted",

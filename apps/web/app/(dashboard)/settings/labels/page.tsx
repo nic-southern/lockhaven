@@ -9,6 +9,7 @@ import {
 } from "@nms/shared"
 
 import { AccessDenied } from "@/components/dashboard/access-denied"
+import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SectionCard } from "@/components/dashboard/section-card"
@@ -78,7 +79,8 @@ function LabelsOrganizationForm({
         />
         <p className="text-xs text-muted-foreground">
           1–8 letters or numbers. Suggested tags look like{" "}
-          <span className="font-mono">{exampleTag}</span>.
+          <span className="font-mono">{exampleTag}</span>. Applies to new tags
+          only until you update existing ones below.
         </p>
       </FormField>
       <Button
@@ -93,6 +95,173 @@ function LabelsOrganizationForm({
       >
         Save
       </Button>
+    </>
+  )
+}
+
+function RetargetExistingTags({
+  organization,
+}: {
+  organization: OrganizationRow
+}) {
+  const utils = trpc.useUtils()
+  const currentPrefix = normalizeTrackingTagPrefix(
+    organization.trackingTagPrefix
+  )
+  const [fromPrefix, setFromPrefix] = React.useState(
+    DEFAULT_TRACKING_TAG_PREFIX
+  )
+  const [toPrefix, setToPrefix] = React.useState(currentPrefix)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
+
+  const fromNormalized = normalizeTrackingTagPrefix(fromPrefix)
+  const toNormalized = normalizeTrackingTagPrefix(toPrefix)
+  const canPreview =
+    /^[A-Za-z0-9]{1,8}$/.test(fromPrefix.trim()) &&
+    /^[A-Za-z0-9]{1,8}$/.test(toPrefix.trim()) &&
+    fromNormalized !== toNormalized
+
+  const previewQuery = trpc.organizations.previewTrackingTagRetarget.useQuery(
+    {
+      organizationId: organization.id,
+      fromPrefix: fromPrefix.trim(),
+      toPrefix: toPrefix.trim(),
+    },
+    {
+      enabled: canPreview,
+    }
+  )
+
+  const retarget = trpc.organizations.retargetTrackingTags.useMutation({
+    async onSuccess(result) {
+      await Promise.all([
+        utils.organizations.previewTrackingTagRetarget.invalidate(),
+        utils.assets.page.invalidate(),
+        utils.assets.list.invalidate(),
+      ])
+      setConfirmOpen(false)
+      if (result.updated === 0) {
+        toast.message("No tracking tags needed updating.")
+        return
+      }
+      const conflictNote =
+        result.conflicts.length > 0
+          ? ` ${result.conflicts.length} skipped because the new tag is already in use.`
+          : ""
+      toast.success(
+        `Updated ${result.updated} tracking tag${result.updated === 1 ? "" : "s"}.${conflictNote} Reprint physical labels so scans stay in sync.`
+      )
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't update tracking tags.")
+    },
+  })
+
+  const preview = previewQuery.data
+  const exampleFrom = `${fromNormalized}-7K2MPQ`
+  const exampleTo = `${toNormalized}-7K2MPQ`
+
+  return (
+    <>
+      <FormField label="Current prefix on tags" htmlFor="labels-from-prefix">
+        <Input
+          id="labels-from-prefix"
+          value={fromPrefix}
+          onChange={(event) => setFromPrefix(event.target.value)}
+          className="max-w-xs font-mono"
+          placeholder={DEFAULT_TRACKING_TAG_PREFIX}
+          maxLength={8}
+        />
+        <p className="text-xs text-muted-foreground">
+          Only tags that start with this prefix and a hyphen are changed (for
+          example <span className="font-mono">{exampleFrom}</span>). Custom tags
+          without that prefix are left alone.
+        </p>
+      </FormField>
+      <FormField label="New prefix" htmlFor="labels-to-prefix">
+        <Input
+          id="labels-to-prefix"
+          value={toPrefix}
+          onChange={(event) => setToPrefix(event.target.value)}
+          className="max-w-xs font-mono"
+          placeholder={currentPrefix}
+          maxLength={8}
+        />
+        <p className="text-xs text-muted-foreground">
+          Matching tags become <span className="font-mono">{exampleTo}</span>.
+          Defaults to the organization prefix above.
+        </p>
+      </FormField>
+
+      {canPreview && previewQuery.isFetching ? (
+        <p className="text-sm text-muted-foreground">Checking existing tags…</p>
+      ) : null}
+
+      {canPreview && preview ? (
+        <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm">
+          <p>
+            {preview.updateCount === 0
+              ? "No tags match this change."
+              : `${preview.updateCount} tag${preview.updateCount === 1 ? "" : "s"} will update from ${preview.fromPrefix}-… to ${preview.toPrefix}-….`}
+          </p>
+          {preview.conflictCount > 0 ? (
+            <p className="mt-1 text-muted-foreground">
+              {preview.conflictCount} cannot update because the new tag is
+              already in use
+              {preview.sampleConflicts[0]
+                ? ` (for example ${preview.sampleConflicts[0].fromTag} → ${preview.sampleConflicts[0].toTag})`
+                : ""}
+              .
+            </p>
+          ) : null}
+          {preview.sampleUpdates[0] ? (
+            <p className="mt-1 font-mono text-xs text-muted-foreground">
+              {preview.sampleUpdates[0].fromTag} →{" "}
+              {preview.sampleUpdates[0].toTag}
+              {preview.updateCount > 1 ? " …" : ""}
+            </p>
+          ) : null}
+          {preview.updateCount > 0 ? (
+            <p className="mt-1 text-muted-foreground">
+              After updating, reprint physical labels so scanners and Assets
+              search stay aligned.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Button
+        variant="secondary"
+        disabled={
+          !canPreview ||
+          !preview ||
+          preview.updateCount === 0 ||
+          retarget.isPending
+        }
+        onClick={() => setConfirmOpen(true)}
+      >
+        Update existing tags
+      </Button>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="Update existing tracking tags?"
+        description={
+          preview
+            ? `This renames ${preview.updateCount} asset tag${preview.updateCount === 1 ? "" : "s"} from ${preview.fromPrefix}-… to ${preview.toPrefix}-…. Printed labels will need to be reprinted so scans match Assets search.`
+            : "This renames matching asset tags. Printed labels will need to be reprinted."
+        }
+        confirmLabel="Update tags"
+        pending={retarget.isPending}
+        onConfirm={() => {
+          void retarget.mutateAsync({
+            organizationId: organization.id,
+            fromPrefix: fromPrefix.trim(),
+            toPrefix: toPrefix.trim(),
+          })
+        }}
+      />
     </>
   )
 }
@@ -137,31 +306,46 @@ export default function LabelsSettingsPage() {
           </p>
         </SectionCard>
       ) : (
-        <SectionCard
-          title="Organization labels"
-          description="These values appear on asset tags and in label exports. Existing tags are not renamed when you change the prefix."
-          contentClassName="gap-4"
-          actions={
-            organizations.length > 1 ? (
-              <SelectField
-                id="labels-organization"
-                value={resolvedOrganizationId}
-                onValueChange={setOrganizationId}
-                options={organizations.map((organization) => ({
-                  value: organization.id,
-                  label: organization.name,
-                }))}
+        <>
+          <SectionCard
+            title="Organization labels"
+            description="These values appear on asset tags and in label exports. New suggested tags use the prefix you save here."
+            contentClassName="gap-4"
+            actions={
+              organizations.length > 1 ? (
+                <SelectField
+                  id="labels-organization"
+                  value={resolvedOrganizationId}
+                  onValueChange={setOrganizationId}
+                  options={organizations.map((organization) => ({
+                    value: organization.id,
+                    label: organization.name,
+                  }))}
+                />
+              ) : null
+            }
+          >
+            {selected ? (
+              <LabelsOrganizationForm
+                key={`${selected.id}:${selected.name}:${selected.trackingTagPrefix}`}
+                organization={selected}
               />
-            ) : null
-          }
-        >
+            ) : null}
+          </SectionCard>
+
           {selected ? (
-            <LabelsOrganizationForm
-              key={`${selected.id}:${selected.name}:${selected.trackingTagPrefix}`}
-              organization={selected}
-            />
+            <SectionCard
+              title="Update existing tags"
+              description="Rewrite the leading prefix on assets that already use the old scheme. Custom tags without that prefix are not changed."
+              contentClassName="gap-4"
+            >
+              <RetargetExistingTags
+                key={`${selected.id}:retarget:${selected.trackingTagPrefix}`}
+                organization={selected}
+              />
+            </SectionCard>
           ) : null}
-        </SectionCard>
+        </>
       )}
     </div>
   )

@@ -71,6 +71,7 @@ import {
 } from "./list"
 import { combineConditions, deviceScopeCondition } from "./scope"
 import {
+  assets,
   adminVpnProfiles,
   auditEvents,
   devices,
@@ -107,6 +108,7 @@ import {
   membershipStatuses,
   organizationRoles,
   parseSiteBulkCsv,
+  planTrackingTagPrefixRetarget,
   remoteSessionRequestSchema,
   siteBusinessHoursSchema,
   siteContactSchema,
@@ -603,6 +605,12 @@ const organizationUpdateInput = z.object({
   id: z.string().uuid(),
   name: z.string().trim().min(1).max(120).optional(),
   trackingTagPrefix: trackingTagPrefixSchema.optional(),
+})
+
+const organizationRetargetTagsInput = z.object({
+  organizationId: z.string().uuid(),
+  fromPrefix: trackingTagPrefixSchema,
+  toPrefix: trackingTagPrefixSchema,
 })
 
 const siteCreateInput = z.object({
@@ -1172,6 +1180,142 @@ export const appRouter = createTRPCRouter({
         })
 
         return record
+      }),
+    previewTrackingTagRetarget: adminProcedure
+      .input(organizationRetargetTagsInput)
+      .query(async ({ ctx, input }) => {
+        assertAuthorized(ctx.actor, "organization:admin", {
+          kind: "organization",
+          organizationId: input.organizationId,
+        })
+
+        const [organization] = await ctx.db
+          .select({ id: organizations.id })
+          .from(organizations)
+          .where(eq(organizations.id, input.organizationId))
+        if (!organization) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        const rows = await ctx.db
+          .select({ id: assets.id, tag: assets.tag })
+          .from(assets)
+          .where(eq(assets.organizationId, input.organizationId))
+
+        const plan = planTrackingTagPrefixRetarget(
+          rows,
+          input.fromPrefix,
+          input.toPrefix
+        )
+
+        return {
+          fromPrefix: plan.fromPrefix,
+          toPrefix: plan.toPrefix,
+          matched: plan.updates.length + plan.unchanged + plan.conflicts.length,
+          updateCount: plan.updates.length,
+          unchangedCount: plan.unchanged,
+          skippedCount: plan.skipped,
+          conflictCount: plan.conflicts.length,
+          sampleUpdates: plan.updates.slice(0, 5),
+          sampleConflicts: plan.conflicts.slice(0, 5),
+        }
+      }),
+    retargetTrackingTags: adminProcedure
+      .input(organizationRetargetTagsInput)
+      .mutation(async ({ ctx, input }) => {
+        assertAuthorized(ctx.actor, "organization:admin", {
+          kind: "organization",
+          organizationId: input.organizationId,
+        })
+
+        const [organization] = await ctx.db
+          .select({ id: organizations.id })
+          .from(organizations)
+          .where(eq(organizations.id, input.organizationId))
+        if (!organization) {
+          throw new TRPCError({ code: "NOT_FOUND" })
+        }
+
+        const rows = await ctx.db
+          .select({ id: assets.id, tag: assets.tag })
+          .from(assets)
+          .where(eq(assets.organizationId, input.organizationId))
+
+        const plan = planTrackingTagPrefixRetarget(
+          rows,
+          input.fromPrefix,
+          input.toPrefix
+        )
+
+        if (plan.updates.length === 0) {
+          return {
+            fromPrefix: plan.fromPrefix,
+            toPrefix: plan.toPrefix,
+            updated: 0,
+            unchanged: plan.unchanged,
+            skipped: plan.skipped,
+            conflicts: plan.conflicts,
+          }
+        }
+
+        const now = new Date()
+        try {
+          await ctx.db.transaction(async (tx) => {
+            for (const change of plan.updates) {
+              await tx
+                .update(assets)
+                .set({ tag: change.toTag, updatedAt: now })
+                .where(
+                  and(
+                    eq(assets.id, change.id),
+                    eq(assets.organizationId, input.organizationId)
+                  )
+                )
+            }
+          })
+        } catch (error) {
+          if (
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            error.code === "23505"
+          ) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "One or more updated tags would collide with an existing tag.",
+            })
+          }
+          throw error
+        }
+
+        await writeAuditEvent(ctx, {
+          organizationId: input.organizationId,
+          eventType: "asset_tracking_tags_retargeted",
+          eventData: {
+            organizationId: input.organizationId,
+            fromPrefix: plan.fromPrefix,
+            toPrefix: plan.toPrefix,
+            updated: plan.updates.length,
+            unchanged: plan.unchanged,
+            skipped: plan.skipped,
+            conflictCount: plan.conflicts.length,
+            sample: plan.updates.slice(0, 20).map((change) => ({
+              assetId: change.id,
+              fromTag: change.fromTag,
+              toTag: change.toTag,
+            })),
+          },
+        })
+
+        return {
+          fromPrefix: plan.fromPrefix,
+          toPrefix: plan.toPrefix,
+          updated: plan.updates.length,
+          unchanged: plan.unchanged,
+          skipped: plan.skipped,
+          conflicts: plan.conflicts,
+        }
       }),
     imagingSsh: adminProcedure
       .input(z.object({ organizationId: z.string().uuid() }))

@@ -21,7 +21,10 @@ import {
   parseSiteBulkCsv,
   resolveAssetLifecycle,
   retireMonthsToYears,
+  planTrackingTagPrefixRetarget,
+  retargetTrackingTag,
   suggestAssetTrackingTag,
+  trackingTagBodyAfterPrefix,
   warrantyState,
   yearsToRetireMonths,
 } from "./assets"
@@ -56,6 +59,58 @@ test("suggestAssetTrackingTag honors a custom prefix", () => {
     prefix: "nme",
   })
   assert.match(tag, /^NME-[0-9A-Z]{6}$/)
+})
+
+test("trackingTagBodyAfterPrefix only matches the org prefix scheme", () => {
+  assert.equal(trackingTagBodyAfterPrefix("LH-7K2MPQ", "lh"), "7K2MPQ")
+  assert.equal(trackingTagBodyAfterPrefix("NME-7K2MPQ", "LH"), null)
+  assert.equal(trackingTagBodyAfterPrefix("CUSTOM", "LH"), null)
+  assert.equal(trackingTagBodyAfterPrefix("LH-", "LH"), null)
+})
+
+test("retargetTrackingTag rewrites a matching prefix", () => {
+  assert.equal(retargetTrackingTag("LH-7K2MPQ", "LH", "NME"), "NME-7K2MPQ")
+  assert.equal(retargetTrackingTag("CUSTOM-1", "LH", "NME"), null)
+})
+
+test("planTrackingTagPrefixRetarget skips custom tags and reports conflicts", () => {
+  const plan = planTrackingTagPrefixRetarget(
+    [
+      { id: "a1", tag: "LH-AAAAAA" },
+      { id: "a2", tag: "LH-BBBBBB" },
+      { id: "a3", tag: "CUSTOM-1" },
+      { id: "a4", tag: "NME-BBBBBB" },
+      { id: "a5", tag: "NME-CCCCCC" },
+    ],
+    "LH",
+    "NME"
+  )
+  assert.equal(plan.fromPrefix, "LH")
+  assert.equal(plan.toPrefix, "NME")
+  assert.equal(plan.skipped, 3)
+  assert.equal(plan.unchanged, 0)
+  assert.deepEqual(plan.updates, [
+    { id: "a1", fromTag: "LH-AAAAAA", toTag: "NME-AAAAAA" },
+  ])
+  assert.deepEqual(plan.conflicts, [
+    {
+      id: "a2",
+      fromTag: "LH-BBBBBB",
+      toTag: "NME-BBBBBB",
+      reason: "target_exists",
+    },
+  ])
+})
+
+test("planTrackingTagPrefixRetarget treats same prefix as unchanged", () => {
+  const plan = planTrackingTagPrefixRetarget(
+    [{ id: "a1", tag: "NME-AAAAAA" }],
+    "NME",
+    "nme"
+  )
+  assert.equal(plan.updates.length, 0)
+  assert.equal(plan.unchanged, 1)
+  assert.equal(plan.skipped, 0)
 })
 
 test("assetLabelQrPayload is plain text tag and optional serial", () => {
