@@ -189,6 +189,25 @@ class HubClient {
         .toList();
   }
 
+  Future<List<DeviceModelSummary>> listDeviceModels(
+    String organizationId,
+  ) async {
+    final data = await _trpcGet("deviceModels.list", {
+      "organizationId": organizationId,
+    });
+    final list = data as List<dynamic>? ?? const [];
+    final models = list
+        .whereType<Map<String, dynamic>>()
+        .map(DeviceModelSummary.fromJson)
+        .toList();
+    models.sort(
+      (a, b) => a.displayLabel.toLowerCase().compareTo(
+            b.displayLabel.toLowerCase(),
+          ),
+    );
+    return models;
+  }
+
   Future<List<AssetSummary>> listAssetsForSite(String siteId) async {
     final data = await _trpcGet("assets.page", {
       "limit": 100,
@@ -247,6 +266,7 @@ class HubClient {
     String? hostname,
     String? vendor,
     String? model,
+    String? deviceModelId,
     String? notes,
     String? parentAssetId,
     bool isContainer = false,
@@ -260,6 +280,7 @@ class HubClient {
       "hostname": hostname,
       "vendor": vendor,
       "model": model,
+      "deviceModelId": deviceModelId,
       "notes": notes,
       "parentAssetId": parentAssetId,
       "isContainer": isContainer,

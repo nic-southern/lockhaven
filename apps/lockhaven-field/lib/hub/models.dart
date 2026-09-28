@@ -64,6 +64,56 @@ class OrganizationSummary {
   }
 }
 
+/// Hub device-model catalog entry (`deviceModels.list`).
+class DeviceModelSummary {
+  const DeviceModelSummary({
+    required this.id,
+    required this.organizationId,
+    required this.name,
+    required this.model,
+    this.manufacturer,
+    this.label,
+  });
+
+  final String id;
+  final String organizationId;
+  final String name;
+  final String model;
+  final String? manufacturer;
+  final String? label;
+
+  /// Operator-facing label used in search/dropdowns.
+  String get displayLabel {
+    final provided = label?.trim();
+    if (provided != null && provided.isNotEmpty) return provided;
+    final maker = manufacturer?.trim();
+    if (maker != null && maker.isNotEmpty) {
+      return "$name · $maker $model";
+    }
+    return "$name · $model";
+  }
+
+  factory DeviceModelSummary.fromJson(Map<String, dynamic> json) {
+    return DeviceModelSummary(
+      id: json["id"] as String,
+      organizationId: json["organizationId"] as String,
+      name: json["name"] as String? ?? "",
+      model: json["model"] as String? ?? "",
+      manufacturer: json["manufacturer"] as String?,
+      label: json["label"] as String?,
+    );
+  }
+
+  bool matchesQuery(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    return displayLabel.toLowerCase().contains(q) ||
+        name.toLowerCase().contains(q) ||
+        model.toLowerCase().contains(q) ||
+        (manufacturer?.toLowerCase().contains(q) ?? false);
+  }
+}
+
 class AssetSummary {
   const AssetSummary({
     required this.id,
@@ -77,6 +127,10 @@ class AssetSummary {
     this.hostname,
     this.vendor,
     this.model,
+    this.deviceModelId,
+    this.deviceModelName,
+    this.deviceModelManufacturer,
+    this.deviceModelCode,
     this.status,
     this.notes,
     this.parentAssetId,
@@ -99,6 +153,10 @@ class AssetSummary {
   final String? hostname;
   final String? vendor;
   final String? model;
+  final String? deviceModelId;
+  final String? deviceModelName;
+  final String? deviceModelManufacturer;
+  final String? deviceModelCode;
   final String? status;
   final String? notes;
   final String? parentAssetId;
@@ -129,6 +187,10 @@ class AssetSummary {
       hostname: json["hostname"] as String?,
       vendor: json["vendor"] as String?,
       model: json["model"] as String?,
+      deviceModelId: json["deviceModelId"] as String?,
+      deviceModelName: json["deviceModelName"] as String?,
+      deviceModelManufacturer: json["deviceModelManufacturer"] as String?,
+      deviceModelCode: json["deviceModelCode"] as String?,
       status: json["status"] as String?,
       notes: json["notes"] as String?,
       parentAssetId: json["parentAssetId"] as String?,
@@ -149,12 +211,24 @@ class AssetSummary {
   }
 
   String get subtitle {
+    final catalog = deviceModelName?.trim();
+    final catalogCode = deviceModelCode?.trim();
     final parts = <String>[
       if (isContainer) "Container",
       if (!isContainer && parentTag != null)
         "In ${parentName ?? parentTag}",
-      if (vendor != null && vendor!.isNotEmpty) vendor!,
-      if (model != null && model!.isNotEmpty) model!,
+      if (catalog != null && catalog.isNotEmpty)
+        catalog
+      else ...[
+        if (vendor != null && vendor!.isNotEmpty) vendor!,
+        if (model != null && model!.isNotEmpty) model!,
+      ],
+      if (catalog != null &&
+          catalog.isNotEmpty &&
+          catalogCode != null &&
+          catalogCode.isNotEmpty &&
+          catalogCode != catalog)
+        catalogCode,
       if (status != null) statusLabel(status!),
     ];
     return parts.join(" · ");

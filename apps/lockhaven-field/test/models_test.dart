@@ -42,6 +42,47 @@ void main() {
     expect(legacy.title, "LH-OLD");
   });
 
+  test("AssetSummary keeps device model catalog fields", () {
+    final asset = AssetSummary.fromJson({
+      "id": "11111111-1111-1111-1111-111111111111",
+      "organizationId": "22222222-2222-2222-2222-222222222222",
+      "tag": "LH-PC01",
+      "deviceModelId": "33333333-3333-3333-3333-333333333333",
+      "deviceModelName": "POS PC",
+      "deviceModelManufacturer": "Dell",
+      "deviceModelCode": "OptiPlex 7010",
+      "vendor": "Dell",
+      "model": "OptiPlex 7010",
+      "status": "in_service",
+    });
+    expect(asset.deviceModelId, "33333333-3333-3333-3333-333333333333");
+    expect(asset.subtitle, contains("POS PC"));
+    expect(asset.subtitle, contains("OptiPlex 7010"));
+  });
+
+  test("DeviceModelSummary builds searchable labels", () {
+    final withLabel = DeviceModelSummary.fromJson({
+      "id": "33333333-3333-3333-3333-333333333333",
+      "organizationId": "22222222-2222-2222-2222-222222222222",
+      "name": "POS PC",
+      "manufacturer": "Dell",
+      "model": "OptiPlex 7010",
+      "label": "POS PC · Dell OptiPlex 7010",
+    });
+    expect(withLabel.displayLabel, "POS PC · Dell OptiPlex 7010");
+    expect(withLabel.matchesQuery("optiplex"), isTrue);
+    expect(withLabel.matchesQuery("lenovo"), isFalse);
+
+    final derived = DeviceModelSummary.fromJson({
+      "id": "44444444-4444-4444-4444-444444444444",
+      "organizationId": "22222222-2222-2222-2222-222222222222",
+      "name": "Monitor",
+      "manufacturer": "LG",
+      "model": "24MP60",
+    });
+    expect(derived.displayLabel, "Monitor · LG 24MP60");
+  });
+
   test("suggestAssetTrackingTag matches Hub shared helper", () {
     expect(
       suggestAssetTrackingTag(

@@ -32,6 +32,7 @@ No organization API keys and no enrollment tokens.
 
 - Sites list → site assets → asset detail (edit fields Hub already allows)
 - **Add asset** / **Add folder** — serial-first items; folders named (cabinet, TRT, …)
+- **Device model** search/dropdown on add and edit (Hub `deviceModels` catalog)
 - **Save** or **Save & print** on add (print via local helper or Hub labels page)
 - Stay-in-flow after saving an item: scan the next serial without leaving the screen
 - Folder detail: **Add asset** into the folder, or find an existing item
@@ -53,6 +54,10 @@ Requirements on the laptop:
 - `python3` + `python3-venv` (for the local helper venv)
 - Printer on, USB connected (PT-D460BT / PT-D460BTVP)
 - DejaVu fonts (`/usr/share/fonts/…/DejaVuSans*.ttf`) for crisp text
+
+The helper passes `--precut` by default so chained labels waste less tape between
+jobs. The first label still has ~23 mm of blank leader (print head to cutter gap
+on the PT-D460BT). Set `PTOUCH_PRECUT=0` to disable.
 
 ```bash
 flutter run -d linux \
