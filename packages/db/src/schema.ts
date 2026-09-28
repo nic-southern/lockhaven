@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   date,
@@ -46,6 +47,7 @@ import {
   type AgentCommandKind,
   type AgentReleasePlatform,
   type AssetStatus,
+  type AssetFolderKind,
   type CustomFieldAppliesTo,
   type CustomFieldType,
   type CustomFieldValues,
@@ -415,6 +417,16 @@ export const assets = pgTable(
     siteId: uuid("site_id").references(() => sites.id, {
       onDelete: "set null",
     }),
+    /** Containing folder asset. Null when standalone / in stock. */
+    parentAssetId: uuid("parent_asset_id").references(
+      (): AnyPgColumn => assets.id,
+      { onDelete: "set null" }
+    ),
+    /**
+     * Set when this asset is a folder (cabinet, TRT, kiosk, …). Null for
+     * leaf items. One level only — folders cannot nest.
+     */
+    folderKind: text("folder_kind").$type<AssetFolderKind | string>(),
     deviceModelId: uuid("device_model_id").references(() => deviceModels.id, {
       onDelete: "set null",
     }),
@@ -463,6 +475,10 @@ export const assets = pgTable(
     ),
     retireOnIdx: index("assets_retire_on_idx").on(table.retireOn),
     deviceModelIdx: index("assets_device_model_id_idx").on(table.deviceModelId),
+    organizationParentIdx: index("assets_organization_parent_asset_id_idx").on(
+      table.organizationId,
+      table.parentAssetId
+    ),
   })
 )
 

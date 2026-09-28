@@ -138,12 +138,14 @@ function SiteDetail() {
   const [tag, setTag] = React.useState("")
   const [hostname, setHostname] = React.useState("")
   const [deviceModelId, setDeviceModelId] = React.useState("")
+  const [parentAssetId, setParentAssetId] = React.useState("")
   const [tagTouched, setTagTouched] = React.useState(false)
   const [assetRowSelection, setAssetRowSelection] =
     React.useState<RowSelectionState>({})
 
   const devices = devicesQuery.data?.items ?? []
   const assets = assetsQuery.data?.items ?? []
+  const siteFolders = assets.filter((asset) => asset.isFolder)
   const trackingTagPrefix =
     (organizationsQuery.data ?? []).find(
       (organization) => organization.id === site?.organizationId
@@ -160,6 +162,7 @@ function SiteDetail() {
       setTag("")
       setHostname("")
       setDeviceModelId("")
+      setParentAssetId("")
       setTagTouched(false)
       setAssetRowSelection({})
       toast.success("Asset added", {
@@ -185,6 +188,7 @@ function SiteDetail() {
     setTag(suggested)
     setHostname("")
     setDeviceModelId("")
+    setParentAssetId("")
     setTagTouched(false)
     setAddOpen(true)
   }
@@ -243,6 +247,7 @@ function SiteDetail() {
     await createAsset.mutateAsync({
       organizationId: site.organizationId,
       siteId: site.id,
+      parentAssetId: parentAssetId || null,
       deviceModelId: deviceModelId || null,
       tag: trimmedTag,
       serial: serial.trim() || null,
@@ -354,13 +359,41 @@ function SiteDetail() {
           <DataTableColumnHeader column={column} title="Tracking tag" />
         ),
         cell: ({ row }) => (
-          <Link
-            href={`/assets?id=${row.original.id}`}
-            className="font-mono text-sm font-medium hover:underline"
-          >
-            {row.original.tag}
-          </Link>
+          <div className="flex min-w-0 flex-col gap-1">
+            <Link
+              href={`/assets?id=${row.original.id}`}
+              className="font-mono text-sm font-medium hover:underline"
+            >
+              {row.original.tag}
+            </Link>
+            {row.original.isFolder ? (
+              <Badge variant="outline">
+                {row.original.folderLabel ?? "Folder"}
+              </Badge>
+            ) : null}
+          </div>
         ),
+      },
+      {
+        id: "folder",
+        accessorFn: (row) => row.parentTag ?? "",
+        meta: { label: "Folder" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Folder" />
+        ),
+        cell: ({ row }) =>
+          row.original.parentAssetId && row.original.parentTag ? (
+            <Link
+              href={`/assets?id=${row.original.parentAssetId}`}
+              className="font-mono text-xs hover:underline"
+            >
+              {row.original.parentTag}
+            </Link>
+          ) : row.original.isFolder ? (
+            (row.original.folderLabel ?? "—")
+          ) : (
+            "—"
+          ),
       },
       {
         id: "deviceModel",
@@ -776,6 +809,19 @@ function SiteDetail() {
                 label: model.manufacturer
                   ? `${model.name} · ${model.manufacturer} ${model.model}`
                   : `${model.name} · ${model.model}`,
+              }))}
+            />
+          </FormField>
+          <FormField label="Inside folder" htmlFor="site-asset-folder">
+            <SelectField
+              id="site-asset-folder"
+              value={parentAssetId}
+              onValueChange={setParentAssetId}
+              placeholder="Standalone"
+              emptyLabel="Standalone"
+              options={siteFolders.map((folder) => ({
+                value: folder.id,
+                label: `${folder.tag}${folder.folderLabel ? ` · ${folder.folderLabel}` : ""}`,
               }))}
             />
           </FormField>

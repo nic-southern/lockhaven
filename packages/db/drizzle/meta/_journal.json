@@ -323,6 +323,13 @@
       "when": 1783700000000,
       "tag": "0055_org_tracking_tag_prefix",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1783800000000,
+      "tag": "0056_asset_containment",
+      "breakpoints": true
     }
   ]
 }

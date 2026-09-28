@@ -9,10 +9,13 @@ import { toast } from "sonner"
 import { PlusIcon, PrinterIcon } from "lucide-react"
 
 import {
+  assetFolderKinds,
+  assetFolderKindLabels,
   assetLifecycleStateLabels,
   assetStatusLabels,
   assetStatuses,
   definitionAppliesTo,
+  folderKindLabel,
   retireMonthsToYears,
   yearsToRetireMonths,
   type AssetStatus,
@@ -48,6 +51,8 @@ type AssetRow = RouterOutputs["assets"]["page"]["items"][number]
 type AssetForm = {
   organizationId: string
   siteId: string
+  parentAssetId: string
+  folderKind: string
   deviceModelId: string
   tag: string
   vendor: string
@@ -67,6 +72,8 @@ type AssetForm = {
 const emptyForm = (): AssetForm => ({
   organizationId: "",
   siteId: "",
+  parentAssetId: "",
+  folderKind: "",
   deviceModelId: "",
   tag: "",
   vendor: "",
@@ -93,6 +100,8 @@ function formFromAsset(asset: AssetRow): AssetForm {
   return {
     organizationId: asset.organizationId,
     siteId: asset.siteId ?? "",
+    parentAssetId: asset.parentAssetId ?? "",
+    folderKind: asset.folderKind ?? "",
     deviceModelId: asset.deviceModelId ?? "",
     tag: asset.tag,
     vendor: asset.vendor ?? "",
@@ -147,6 +156,11 @@ function AssetsContent() {
   const [form, setForm] = React.useState<AssetForm>(emptyForm)
   const [linkDeviceId, setLinkDeviceId] = React.useState("")
   const [importOrgId, setImportOrgId] = React.useState("")
+  const [addExistingId, setAddExistingId] = React.useState("")
+  const [addNewOpen, setAddNewOpen] = React.useState(false)
+  const [newChildTag, setNewChildTag] = React.useState("")
+  const [newChildSerial, setNewChildSerial] = React.useState("")
+  const [newChildModelId, setNewChildModelId] = React.useState("")
 
   const organizationsQuery = trpc.organizations.list.useQuery(undefined, {
     enabled: canView,
@@ -176,12 +190,21 @@ function AssetsContent() {
   )
 
   const selected = items.find((item) => item.id === selectedId) ?? null
+  const childrenQuery = trpc.assets.children.useQuery(
+    { parentAssetId: selectedId },
+    { enabled: canView && Boolean(selectedId) && Boolean(selected?.isFolder) }
+  )
   const [formAssetId, setFormAssetId] = React.useState("")
   const [openedFromQuery, setOpenedFromQuery] = React.useState("")
   if (selected && selected.id !== formAssetId) {
     setFormAssetId(selected.id)
     setForm(formFromAsset(selected))
     setLinkDeviceId(selected.deviceId ?? "")
+    setAddExistingId("")
+    setAddNewOpen(false)
+    setNewChildTag("")
+    setNewChildSerial("")
+    setNewChildModelId("")
   }
   if (
     requestedId &&
@@ -195,19 +218,74 @@ function AssetsContent() {
   }
 
   const createAsset = trpc.assets.create.useMutation({
-    async onSuccess() {
-      await utils.assets.page.invalidate()
-      setCreateOpen(false)
-      setForm(emptyForm())
-      toast.success("Asset added")
+    async onSuccess(_data, variables) {
+      await Promise.all([
+        utils.assets.page.invalidate(),
+        variables.parentAssetId
+          ? utils.assets.children.invalidate({
+              parentAssetId: variables.parentAssetId,
+            })
+          : Promise.resolve(),
+      ])
+      if (!variables.parentAssetId) {
+        setCreateOpen(false)
+        setForm(emptyForm())
+        toast.success("Asset added")
+      } else {
+        setAddNewOpen(false)
+        setNewChildTag("")
+        setNewChildSerial("")
+        setNewChildModelId("")
+        toast.success("Item added to folder")
+      }
     },
     onError(error) {
       toast.error(error.message || "We couldn't add the asset.")
     },
   })
-  const updateAsset = trpc.assets.update.useMutation({
+  const createFolder = trpc.assets.createFolder.useMutation({
     async onSuccess() {
       await utils.assets.page.invalidate()
+      setCreateOpen(false)
+      setForm(emptyForm())
+      toast.success("Folder added")
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't add the folder.")
+    },
+  })
+  const addChild = trpc.assets.addChild.useMutation({
+    async onSuccess() {
+      await Promise.all([
+        utils.assets.page.invalidate(),
+        utils.assets.children.invalidate({ parentAssetId: selectedId }),
+      ])
+      setAddExistingId("")
+      toast.success("Item added to folder")
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't add that item.")
+    },
+  })
+  const removeChild = trpc.assets.removeChild.useMutation({
+    async onSuccess() {
+      await Promise.all([
+        utils.assets.page.invalidate(),
+        utils.assets.children.invalidate({ parentAssetId: selectedId }),
+      ])
+      toast.success("Item removed from folder")
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't remove that item.")
+    },
+  })
+  const updateAsset = trpc.assets.update.useMutation({
+    async onSuccess() {
+      await Promise.all([
+        utils.assets.page.invalidate(),
+        utils.assets.children.invalidate(),
+        utils.devices.list.invalidate(),
+      ])
       toast.success("Asset updated")
     },
     onError(error) {
@@ -273,10 +351,62 @@ function AssetsContent() {
           <DataTableColumnHeader column={column} title="Tracking tag" />
         ),
         cell: ({ row }) => (
-          <span className="font-mono text-sm font-medium">
-            {row.original.tag}
-          </span>
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="font-mono text-sm font-medium">
+              {row.original.tag}
+            </span>
+            {row.original.isFolder ? (
+              <Badge variant="outline">
+                {row.original.folderLabel ?? "Folder"}
+              </Badge>
+            ) : null}
+          </div>
         ),
+      },
+      {
+        id: "folder",
+        accessorFn: (row) =>
+          row.parentTag ??
+          (row.isFolder ? (row.folderLabel ?? row.folderKind ?? "") : ""),
+        meta: { label: "Folder" },
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Folder" />
+        ),
+        cell: ({ row }) => {
+          if (row.original.isFolder) {
+            return (
+              row.original.folderLabel ??
+              folderKindLabel(row.original.folderKind)
+            )
+          }
+          if (row.original.parentAssetId && row.original.parentTag) {
+            return (
+              <button
+                type="button"
+                className="font-mono text-xs hover:underline"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setSelectedId(row.original.parentAssetId!)
+                  setDetailOpen(true)
+                }}
+              >
+                {row.original.parentTag}
+                {row.original.parentFolderLabel
+                  ? ` · ${row.original.parentFolderLabel}`
+                  : ""}
+              </button>
+            )
+          }
+          return "—"
+        },
+      },
+      {
+        id: "folderKind",
+        accessorFn: (row) => row.folderKind ?? "item",
+        meta: { label: "Folder type", className: "hidden" },
+        header: () => null,
+        cell: () => null,
+        enableHiding: false,
       },
       {
         id: "deviceModel",
@@ -479,6 +609,8 @@ function AssetsContent() {
     return {
       organizationId: form.organizationId,
       siteId: form.siteId || null,
+      parentAssetId: form.folderKind ? null : form.parentAssetId || null,
+      folderKind: form.folderKind || null,
       deviceModelId: form.deviceModelId || null,
       tag: form.tag,
       vendor: form.deviceModelId ? null : form.vendor || null,
@@ -497,6 +629,20 @@ function AssetsContent() {
       customFields: form.customFields,
     }
   }
+
+  const folderOptions = items.filter(
+    (item) =>
+      item.isFolder &&
+      item.organizationId === (form.organizationId || selected?.organizationId)
+  )
+  const attachableItems = items.filter(
+    (item) =>
+      selected &&
+      !item.isFolder &&
+      item.organizationId === selected.organizationId &&
+      item.id !== selected.id &&
+      item.parentAssetId !== selected.id
+  )
 
   const selectedLifecycle = selected?.lifecycle
   const purchaseHint =
@@ -558,6 +704,42 @@ function AssetsContent() {
           className="font-mono"
         />
       </FormField>
+      <FormField label="Folder type" htmlFor="asset-folder-kind">
+        <SelectField
+          id="asset-folder-kind"
+          value={form.folderKind}
+          onValueChange={(value) =>
+            setForm((current) => ({
+              ...current,
+              folderKind: value,
+              parentAssetId: value ? "" : current.parentAssetId,
+            }))
+          }
+          placeholder="Not a folder"
+          emptyLabel="Not a folder"
+          options={assetFolderKinds.map((kind) => ({
+            value: kind,
+            label: assetFolderKindLabels[kind],
+          }))}
+        />
+      </FormField>
+      {!form.folderKind ? (
+        <FormField label="Inside folder" htmlFor="asset-parent">
+          <SelectField
+            id="asset-parent"
+            value={form.parentAssetId}
+            onValueChange={(value) =>
+              setForm((current) => ({ ...current, parentAssetId: value }))
+            }
+            placeholder="Standalone"
+            emptyLabel="Standalone"
+            options={folderOptions.map((folder) => ({
+              value: folder.id,
+              label: `${folder.tag}${folder.folderLabel ? ` · ${folder.folderLabel}` : ""}`,
+            }))}
+          />
+        </FormField>
+      ) : null}
       <FormField label="Device model" htmlFor="asset-device-model">
         <SelectField
           id="asset-device-model"
@@ -753,6 +935,22 @@ function AssetsContent() {
                 Import
               </Button>
               <Button
+                variant="outline"
+                onClick={() => {
+                  setDetailOpen(false)
+                  setSelectedId("")
+                  setForm({
+                    ...emptyForm(),
+                    organizationId: organizations[0]?.id ?? "",
+                    folderKind: "cabinet",
+                  })
+                  setCreateOpen(true)
+                }}
+              >
+                <PlusIcon />
+                Add folder
+              </Button>
+              <Button
                 onClick={() => {
                   setDetailOpen(false)
                   setSelectedId("")
@@ -813,6 +1011,17 @@ function AssetsContent() {
             ],
           },
           {
+            columnId: "folderKind",
+            title: "Folder type",
+            options: [
+              ...assetFolderKinds.map((kind) => ({
+                value: kind,
+                label: assetFolderKindLabels[kind],
+              })),
+              { value: "item", label: "Items only" },
+            ],
+          },
+          {
             columnId: "presence",
             title: "Presence",
             options: [
@@ -849,10 +1058,166 @@ function AssetsContent() {
             }
           }}
           title={selected.tag}
-          description="Financial and physical record. Unmanaged means nothing has checked in against this asset."
+          description={
+            selected.isFolder
+              ? "Folder record. Contained items and the linked device move with this folder’s site."
+              : "Financial and physical record. Unmanaged means nothing has checked in against this asset."
+          }
           className="sm:max-w-xl"
         >
           {formFields}
+          {selected.isFolder ? (
+            <div className="flex flex-col gap-4 border-t pt-4">
+              <div>
+                <h3 className="text-sm font-medium">Contents</h3>
+                <p className="text-sm text-muted-foreground">
+                  Items inside this folder. They inherit the folder’s site while
+                  attached.
+                </p>
+              </div>
+              {(childrenQuery.data ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">No items yet.</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {(childrenQuery.data ?? []).map((child) => (
+                    <li
+                      key={child.id}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <button
+                        type="button"
+                        className="min-w-0 truncate text-left font-mono text-sm hover:underline"
+                        onClick={() => {
+                          setSelectedId(child.id)
+                        }}
+                      >
+                        {child.tag}
+                        {child.deviceModelName || child.model
+                          ? ` · ${child.deviceModelName ?? child.model}`
+                          : ""}
+                      </button>
+                      {canUpdate ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={removeChild.isPending}
+                          onClick={() =>
+                            void removeChild.mutateAsync({
+                              childAssetId: child.id,
+                            })
+                          }
+                        >
+                          Remove
+                        </Button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {canUpdate ? (
+                <div className="flex flex-col gap-3">
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <SelectField
+                      value={addExistingId}
+                      onValueChange={setAddExistingId}
+                      placeholder="Add existing item"
+                      emptyLabel="Choose an item"
+                      options={attachableItems.map((item) => ({
+                        value: item.id,
+                        label: item.tag,
+                      }))}
+                    />
+                    <Button
+                      variant="outline"
+                      disabled={!addExistingId || addChild.isPending}
+                      onClick={() =>
+                        void addChild.mutateAsync({
+                          parentAssetId: selected.id,
+                          childAssetId: addExistingId,
+                        })
+                      }
+                    >
+                      Add existing
+                    </Button>
+                  </div>
+                  {addNewOpen ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <FormField label="Tracking tag" htmlFor="child-tag">
+                        <Input
+                          id="child-tag"
+                          value={newChildTag}
+                          onChange={(event) =>
+                            setNewChildTag(event.target.value)
+                          }
+                          className="font-mono"
+                        />
+                      </FormField>
+                      <FormField label="Serial" htmlFor="child-serial">
+                        <Input
+                          id="child-serial"
+                          value={newChildSerial}
+                          onChange={(event) =>
+                            setNewChildSerial(event.target.value)
+                          }
+                          className="font-mono"
+                        />
+                      </FormField>
+                      <FormField
+                        label="Device model"
+                        htmlFor="child-model"
+                        className="sm:col-span-2"
+                      >
+                        <SelectField
+                          id="child-model"
+                          value={newChildModelId}
+                          onValueChange={setNewChildModelId}
+                          placeholder="Choose a model"
+                          emptyLabel="Not assigned"
+                          options={(modelsQuery.data ?? []).map((model) => ({
+                            value: model.id,
+                            label: model.label,
+                          }))}
+                        />
+                      </FormField>
+                      <div className="flex flex-wrap gap-2 sm:col-span-2">
+                        <Button
+                          disabled={
+                            !newChildTag.trim() || createAsset.isPending
+                          }
+                          onClick={() =>
+                            void createAsset.mutateAsync({
+                              organizationId: selected.organizationId,
+                              siteId: selected.siteId,
+                              parentAssetId: selected.id,
+                              deviceModelId: newChildModelId || null,
+                              tag: newChildTag.trim(),
+                              serial: newChildSerial.trim() || null,
+                              status: "in_service",
+                            })
+                          }
+                        >
+                          Add new
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => setAddNewOpen(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={() => setAddNewOpen(true)}
+                    >
+                      Add new
+                    </Button>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {canUpdate ? (
             <div className="flex flex-col gap-4">
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -951,16 +1316,35 @@ function AssetsContent() {
       <DetailSheet
         open={createOpen}
         onOpenChange={setCreateOpen}
-        title="New asset"
-        description="Record hardware that may never enroll."
+        title={form.folderKind ? "New folder" : "New asset"}
+        description={
+          form.folderKind
+            ? "A folder has its own tracking tag and can hold contained items."
+            : "Record hardware that may never enroll."
+        }
         className="sm:max-w-xl"
       >
         {formFields}
         <Button
-          disabled={!form.organizationId || !form.tag || createAsset.isPending}
-          onClick={() => void createAsset.mutateAsync(payloadFromForm())}
+          disabled={
+            !form.organizationId ||
+            !form.tag ||
+            createAsset.isPending ||
+            createFolder.isPending
+          }
+          onClick={() => {
+            const payload = payloadFromForm()
+            if (payload.folderKind) {
+              void createFolder.mutateAsync({
+                ...payload,
+                folderKind: payload.folderKind,
+              })
+            } else {
+              void createAsset.mutateAsync(payload)
+            }
+          }}
         >
-          Add asset
+          {form.folderKind ? "Add folder" : "Add asset"}
         </Button>
       </DetailSheet>
 
