@@ -100,9 +100,17 @@ export function OverviewTab({
               { label: "Host name", value: device.hostname, mono: true },
               {
                 label: "Site",
-                value: device.siteName ?? (
-                  <span className="text-muted-foreground">No site</span>
-                ),
+                value:
+                  device.siteId && device.siteName ? (
+                    <Link
+                      href={`/sites/${device.siteId}`}
+                      className="hover:underline"
+                    >
+                      {device.siteName}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">No site</span>
+                  ),
               },
               {
                 label: "Operating system",
