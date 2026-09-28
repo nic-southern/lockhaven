@@ -35,6 +35,7 @@ No organization API keys and no enrollment tokens.
 - **Device model** search/dropdown on add and edit (Hub `deviceModels` catalog)
 - **Save** or **Save & print** on add (print via local helper or Hub labels page)
 - Stay-in-flow after saving an item: scan the next serial without leaving the screen
+  (device model stays selected for batch adds of the same type)
 - Folder detail: **Add asset** into the folder, or find an existing item
 - Find by scan (HID keyboard wedge / paste into the scan field)
 - Container: set site on a container (Hub cascades children + linked device)

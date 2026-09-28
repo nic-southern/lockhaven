@@ -181,10 +181,10 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
   }
 
   void _resetForNext() {
+    // Keep deviceModelId — batch adds of the same type should not re-pick.
     serialController.clear();
     hostnameController.clear();
     notesController.clear();
-    deviceModelId = null;
     if (isContainer) {
       nameController.clear();
     }
