@@ -6,6 +6,7 @@ import "package:lockhaven_field/screens/add_asset_screen.dart";
 import "package:lockhaven_field/screens/asset_search_screen.dart";
 import "package:lockhaven_field/screens/set_site_screen.dart";
 import "package:lockhaven_field/state/app_state.dart";
+import "package:lockhaven_field/widgets/device_model_picker.dart";
 
 /// Full-page asset / container detail (never a sidebar sheet).
 class AssetDetailScreen extends StatefulWidget {
@@ -27,15 +28,16 @@ class AssetDetailScreen extends StatefulWidget {
 class _AssetDetailScreenState extends State<AssetDetailScreen> {
   AssetSummary? asset;
   List<AssetSummary> children = const [];
+  List<DeviceModelSummary> deviceModels = const [];
   bool loading = true;
+  bool loadingModels = false;
   bool saving = false;
   String? error;
+  String? deviceModelId;
 
   late final TextEditingController nameController;
   late final TextEditingController serialController;
   late final TextEditingController hostnameController;
-  late final TextEditingController vendorController;
-  late final TextEditingController modelController;
   late final TextEditingController notesController;
   String status = "in_service";
 
@@ -45,8 +47,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     nameController = TextEditingController();
     serialController = TextEditingController();
     hostnameController = TextEditingController();
-    vendorController = TextEditingController();
-    modelController = TextEditingController();
     notesController = TextEditingController();
     _load();
   }
@@ -56,10 +56,26 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
     nameController.dispose();
     serialController.dispose();
     hostnameController.dispose();
-    vendorController.dispose();
-    modelController.dispose();
     notesController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadDeviceModels(String organizationId) async {
+    setState(() => loadingModels = true);
+    try {
+      final models = await widget.state.client.listDeviceModels(organizationId);
+      if (!mounted) return;
+      setState(() {
+        deviceModels = models;
+        loadingModels = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        deviceModels = const [];
+        loadingModels = false;
+      });
+    }
   }
 
   Future<void> _load() async {
@@ -90,12 +106,14 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
           hostnameController.text = row.hostname ?? "";
         }
         serialController.text = row.serial ?? "";
-        vendorController.text = row.vendor ?? "";
-        modelController.text = row.model ?? "";
+        deviceModelId = row.deviceModelId;
         notesController.text = row.notes ?? "";
         status = row.status ?? "in_service";
         loading = false;
       });
+      if (!row.isContainer) {
+        await _loadDeviceModels(row.organizationId);
+      }
     } catch (err) {
       if (!mounted) return;
       setState(() {
@@ -119,17 +137,14 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
         "serial": serialController.text.trim().isEmpty
             ? null
             : serialController.text.trim(),
-        "vendor": vendorController.text.trim().isEmpty
-            ? null
-            : vendorController.text.trim(),
-        "model": modelController.text.trim().isEmpty
-            ? null
-            : modelController.text.trim(),
         "notes": notesController.text.trim().isEmpty
             ? null
             : notesController.text.trim(),
         "status": status,
       };
+      if (!current.isContainer) {
+        fields["deviceModelId"] = deviceModelId;
+      }
       if (current.isContainer) {
         final name = nameController.text.trim();
         fields["hostname"] = name.isEmpty ? null : name;
@@ -142,6 +157,7 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       if (!mounted) return;
       setState(() {
         asset = updated;
+        deviceModelId = updated.deviceModelId;
         saving = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
@@ -484,22 +500,18 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                             const InputDecoration(labelText: "Serial"),
                       ),
                       const SizedBox(height: 12),
+                      DeviceModelPicker(
+                        models: deviceModels,
+                        selectedId: deviceModelId,
+                        loading: loadingModels,
+                        enabled: !saving,
+                        onChanged: (id) => setState(() => deviceModelId = id),
+                      ),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: hostnameController,
                         decoration:
                             const InputDecoration(labelText: "Hostname"),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: vendorController,
-                        decoration:
-                            const InputDecoration(labelText: "Vendor"),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: modelController,
-                        decoration:
-                            const InputDecoration(labelText: "Model"),
                       ),
                     ],
                     const SizedBox(height: 12),

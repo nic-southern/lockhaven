@@ -10,6 +10,11 @@
 #   ./scripts/print-asset-labels.sh path/to/asset-labels-….csv
 #   ./scripts/print-asset-labels.sh --dry-run labels.csv   # write PNGs only
 #   SETTLE_SECONDS=4 ./scripts/print-asset-labels.sh labels.csv
+#   PTOUCH_PRECUT=0 ./scripts/print-asset-labels.sh labels.csv  # disable --precut
+#
+# Left tape leader (~23 mm on PT-D460BT) is mostly a hardware gap between the
+# print head and cutter. --precut (on by default) can shrink waste between
+# chained labels; it does not remove the first-label leader.
 #
 # Requires: python3, ptouch-print. Pillow/qrcode install into a repo-local
 # venv on first run (scripts/.venv-labels) — no global pip needed.
@@ -22,11 +27,13 @@ REQ_FILE="$SCRIPT_DIR/requirements-labels.txt"
 
 SETTLE_SECONDS="${SETTLE_SECONDS:-3}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-30}"
+# Default on: ask ptouch-print for a precut / chain-friendly left margin.
+PTOUCH_PRECUT="${PTOUCH_PRECUT:-1}"
 DRY_RUN=0
 CSV_PATH=""
 
 usage() {
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 python_has_label_deps() {
@@ -140,6 +147,7 @@ export LOCKHAVEN_LABEL_OUT="$OUT_DIR"
 export LOCKHAVEN_LABEL_DRY_RUN="$DRY_RUN"
 export LOCKHAVEN_LABEL_SETTLE="$SETTLE_SECONDS"
 export LOCKHAVEN_LABEL_TIMEOUT="$TIMEOUT_SECONDS"
+export LOCKHAVEN_LABEL_PRECUT="$PTOUCH_PRECUT"
 
 "$LABEL_PYTHON" <<'PY'
 import csv
@@ -156,6 +164,12 @@ out_dir = Path(os.environ["LOCKHAVEN_LABEL_OUT"])
 dry_run = os.environ["LOCKHAVEN_LABEL_DRY_RUN"] == "1"
 settle = float(os.environ["LOCKHAVEN_LABEL_SETTLE"])
 timeout = os.environ["LOCKHAVEN_LABEL_TIMEOUT"]
+precut = os.environ.get("LOCKHAVEN_LABEL_PRECUT", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "",
+)
 
 # 18 mm tape printable height is ~120 px. Widen the label so long serials
 # stay at readable point sizes (truncate/wrap instead of shrinking to 7–8 pt).
@@ -357,7 +371,11 @@ for index, row in enumerate(rows, start=1):
 
     if dry_run:
         continue
-    cmd = ["ptouch-print", f"--timeout={timeout}", "--image", str(label_png)]
+    cmd = ["ptouch-print", f"--timeout={timeout}"]
+    if precut:
+        # Chain / small-margin mode. First label still has ~23 mm physical leader.
+        cmd.append("--precut")
+    cmd.extend(["--image", str(label_png)])
     print("+", " ".join(cmd), flush=True)
     subprocess.run(cmd, check=True)
     if index < len(rows):

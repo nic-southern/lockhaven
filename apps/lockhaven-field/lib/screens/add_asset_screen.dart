@@ -4,6 +4,7 @@ import "package:lockhaven_field/hub/models.dart";
 import "package:lockhaven_field/hub/tracking_tag.dart";
 import "package:lockhaven_field/labels/label_print_service.dart";
 import "package:lockhaven_field/state/app_state.dart";
+import "package:lockhaven_field/widgets/device_model_picker.dart";
 
 /// What happened after a successful add — caller can stay in a scan loop.
 class AddAssetOutcome {
@@ -54,11 +55,14 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
   bool tagTouched = false;
   bool suggesting = false;
   bool saving = false;
+  bool loadingModels = false;
   String? error;
   String? statusMessage;
   int attempt = 0;
   String prefix = defaultTrackingTagPrefix;
   int savedCount = 0;
+  List<DeviceModelSummary> deviceModels = const [];
+  String? deviceModelId;
 
   bool get isContainer => widget.asContainer;
   bool get underFolder => widget.parentAsset != null && !isContainer;
@@ -75,6 +79,29 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
       prefix = normalizeTrackingTagPrefix(org.trackingTagPrefix);
     }
     _suggestTag();
+    if (!isContainer) {
+      _loadDeviceModels();
+    }
+  }
+
+  Future<void> _loadDeviceModels() async {
+    setState(() => loadingModels = true);
+    try {
+      final models = await widget.state.client.listDeviceModels(
+        widget.site.organizationId,
+      );
+      if (!mounted) return;
+      setState(() {
+        deviceModels = models;
+        loadingModels = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        deviceModels = const [];
+        loadingModels = false;
+      });
+    }
   }
 
   @override
@@ -157,6 +184,7 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
     serialController.clear();
     hostnameController.clear();
     notesController.clear();
+    deviceModelId = null;
     if (isContainer) {
       nameController.clear();
     }
@@ -218,6 +246,7 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
           hostname: hostnameController.text.trim().isEmpty
               ? null
               : hostnameController.text.trim(),
+          deviceModelId: deviceModelId,
           notes: notesController.text.trim().isEmpty
               ? null
               : notesController.text.trim(),
@@ -397,6 +426,14 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
             onChanged: (_) => tagTouched = true,
           ),
           if (!isContainer) ...[
+            const SizedBox(height: 12),
+            DeviceModelPicker(
+              models: deviceModels,
+              selectedId: deviceModelId,
+              loading: loadingModels,
+              enabled: !saving,
+              onChanged: (id) => setState(() => deviceModelId = id),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: hostnameController,
