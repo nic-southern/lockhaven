@@ -335,6 +335,72 @@ export function normalizeSerial(value: string | null | undefined) {
   return normalized.length > 0 ? normalized : null
 }
 
+/**
+ * SMBIOS / DMI / WMI strings that are not unique chassis serials. Agents omit
+ * these from check-in; Hub treats them as unset for asset matching and fill.
+ */
+const PLACEHOLDER_HARDWARE_SERIALS = new Set(
+  [
+    "none",
+    "n/a",
+    "na",
+    "null",
+    "nil",
+    "unknown",
+    "not specified",
+    "not available",
+    "not applicable",
+    "default string",
+    "defaultstring",
+    "system serial number",
+    "chassis serial number",
+    "to be filled by o.e.m.",
+    "to be filled by oem",
+    "oem",
+    "o.e.m.",
+    "0",
+    "00000000",
+    "0000000000000000",
+    "123456789",
+    "1234567890",
+    "xxxxxxxxxxxx",
+    "xxxxxxxx",
+  ].map((value) => value.replace(/[\s.\-/]+/g, "").toLowerCase())
+)
+
+function serialDenylistKey(value: string) {
+  return value.trim().replace(/[\s.\-/]+/g, "").toLowerCase()
+}
+
+/** True when the value is empty or a known BIOS/DMI placeholder. */
+export function isPlaceholderHardwareSerial(
+  value: string | null | undefined
+): boolean {
+  if (value == null) return true
+  const trimmed = value.trim()
+  if (!trimmed) return true
+  const key = serialDenylistKey(trimmed)
+  if (!key) return true
+  if (PLACEHOLDER_HARDWARE_SERIALS.has(key)) return true
+  // All X / all 0 after stripping separators (e.g. XX-XX, 00-00-00).
+  if (/^x+$/i.test(key) && key.length >= 4) return true
+  if (/^0+$/.test(key)) return true
+  return false
+}
+
+/**
+ * Return a trimmed real serial, or null when empty / placeholder.
+ * Caps length to match asset / device column practice.
+ */
+export function sanitizeHardwareSerial(
+  value: string | null | undefined
+): string | null {
+  if (value == null) return null
+  const trimmed = value.trim()
+  if (isPlaceholderHardwareSerial(trimmed)) return null
+  return trimmed.slice(0, 120)
+}
+
 /** Soft identity compare for manufacturer / model catalog matching. */
 export function normalizeHardwareIdentity(value: string | null | undefined) {
   if (!value) return null

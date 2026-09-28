@@ -4,6 +4,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"unicode"
 )
 
 type HostIdentity struct {
@@ -35,11 +36,88 @@ func readTrimmed(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
-func SerialNumber() string {
-	if env := strings.TrimSpace(os.Getenv("LOCKHAVEN_SERIAL_NUMBER")); env != "" {
+// SMBIOS / DMI / WMI strings that are not unique chassis serials.
+var placeholderSerialKeys = map[string]struct{}{
+	"none":                {},
+	"na":                  {},
+	"null":                {},
+	"nil":                 {},
+	"unknown":             {},
+	"notspecified":        {},
+	"notavailable":        {},
+	"notapplicable":       {},
+	"defaultstring":       {},
+	"systemserialnumber":  {},
+	"chassisserialnumber": {},
+	"tobefilledbyoem":     {},
+	"oem":                 {},
+	"0":                   {},
+	"00000000":            {},
+	"0000000000000000":    {},
+	"123456789":           {},
+	"1234567890":          {},
+	"xxxxxxxxxxxx":        {},
+	"xxxxxxxx":            {},
+}
+
+func serialDenylistKey(value string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		if unicode.IsSpace(r) || r == '.' || r == '-' || r == '/' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// IsPlaceholderSerial reports empty or known BIOS/DMI placeholder serials.
+func IsPlaceholderSerial(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return true
+	}
+	key := serialDenylistKey(trimmed)
+	if key == "" {
+		return true
+	}
+	if _, ok := placeholderSerialKeys[key]; ok {
+		return true
+	}
+	if len(key) >= 4 && strings.Trim(key, "x") == "" {
+		return true
+	}
+	if strings.Trim(key, "0") == "" {
+		return true
+	}
+	return false
+}
+
+// SanitizeSerial returns a trimmed real serial, or "" when empty/placeholder.
+func SanitizeSerial(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if IsPlaceholderSerial(trimmed) {
+		return ""
+	}
+	if len(trimmed) > 120 {
+		return trimmed[:120]
+	}
+	return trimmed
+}
+
+// HardwareSerial is the chassis / DMI product serial when it looks real.
+// Empty when unavailable or a BIOS placeholder. Never falls back to hostname.
+func HardwareSerial() string {
+	if env := SanitizeSerial(os.Getenv("LOCKHAVEN_SERIAL_NUMBER")); env != "" {
 		return env
 	}
-	if value := platformSerial(); value != "" {
+	return SanitizeSerial(platformSerial())
+}
+
+// SerialNumber is used for attach/enroll (Hub requires a non-empty value).
+// Prefers a real hardware serial; otherwise falls back to hostname.
+func SerialNumber() string {
+	if value := HardwareSerial(); value != "" {
 		return value
 	}
 	host, _ := os.Hostname()

@@ -13,6 +13,8 @@ export type CheckInFacts = {
   checkInSecret: string
   hostname: string
   host: HostIdentity
+  /** Real chassis serial only; omit when empty or placeholder. */
+  serialNumber?: string
   vpn: { interface_up: boolean; vpn_ipv4: string }
   services: Array<{
     type: "vnc" | "rdp" | "ssh" | "winrm_https"
@@ -37,6 +39,9 @@ export function buildCheckInPayload(facts: CheckInFacts) {
     hostname: facts.hostname,
     os_family: facts.host.osFamily,
     os_version: facts.host.osVersion,
+    ...(facts.serialNumber
+      ? { serial_number: facts.serialNumber }
+      : {}),
     vpn: facts.vpn,
     services: facts.services,
     metrics: facts.metrics,
