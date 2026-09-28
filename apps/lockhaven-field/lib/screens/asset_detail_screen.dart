@@ -260,13 +260,19 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       if (!mounted) return;
       setState(() => saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.message ?? "Label ready.")),
+        SnackBar(content: Text(result.message ?? "Sent to the label printer.")),
       );
-    } catch (err) {
+    } on LabelPrintException catch (err) {
       if (!mounted) return;
       setState(() {
         saving = false;
-        error = "Could not prepare the label.";
+        error = err.toString();
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        saving = false;
+        error = "Could not print the label.";
       });
     }
   }

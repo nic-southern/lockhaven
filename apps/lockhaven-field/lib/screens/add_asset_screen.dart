@@ -228,15 +228,20 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
       String? printMessage;
       var printed = false;
       if (printLabel) {
-        final org = widget.state.orgFor(widget.site.organizationId);
-        final printService = LabelPrintService(config: widget.state.config);
-        final result = await printService.printAssetLabel(
-          asset: created,
-          companyName: org?.name,
-          siteName: widget.site.name,
-        );
-        printed = result.path != LabelPrintPath.csvOnly;
-        printMessage = result.message;
+        try {
+          final org = widget.state.orgFor(widget.site.organizationId);
+          final printService = LabelPrintService(config: widget.state.config);
+          final result = await printService.printAssetLabel(
+            asset: created,
+            companyName: org?.name,
+            siteName: widget.site.name,
+          );
+          printed = true;
+          printMessage = result.message;
+        } on LabelPrintException catch (printErr) {
+          // Asset is already saved — keep going, but show why print failed.
+          printMessage = printErr.toString();
+        }
       }
 
       if (!mounted) return;
@@ -257,15 +262,17 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
       // Items: stay on this screen for the next serial (audit loop).
       setState(() {
         saving = false;
-        statusMessage = printLabel
-            ? "Saved ${created.tag}${printMessage != null ? " · $printMessage" : ""}. Scan the next serial."
-            : "Saved ${created.tag}. Scan the next serial.";
+        if (printLabel && !printed) {
+          error = printMessage;
+          statusMessage = "Saved ${created.tag}. Print failed — fix printer, then use Print on the asset.";
+        } else {
+          error = null;
+          statusMessage = printLabel
+              ? "Saved ${created.tag} · ${printMessage ?? "printed"}. Scan the next serial."
+              : "Saved ${created.tag}. Scan the next serial.";
+        }
       });
       _resetForNext();
-
-      // Keep outcome available if the user pops later.
-      // Caller refreshes from pop(null) or when navigating back with last asset.
-      // Store last outcome via a soft return when Done is pressed.
       _lastOutcome = outcome;
     } catch (err) {
       if (!mounted) return;
