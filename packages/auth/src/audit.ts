@@ -17,6 +17,8 @@ export type AuthAuditEventType =
   | "passkey_removed"
   | "password_changed"
   | "session_revoked"
+  | "field_session_issued"
+  | "field_session_revoked"
   | "sso_login"
   | "sso_login_failed"
 

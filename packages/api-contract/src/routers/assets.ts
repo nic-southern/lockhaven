@@ -39,6 +39,8 @@ import {
   parseAssetBulkCsv,
   resolveAssetLifecycle,
   retireAfterMonthsSchema,
+  suggestAssetTrackingTag,
+  normalizeTrackingTagPrefix,
   warrantyState,
   type AssetStatus,
 } from "@nms/shared"
@@ -1210,6 +1212,40 @@ export const assetsRouter = createTRPCRouter({
       })
 
       return { created, updated, skipped: errors.length, errors }
+    }),
+  suggestTag: permissionProcedure("device:view")
+    .input(
+      z.object({
+        organizationId: z.string().uuid(),
+        siteId: z.string().uuid().optional(),
+        serial: z.string().trim().max(120).optional().nullable(),
+        hostname: z.string().trim().max(253).optional().nullable(),
+        attempt: z.number().int().min(0).max(1000).optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      assertAuthorized(ctx.actor, "device:view", {
+        kind: "organization",
+        organizationId: input.organizationId,
+      })
+      const [organization] = await ctx.db
+        .select({ trackingTagPrefix: organizations.trackingTagPrefix })
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+      if (!organization) {
+        throw new TRPCError({ code: "NOT_FOUND" })
+      }
+      const seedId = input.siteId ?? input.organizationId
+      return {
+        tag: suggestAssetTrackingTag({
+          deviceId: seedId,
+          serialNumber: emptyToNull(input.serial),
+          hostname: emptyToNull(input.hostname),
+          attempt: input.attempt ?? 0,
+          prefix: organization.trackingTagPrefix,
+        }),
+        prefix: normalizeTrackingTagPrefix(organization.trackingTagPrefix),
+      }
     }),
   statusLabels: permissionProcedure("device:view").query(
     () => assetStatusLabels

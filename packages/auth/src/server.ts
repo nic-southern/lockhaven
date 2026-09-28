@@ -7,6 +7,7 @@ import {
   eq,
   organizationMemberships,
   passkey,
+  session,
   siteMemberships,
   sites,
   user,
@@ -146,6 +147,26 @@ export async function resolveAdminPrincipalById(
     return null
   }
   return resolveAdminPrincipalByEmail(record.email)
+}
+
+/**
+ * Resolves a Better Auth session token presented as a Bearer credential
+ * (used by the field desktop app after browser handoff).
+ */
+export async function resolveSessionPrincipal(
+  token: string
+): Promise<ActorPrincipal | null> {
+  if (!token || isApiKeySecretFormat(token)) {
+    return null
+  }
+
+  const [row] = await db.select().from(session).where(eq(session.token, token))
+
+  if (!row || row.expiresAt.getTime() <= Date.now()) {
+    return null
+  }
+
+  return resolveAdminPrincipalById(row.userId)
 }
 
 /**

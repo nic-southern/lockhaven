@@ -19,6 +19,8 @@ export const auditSeveritySchema = z.enum(auditSeverities)
 
 const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   admin_login_failed: "warning",
+  field_session_issued: "notice",
+  field_session_revoked: "notice",
   two_factor_reset: "notice",
   passkey_removed: "notice",
   password_changed: "notice",
