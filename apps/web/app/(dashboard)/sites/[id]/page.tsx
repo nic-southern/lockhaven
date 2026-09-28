@@ -326,7 +326,7 @@ function SiteDetail() {
         cell: ({ row }) =>
           row.original.assetTag && row.original.assetId ? (
             <Link
-              href={`/assets?id=${row.original.assetId}`}
+              href={`/assets/${row.original.assetId}`}
               className="font-mono text-xs hover:underline"
             >
               {row.original.assetTag}
@@ -725,7 +725,7 @@ function SiteDetail() {
                 getRowId={(row) => row.id}
                 searchPlaceholder="Search assets"
                 initialSorting={[{ id: "tag", desc: false }]}
-                onRowClick={(row) => router.push(`/assets?id=${row.id}`)}
+                onRowClick={(row) => router.push(`/assets/${row.id}`)}
                 emptyTitle="No assets at this site"
                 emptyDescription="Assets show up here when they are linked to this location."
                 enableRowSelection

@@ -326,7 +326,7 @@ export function AlertsTable({
           ) : row.original.assetId ? (
             <div className="flex min-w-0 flex-col">
               <Link
-                href={`/assets?id=${row.original.assetId}`}
+                href={`/assets/${row.original.assetId}`}
                 className="truncate hover:underline"
                 onClick={(event) => event.stopPropagation()}
               >
