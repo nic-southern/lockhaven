@@ -53,7 +53,7 @@ export const agentReleasePlatformLabels: Record<AgentReleasePlatform, string> =
   }
 
 /** Version baked into the Hub image's agent binaries. */
-export const SHIPPED_AGENT_VERSION = "0.3.0"
+export const SHIPPED_AGENT_VERSION = "0.3.1"
 
 export const shippedAgentBinaries = [
   {

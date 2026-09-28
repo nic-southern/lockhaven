@@ -47,7 +47,7 @@ test("semver parser ignores build metadata and rejects empty values", () => {
 test("a device is behind when its version is older than the desired release", () => {
   assert.equal(isAgentBehind("0.1.0", "0.2.0"), true)
   assert.equal(isAgentBehind("0.2.0", "0.2.0"), false)
-  assert.equal(isAgentBehind("0.3.0", "0.2.0"), false)
+  assert.equal(isAgentBehind("0.3.1", "0.2.0"), false)
   assert.equal(isAgentBehind(null, "0.2.0"), true)
   assert.equal(isAgentBehind("0.1.0", null), false)
   assert.equal(isAgentBehind("mystery", "1.0.0"), true)
@@ -127,7 +127,7 @@ test("an architecture-specific release wins over a family build", () => {
       sha256: "a".repeat(64),
     },
     {
-      version: "0.3.0",
+      version: "0.3.1",
       channel: "stable" as const,
       platform: "linux-amd64" as const,
       downloadUrl: "/install/lockhaven-agent-linux-amd64",
@@ -135,7 +135,7 @@ test("an architecture-specific release wins over a family build", () => {
     },
   ]
   const desired = pickDesiredRelease(releases, "stable", "linux-amd64")
-  assert.equal(desired?.version, "0.3.0")
+  assert.equal(desired?.version, "0.3.1")
   assert.equal(desired?.sha256, "b".repeat(64))
   assert.equal(
     pickDesiredRelease(releases, "stable", "linux")?.version,
