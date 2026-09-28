@@ -26,6 +26,8 @@ The current public repository is
 - Install dependencies with `pnpm install`.
 - Run the web app with `pnpm dev:web`.
 - Run the worker with `pnpm dev:worker`.
+- Run the field desktop app with
+  `cd apps/lockhaven-field && flutter run -d linux`.
 - Run tests with `pnpm test`.
 - Check formatting with `pnpm format:check`.
 - Build everything with `pnpm build`.
@@ -38,6 +40,8 @@ The current public repository is
 
 - `apps/web` - Next.js Console, session UI, tRPC route handlers, auth routes,
   enrollment endpoints, and health checks.
+- `apps/lockhaven-field` - Flutter desktop field technician app (Linux,
+  Windows, macOS) for site inventory and scan flows.
 - `apps/lockhaven-agent` - static Linux and Windows endpoint agent (attach, enroll, check-in).
 - `apps/agent` - TypeScript enrollment and check-in client.
 - `apps/worker` - WireGuard reconciliation and service health jobs.

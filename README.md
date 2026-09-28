@@ -48,6 +48,8 @@ domain packages.
 
 - `apps/web` - Next.js console, session UI, tRPC route handlers, auth routes,
   enrollment endpoints, and health checks.
+- `apps/lockhaven-field` - Flutter desktop field app (Linux, Windows, macOS)
+  for technician inventory and scan flows.
 - `apps/lockhaven-agent` - static Linux and Windows agent: attach to existing inventory,
   enroll new hosts, check-in, systemd or Windows service install.
 - `apps/agent` - TypeScript enrollment/check-in client (macOS).

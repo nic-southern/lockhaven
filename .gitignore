@@ -64,3 +64,11 @@ infra/terraform/*.tfstate.*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Flutter
+apps/lockhaven-field/.dart_tool/
+apps/lockhaven-field/.flutter-plugins-dependencies
+apps/lockhaven-field/build/
+apps/lockhaven-field/**/ephemeral/
+**/*.iml
+.idea/
