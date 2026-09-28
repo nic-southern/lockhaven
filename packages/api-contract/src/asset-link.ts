@@ -334,7 +334,7 @@ export async function syncLinkedAssetSite(
     .select({
       id: assets.id,
       siteId: assets.siteId,
-      folderKind: assets.folderKind,
+      isContainer: assets.isContainer,
     })
     .from(assets)
     .where(eq(assets.id, device.assetId))
@@ -351,7 +351,7 @@ export async function syncLinkedAssetSite(
     .set({ ...patch, updatedAt: new Date() })
     .where(eq(assets.id, existing.id))
 
-  if (existing.folderKind) {
+  if (existing.isContainer) {
     await client
       .update(assets)
       .set({ siteId: patch.siteId, updatedAt: new Date() })
@@ -384,7 +384,7 @@ export async function syncLinkedAssetSites(
     .select({
       id: assets.id,
       siteId: assets.siteId,
-      folderKind: assets.folderKind,
+      isContainer: assets.isContainer,
     })
     .from(assets)
     .where(inArray(assets.id, assetIds))
@@ -399,7 +399,7 @@ export async function syncLinkedAssetSites(
     .where(inArray(assets.id, toUpdate))
 
   const folderIds = matched
-    .filter((row) => toUpdate.includes(row.id) && row.folderKind)
+    .filter((row) => toUpdate.includes(row.id) && row.isContainer)
     .map((row) => row.id)
   if (folderIds.length > 0) {
     await client

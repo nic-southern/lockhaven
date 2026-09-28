@@ -337,6 +337,13 @@
       "when": 1783900000000,
       "tag": "0057_field_auth_handoffs",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1784000000000,
+      "tag": "0058_asset_is_container",
+      "breakpoints": true
     }
   ]
 }

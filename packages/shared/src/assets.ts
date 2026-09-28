@@ -22,51 +22,34 @@ export const assetStatusLabels: Record<AssetStatus, string> = {
   disposed: "Disposed",
 }
 
-/** Built-in folder kinds. Orgs may also use other lowercase keys. */
-export const assetFolderKinds = ["cabinet", "trt", "kiosk"] as const
-
-export type AssetFolderKind = (typeof assetFolderKinds)[number]
-
-export const assetFolderKindLabels: Record<AssetFolderKind, string> = {
-  cabinet: "Cabinet",
-  trt: "TRT",
-  kiosk: "Kiosk",
-}
-
 /**
- * Folder type on an asset that may contain children. Known kinds plus room for
- * org-defined keys (`cabinet`, `trt`, `kiosk`, …). Null means a leaf item.
+ * A container (folder) holds other assets via `parentAssetId`. Differentiate
+ * containers by tracking tag and other identity fields — not a kind enum.
  */
-export const assetFolderKindSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .regex(/^[a-z][a-z0-9_]{0,39}$/, "Use a short lowercase folder type.")
-
-export function folderKindLabel(kind: string | null | undefined): string {
-  if (!kind) return "—"
-  const known = assetFolderKindLabels[kind as AssetFolderKind]
-  if (known) return known
-  return kind.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())
+export function isContainerAsset(asset: {
+  isContainer: boolean | null | undefined
+}): boolean {
+  return Boolean(asset.isContainer)
 }
 
+/** @deprecated Prefer `isContainerAsset`. */
 export function isFolderAsset(asset: {
-  folderKind: string | null | undefined
+  isContainer: boolean | null | undefined
 }): boolean {
-  return Boolean(asset.folderKind && asset.folderKind.trim().length > 0)
+  return isContainerAsset(asset)
 }
 
 export type AssetContainmentRow = {
   id: string
   organizationId: string
-  folderKind: string | null
+  isContainer: boolean
   parentAssetId: string | null
 }
 
 export type ContainmentDecision = { ok: true } | { ok: false; message: string }
 
 /**
- * One-level containment: only folders may be parents; folders cannot be
+ * One-level containment: only containers may be parents; containers cannot be
  * children; no nesting; same organization.
  */
 export function assertCanAttachChild(input: {
@@ -82,7 +65,7 @@ export function assertCanAttachChild(input: {
       message: "Folder and item must belong to the same organization.",
     }
   }
-  if (!isFolderAsset(input.parent)) {
+  if (!isContainerAsset(input.parent)) {
     return { ok: false, message: "Only folders can contain items." }
   }
   if (input.parent.parentAssetId) {
@@ -91,7 +74,7 @@ export function assertCanAttachChild(input: {
       message: "Folders cannot be nested inside other folders.",
     }
   }
-  if (isFolderAsset(input.child)) {
+  if (isContainerAsset(input.child)) {
     return {
       ok: false,
       message: "A folder cannot be placed inside another folder.",
@@ -107,7 +90,7 @@ export function assertCanDetachChild(input: {
   if (!input.child.parentAssetId) {
     return { ok: false, message: "That item is not inside a folder." }
   }
-  if (isFolderAsset(input.child)) {
+  if (isContainerAsset(input.child)) {
     return { ok: false, message: "Folders cannot be nested." }
   }
   return { ok: true }

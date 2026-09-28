@@ -47,7 +47,6 @@ import {
   type AgentCommandKind,
   type AgentReleasePlatform,
   type AssetStatus,
-  type AssetFolderKind,
   type CustomFieldAppliesTo,
   type CustomFieldType,
   type CustomFieldValues,
@@ -449,10 +448,11 @@ export const assets = pgTable(
       { onDelete: "set null" }
     ),
     /**
-     * Set when this asset is a folder (cabinet, TRT, kiosk, …). Null for
-     * leaf items. One level only — folders cannot nest.
+     * True when this asset is a container (folder) that may hold children.
+     * Differentiate containers by tag / identity — not a kind enum.
+     * One level only — containers cannot nest.
      */
-    folderKind: text("folder_kind").$type<AssetFolderKind | string>(),
+    isContainer: boolean("is_container").notNull().default(false),
     deviceModelId: uuid("device_model_id").references(() => deviceModels.id, {
       onDelete: "set null",
     }),

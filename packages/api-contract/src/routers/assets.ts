@@ -26,16 +26,12 @@ import {
 import {
   assertCanAttachChild,
   assertCanDetachChild,
-  assetFolderKindSchema,
-  assetFolderKinds,
-  assetFolderKindLabels,
   assetStatusLabels,
   assetStatusSchema,
   childSiteFromFolder,
   customFieldValuesSchema,
   deriveConnectivity,
-  folderKindLabel,
-  isFolderAsset,
+  isContainerAsset,
   parseAssetBulkCsv,
   resolveAssetLifecycle,
   retireAfterMonthsSchema,
@@ -77,7 +73,7 @@ const assetWriteInput = z.object({
   organizationId: z.string().uuid(),
   siteId: z.string().uuid().nullable().optional(),
   parentAssetId: z.string().uuid().nullable().optional(),
-  folderKind: assetFolderKindSchema.nullable().optional(),
+  isContainer: z.boolean().optional(),
   deviceModelId: z.string().uuid().nullable().optional(),
   tag: z.string().trim().min(1).max(80),
   vendor: z.string().trim().max(120).nullable().optional(),
@@ -175,7 +171,7 @@ function publicAsset(
     modelDefaultPurchaseDate?: string | null
     modelRetireAfterMonths?: number | null
     parentTag?: string | null
-    parentFolderKind?: string | null
+    parentIsContainer?: boolean | null
   }
 ) {
   const linked = Boolean(extras.deviceId)
@@ -202,12 +198,9 @@ function publicAsset(
     modelDefaultPurchaseDate: extras.modelDefaultPurchaseDate ?? null,
     modelRetireAfterMonths: extras.modelRetireAfterMonths ?? null,
     parentTag: extras.parentTag ?? null,
-    parentFolderKind: extras.parentFolderKind ?? null,
-    parentFolderLabel: extras.parentFolderKind
-      ? folderKindLabel(extras.parentFolderKind)
-      : null,
-    folderLabel: row.folderKind ? folderKindLabel(row.folderKind) : null,
-    isFolder: isFolderAsset(row),
+    parentIsContainer: Boolean(extras.parentIsContainer),
+    isContainer: isContainerAsset(row),
+    isFolder: isContainerAsset(row),
     managed: linked,
     presence: linked ? "managed" : "unmanaged",
     connectivity: linked
@@ -238,7 +231,7 @@ function assetBase(ctx: ApiContext) {
       modelDefaultPurchaseDate: deviceModels.defaultPurchaseDate,
       modelRetireAfterMonths: deviceModels.retireAfterMonths,
       parentTag: parentAssets.tag,
-      parentFolderKind: parentAssets.folderKind,
+      parentIsContainer: parentAssets.isContainer,
     })
     .from(assets)
     .innerJoin(organizations, eq(organizations.id, assets.organizationId))
@@ -290,7 +283,7 @@ function rowExtras(row: {
   modelDefaultPurchaseDate: string | null
   modelRetireAfterMonths: number | null
   parentTag: string | null
-  parentFolderKind: string | null
+  parentIsContainer: boolean | null
 }) {
   return {
     siteName: row.siteName,
@@ -306,13 +299,13 @@ function rowExtras(row: {
     modelDefaultPurchaseDate: row.modelDefaultPurchaseDate,
     modelRetireAfterMonths: row.modelRetireAfterMonths,
     parentTag: row.parentTag,
-    parentFolderKind: row.parentFolderKind,
+    parentIsContainer: row.parentIsContainer,
   }
 }
 
 async function loadFolderOrThrow(ctx: ApiContext, id: string) {
   const record = await loadAsset(ctx, id)
-  if (!isFolderAsset(record)) {
+  if (!isContainerAsset(record)) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "That asset is not a folder.",
@@ -349,13 +342,13 @@ async function attachChildToFolder(
     parent: {
       id: parent.id,
       organizationId: parent.organizationId,
-      folderKind: parent.folderKind,
+      isContainer: parent.isContainer,
       parentAssetId: parent.parentAssetId,
     },
     child: {
       id: child.id,
       organizationId: child.organizationId,
-      folderKind: child.folderKind,
+      isContainer: child.isContainer,
       parentAssetId: child.parentAssetId,
     },
   })
@@ -430,19 +423,14 @@ export const assetsRouter = createTRPCRouter({
           sql`${assets.warrantyExpiresOn} is not null and ${assets.warrantyExpiresOn} <= (current_date + interval '90 days')`
         )
       }
-      const folderKindFilter = query.filters.folderKind
-      if (folderKindFilter?.length) {
-        const foldersOnly = folderKindFilter.includes("folder")
-        const itemsOnly = folderKindFilter.includes("item")
-        const kinds = folderKindFilter.filter(
-          (value) => value !== "folder" && value !== "item"
-        )
-        if (foldersOnly && !itemsOnly && kinds.length === 0) {
-          conditions.push(isNotNull(assets.folderKind))
-        } else if (itemsOnly && !foldersOnly && kinds.length === 0) {
-          conditions.push(isNull(assets.folderKind))
-        } else if (kinds.length > 0) {
-          conditions.push(inArray(assets.folderKind, kinds))
+      const containerFilter = query.filters.isContainer
+      if (containerFilter?.length) {
+        const foldersOnly = containerFilter.includes("true")
+        const itemsOnly = containerFilter.includes("false")
+        if (foldersOnly && !itemsOnly) {
+          conditions.push(eq(assets.isContainer, true))
+        } else if (itemsOnly && !foldersOnly) {
+          conditions.push(eq(assets.isContainer, false))
         }
       }
       const parentFilter = query.filters.parentAssetId
@@ -541,10 +529,10 @@ export const assetsRouter = createTRPCRouter({
 
       let parentAssetId: string | null = null
       let siteId = input.siteId ?? null
-      const folderKind = emptyToNull(input.folderKind) as string | null
+      const isContainer = Boolean(input.isContainer)
 
       if (input.parentAssetId) {
-        if (folderKind) {
+        if (isContainer) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "A folder cannot be placed inside another folder.",
@@ -568,7 +556,7 @@ export const assetsRouter = createTRPCRouter({
             organizationId: input.organizationId,
             siteId,
             parentAssetId,
-            folderKind,
+            isContainer,
             deviceModelId: catalog?.id ?? null,
             tag: input.tag.trim(),
             vendor: catalog
@@ -595,7 +583,7 @@ export const assetsRouter = createTRPCRouter({
           eventData: {
             assetId: record.id,
             tag: record.tag,
-            folderKind: record.folderKind,
+            isContainer: record.isContainer,
             parentAssetId: record.parentAssetId,
           },
         })
@@ -616,11 +604,7 @@ export const assetsRouter = createTRPCRouter({
       }
     }),
   createFolder: permissionProcedure("device:update")
-    .input(
-      assetWriteInput.omit({ parentAssetId: true, folderKind: true }).extend({
-        folderKind: assetFolderKindSchema,
-      })
-    )
+    .input(assetWriteInput.omit({ parentAssetId: true, isContainer: true }))
     .mutation(async ({ ctx, input }) => {
       assertAuthorized(ctx.actor, "device:update", {
         kind: "device",
@@ -641,7 +625,7 @@ export const assetsRouter = createTRPCRouter({
             organizationId: input.organizationId,
             siteId: input.siteId ?? null,
             parentAssetId: null,
-            folderKind: input.folderKind,
+            isContainer: true,
             deviceModelId: catalog?.id ?? null,
             tag: input.tag.trim(),
             vendor: catalog
@@ -668,7 +652,7 @@ export const assetsRouter = createTRPCRouter({
           eventData: {
             assetId: record.id,
             tag: record.tag,
-            folderKind: record.folderKind,
+            isContainer: true,
             folder: true,
           },
         })
@@ -744,7 +728,7 @@ export const assetsRouter = createTRPCRouter({
         child: {
           id: child.id,
           organizationId: child.organizationId,
-          folderKind: child.folderKind,
+          isContainer: child.isContainer,
           parentAssetId: child.parentAssetId,
         },
       })
@@ -789,7 +773,7 @@ export const assetsRouter = createTRPCRouter({
           child: {
             id: child.id,
             organizationId: child.organizationId,
-            folderKind: child.folderKind,
+            isContainer: child.isContainer,
             parentAssetId: child.parentAssetId,
           },
         })
@@ -859,15 +843,15 @@ export const assetsRouter = createTRPCRouter({
             )
           : undefined
 
-      if (input.folderKind !== undefined) {
-        const nextKind = emptyToNull(input.folderKind)
-        if (nextKind && existing.parentAssetId) {
+      if (input.isContainer !== undefined) {
+        const nextContainer = Boolean(input.isContainer)
+        if (nextContainer && existing.parentAssetId) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "An item inside a folder cannot become a folder.",
           })
         }
-        if (!nextKind && isFolderAsset(existing)) {
+        if (!nextContainer && isContainerAsset(existing)) {
           const [child] = await ctx.db
             .select({ id: assets.id })
             .from(assets)
@@ -876,7 +860,7 @@ export const assetsRouter = createTRPCRouter({
           if (child) {
             throw new TRPCError({
               code: "BAD_REQUEST",
-              message: "Remove contents before clearing the folder type.",
+              message: "Remove contents before clearing the folder flag.",
             })
           }
         }
@@ -889,7 +873,7 @@ export const assetsRouter = createTRPCRouter({
               child: {
                 id: existing.id,
                 organizationId: existing.organizationId,
-                folderKind: existing.folderKind,
+                isContainer: existing.isContainer,
                 parentAssetId: existing.parentAssetId,
               },
             })
@@ -906,16 +890,16 @@ export const assetsRouter = createTRPCRouter({
             parent: {
               id: parent.id,
               organizationId: parent.organizationId,
-              folderKind: parent.folderKind,
+              isContainer: parent.isContainer,
               parentAssetId: parent.parentAssetId,
             },
             child: {
               id: existing.id,
               organizationId: existing.organizationId,
-              folderKind:
-                input.folderKind !== undefined
-                  ? emptyToNull(input.folderKind)
-                  : existing.folderKind,
+              isContainer:
+                input.isContainer !== undefined
+                  ? Boolean(input.isContainer)
+                  : existing.isContainer,
               parentAssetId: existing.parentAssetId,
             },
           })
@@ -951,8 +935,8 @@ export const assetsRouter = createTRPCRouter({
       }
       if (input.status !== undefined) patch.status = input.status
       if (input.siteId !== undefined) patch.siteId = input.siteId
-      if (input.folderKind !== undefined) {
-        patch.folderKind = emptyToNull(input.folderKind)
+      if (input.isContainer !== undefined) {
+        patch.isContainer = Boolean(input.isContainer)
       }
       if (input.parentAssetId !== undefined) {
         patch.parentAssetId = input.parentAssetId
@@ -990,7 +974,7 @@ export const assetsRouter = createTRPCRouter({
 
         const siteChanged =
           input.siteId !== undefined && input.siteId !== existing.siteId
-        if (siteChanged && isFolderAsset(record)) {
+        if (siteChanged && isContainerAsset(record)) {
           await cascadeFolderSiteMove(ctx, record, record.siteId)
         }
 
@@ -1001,7 +985,7 @@ export const assetsRouter = createTRPCRouter({
           eventData: {
             assetId: record.id,
             tag: record.tag,
-            folderKind: record.folderKind,
+            isContainer: record.isContainer,
             parentAssetId: record.parentAssetId,
             siteChanged,
           },
@@ -1250,9 +1234,4 @@ export const assetsRouter = createTRPCRouter({
   statusLabels: permissionProcedure("device:view").query(
     () => assetStatusLabels
   ),
-  folderKindLabels: permissionProcedure("device:view").query(() => ({
-    ...Object.fromEntries(
-      assetFolderKinds.map((kind) => [kind, assetFolderKindLabels[kind]])
-    ),
-  })),
 })

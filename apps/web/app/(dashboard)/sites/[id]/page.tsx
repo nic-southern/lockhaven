@@ -145,7 +145,7 @@ function SiteDetail() {
 
   const devices = devicesQuery.data?.items ?? []
   const assets = assetsQuery.data?.items ?? []
-  const siteFolders = assets.filter((asset) => asset.isFolder)
+  const siteFolders = assets.filter((asset) => asset.isContainer)
   const trackingTagPrefix =
     (organizationsQuery.data ?? []).find(
       (organization) => organization.id === site?.organizationId
@@ -361,15 +361,13 @@ function SiteDetail() {
         cell: ({ row }) => (
           <div className="flex min-w-0 flex-col gap-1">
             <Link
-              href={`/assets?id=${row.original.id}`}
+              href={`/assets/${row.original.id}`}
               className="font-mono text-sm font-medium hover:underline"
             >
               {row.original.tag}
             </Link>
-            {row.original.isFolder ? (
-              <Badge variant="outline">
-                {row.original.folderLabel ?? "Folder"}
-              </Badge>
+            {row.original.isContainer ? (
+              <Badge variant="outline">Folder</Badge>
             ) : null}
           </div>
         ),
@@ -384,13 +382,13 @@ function SiteDetail() {
         cell: ({ row }) =>
           row.original.parentAssetId && row.original.parentTag ? (
             <Link
-              href={`/assets?id=${row.original.parentAssetId}`}
+              href={`/assets/${row.original.parentAssetId}`}
               className="font-mono text-xs hover:underline"
             >
               {row.original.parentTag}
             </Link>
-          ) : row.original.isFolder ? (
-            (row.original.folderLabel ?? "—")
+          ) : row.original.isContainer ? (
+            "Folder"
           ) : (
             "—"
           ),
@@ -821,7 +819,7 @@ function SiteDetail() {
               emptyLabel="Standalone"
               options={siteFolders.map((folder) => ({
                 value: folder.id,
-                label: `${folder.tag}${folder.folderLabel ? ` · ${folder.folderLabel}` : ""}`,
+                label: folder.tag,
               }))}
             />
           </FormField>
