@@ -392,8 +392,44 @@ export function isPlaceholderHardwareSerial(
 }
 
 /**
- * Return a trimmed real serial, or null when empty / placeholder.
- * Caps length to match asset / device column practice.
+ * True for system-generated identity strings older agents stored as
+ * `devices.serial_number` / `assets.serial` instead of a chassis serial:
+ * DMI `product_uuid` (RFC UUID, with or without hyphens) and Linux
+ * `/etc/machine-id` (32 hex). Not OEM placeholders — those use
+ * {@link isPlaceholderHardwareSerial}.
+ */
+export function isSyntheticHardwareSerial(
+  value: string | null | undefined
+): boolean {
+  if (value == null) return false
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  // RFC 4122 UUID with hyphens (product_uuid).
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      trimmed
+    )
+  ) {
+    return true
+  }
+  // UUID without hyphens, or /etc/machine-id.
+  if (/^[0-9a-f]{32}$/i.test(trimmed)) return true
+  return false
+}
+
+/**
+ * Stored serial may be replaced by a real chassis serial from check-in when
+ * empty, OEM placeholder, or synthetic (UUID / machine-id).
+ */
+export function isReplaceableHardwareSerial(
+  value: string | null | undefined
+): boolean {
+  return isPlaceholderHardwareSerial(value) || isSyntheticHardwareSerial(value)
+}
+
+/**
+ * Return a trimmed real chassis serial, or null when empty, placeholder, or
+ * synthetic (UUID / machine-id). Caps length to match asset / device columns.
  */
 export function sanitizeHardwareSerial(
   value: string | null | undefined
@@ -401,7 +437,22 @@ export function sanitizeHardwareSerial(
   if (value == null) return null
   const trimmed = value.trim()
   if (isPlaceholderHardwareSerial(trimmed)) return null
+  if (isSyntheticHardwareSerial(trimmed)) return null
   return trimmed.slice(0, 120)
+}
+
+/**
+ * Whether Hub should write `reported` onto a device/asset serial column.
+ * Requires a sanitized real chassis serial and a replaceable stored value.
+ */
+export function shouldAdoptHardwareSerial(
+  stored: string | null | undefined,
+  reported: string | null | undefined
+): boolean {
+  const clean = sanitizeHardwareSerial(reported)
+  if (clean == null) return false
+  if (normalizeSerial(stored) === normalizeSerial(clean)) return false
+  return isReplaceableHardwareSerial(stored)
 }
 
 /** Soft identity compare for manufacturer / model catalog matching. */
@@ -659,7 +710,9 @@ export function matchDeviceModel(
 }
 
 /**
- * Fill empty identity fields only. Never overwrite a non-empty value, and
+ * Fill empty identity fields only. Serial is an exception: empty, OEM
+ * placeholder, and synthetic (UUID / machine-id) values may be replaced by a
+ * real chassis serial. Never overwrite a different real hardware serial, and
  * never write blank agent data over anything. Catalog link is set only when
  * the asset has no model yet and a catalog match exists.
  */
@@ -670,12 +723,14 @@ export function fillEmptyAssetIdentity(
   catalogEntry?: { manufacturer: string | null; model: string } | null
 ): Partial<AssetIdentityFields> {
   const patch: Partial<AssetIdentityFields> = {}
-  const serial = blankToNull(reported.serialNumber)
+  const serial = sanitizeHardwareSerial(reported.serialNumber)
   const hostname = blankToNull(reported.hostname)
   const manufacturer = blankToNull(reported.manufacturer)
   const model = blankToNull(reported.model)
 
-  if (isBlank(existing.serial) && serial) patch.serial = serial.slice(0, 120)
+  if (serial && shouldAdoptHardwareSerial(existing.serial, serial)) {
+    patch.serial = serial
+  }
   if (isBlank(existing.hostname) && hostname) {
     patch.hostname = hostname.slice(0, 253)
   }
@@ -709,7 +764,7 @@ export function initialAssetIdentityFromAgent(
 ): Omit<AssetIdentityFields, "deviceModelId"> & {
   deviceModelId: string | null
 } {
-  const serial = blankToNull(reported.serialNumber)?.slice(0, 120) ?? null
+  const serial = sanitizeHardwareSerial(reported.serialNumber)
   const hostname = blankToNull(reported.hostname)?.slice(0, 253) ?? null
   if (catalogModelId && catalogEntry) {
     return {

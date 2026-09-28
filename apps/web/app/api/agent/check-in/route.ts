@@ -23,12 +23,12 @@ import {
   hasPoisonedKeys,
   hostnamesMatch,
   hubCheckInResponse,
-  isPlaceholderHardwareSerial,
   normalizeHostname,
   requestedDeviceIdFromUnknown,
   resolveAgentDownloadUrl,
   sanitizeHardwareSerial,
   severityForEvent,
+  shouldAdoptHardwareSerial,
   validateReportedModules,
   type AuditEventType,
 } from "@nms/shared"
@@ -331,11 +331,10 @@ export async function POST(request: Request) {
 
   const commands = await db.transaction(async (tx: TransactionClient) => {
     const reportedSerial = sanitizeHardwareSerial(input.serial_number)
-    const shouldAdoptSerial =
-      reportedSerial != null &&
-      (device.serialNumber == null ||
-        device.serialNumber.trim() === "" ||
-        isPlaceholderHardwareSerial(device.serialNumber))
+    const shouldAdoptSerial = shouldAdoptHardwareSerial(
+      device.serialNumber,
+      reportedSerial
+    )
 
     await tx
       .update(devices)
@@ -422,8 +421,10 @@ export async function POST(request: Request) {
       organizationId: device.organizationId,
       siteId: device.siteId,
       assetId: device.assetId,
-      // Prefer a real serial from this check-in so asset auto-link works even
-      // when the device row still holds an older UUID / placeholder value.
+      // Prefer a real chassis serial from this check-in so asset auto-link works
+      // even when the device row still holds an older UUID / placeholder value.
+      // Device adopt (shouldAdoptSerial) already heals the device row when
+      // stored is empty, OEM placeholder, or synthetic (product_uuid / machine-id).
       serialNumber:
         reportedSerial ?? sanitizeHardwareSerial(device.serialNumber),
       hostname: adoptHostname ? input.hostname : device.hostname,
