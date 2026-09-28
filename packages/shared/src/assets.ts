@@ -22,6 +22,107 @@ export const assetStatusLabels: Record<AssetStatus, string> = {
   disposed: "Disposed",
 }
 
+/** Built-in folder kinds. Orgs may also use other lowercase keys. */
+export const assetFolderKinds = ["cabinet", "trt", "kiosk"] as const
+
+export type AssetFolderKind = (typeof assetFolderKinds)[number]
+
+export const assetFolderKindLabels: Record<AssetFolderKind, string> = {
+  cabinet: "Cabinet",
+  trt: "TRT",
+  kiosk: "Kiosk",
+}
+
+/**
+ * Folder type on an asset that may contain children. Known kinds plus room for
+ * org-defined keys (`cabinet`, `trt`, `kiosk`, …). Null means a leaf item.
+ */
+export const assetFolderKindSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z][a-z0-9_]{0,39}$/, "Use a short lowercase folder type.")
+
+export function folderKindLabel(kind: string | null | undefined): string {
+  if (!kind) return "—"
+  const known = assetFolderKindLabels[kind as AssetFolderKind]
+  if (known) return known
+  return kind.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase())
+}
+
+export function isFolderAsset(asset: {
+  folderKind: string | null | undefined
+}): boolean {
+  return Boolean(asset.folderKind && asset.folderKind.trim().length > 0)
+}
+
+export type AssetContainmentRow = {
+  id: string
+  organizationId: string
+  folderKind: string | null
+  parentAssetId: string | null
+}
+
+export type ContainmentDecision = { ok: true } | { ok: false; message: string }
+
+/**
+ * One-level containment: only folders may be parents; folders cannot be
+ * children; no nesting; same organization.
+ */
+export function assertCanAttachChild(input: {
+  parent: AssetContainmentRow
+  child: AssetContainmentRow
+}): ContainmentDecision {
+  if (input.parent.id === input.child.id) {
+    return { ok: false, message: "An asset cannot contain itself." }
+  }
+  if (input.parent.organizationId !== input.child.organizationId) {
+    return {
+      ok: false,
+      message: "Folder and item must belong to the same organization.",
+    }
+  }
+  if (!isFolderAsset(input.parent)) {
+    return { ok: false, message: "Only folders can contain items." }
+  }
+  if (input.parent.parentAssetId) {
+    return {
+      ok: false,
+      message: "Folders cannot be nested inside other folders.",
+    }
+  }
+  if (isFolderAsset(input.child)) {
+    return {
+      ok: false,
+      message: "A folder cannot be placed inside another folder.",
+    }
+  }
+  return { ok: true }
+}
+
+/** Clear parent pointer; always allowed for an attached child. */
+export function assertCanDetachChild(input: {
+  child: AssetContainmentRow
+}): ContainmentDecision {
+  if (!input.child.parentAssetId) {
+    return { ok: false, message: "That item is not inside a folder." }
+  }
+  if (isFolderAsset(input.child)) {
+    return { ok: false, message: "Folders cannot be nested." }
+  }
+  return { ok: true }
+}
+
+/**
+ * Site inheritance while attached: child's site matches the folder when
+ * attaching or when the folder site moves.
+ */
+export function childSiteFromFolder(folderSiteId: string | null): {
+  siteId: string | null
+} {
+  return { siteId: folderSiteId }
+}
+
 export const customFieldTypes = [
   "text",
   "number",

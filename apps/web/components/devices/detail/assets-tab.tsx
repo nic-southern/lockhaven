@@ -36,6 +36,12 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
     { id: device.assetId! },
     { enabled: Boolean(device.assetId) }
   )
+  const childrenQuery = trpc.assets.children.useQuery(
+    { parentAssetId: device.assetId! },
+    {
+      enabled: Boolean(device.assetId) && Boolean(assetQuery.data?.isFolder),
+    }
+  )
   const modelsQuery = trpc.deviceModels.list.useQuery(
     { organizationId: device.organizationId },
     { enabled: canUpdate || Boolean(device.assetId) }
@@ -119,8 +125,12 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
     return (
       <div className="flex flex-col gap-6">
         <SectionCard
-          title="Linked asset"
-          description="Tracking tag and identity for this device."
+          title={asset.isFolder ? "Linked folder" : "Linked asset"}
+          description={
+            asset.isFolder
+              ? "This device’s tracking tag is the folder. Contained items are listed below."
+              : "Tracking tag and identity for this device."
+          }
           actions={
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" asChild>
@@ -141,6 +151,14 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
                 label: "Tracking tag",
                 value: <span className="font-mono text-sm">{asset.tag}</span>,
               },
+              ...(asset.isFolder
+                ? [
+                    {
+                      label: "Folder type",
+                      value: asset.folderLabel ?? asset.folderKind ?? "—",
+                    },
+                  ]
+                : []),
               {
                 label: "Status",
                 value: (
@@ -170,6 +188,41 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
             ]}
           />
         </SectionCard>
+
+        {asset.isFolder ? (
+          <SectionCard
+            title="Contents"
+            description="Items inside this folder. The VPN device stays linked to the folder only."
+          >
+            {(childrenQuery.data ?? []).length === 0 ? (
+              <EmptyState
+                title="No items yet"
+                description="Add items from the Assets page while this folder is open."
+                bordered={false}
+              />
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {(childrenQuery.data ?? []).map((child) => (
+                  <li key={child.id} className="flex items-center gap-3">
+                    <Link
+                      href={`/assets?id=${child.id}`}
+                      className="font-mono text-sm hover:underline"
+                    >
+                      {child.tag}
+                    </Link>
+                    <span className="truncate text-sm text-muted-foreground">
+                      {child.deviceModelName ??
+                        ([child.vendor, child.model]
+                          .filter(Boolean)
+                          .join(" ") ||
+                          "—")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SectionCard>
+        ) : null}
 
         {canUpdate ? (
           <SectionCard

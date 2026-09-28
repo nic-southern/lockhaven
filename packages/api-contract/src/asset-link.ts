@@ -320,8 +320,9 @@ export function linkedAssetSitePatch(
 
 /**
  * Keep a linked asset on the same site as its device after an operator moves
- * (or clears) the device site. No-op when there is no linked asset or the
- * asset is already on that site.
+ * (or clears) the device site. When the linked asset is a folder, children
+ * inherit the same site. No-op when there is no linked asset or the asset is
+ * already on that site.
  */
 export async function syncLinkedAssetSite(
   client: AssetLinkDb,
@@ -330,7 +331,11 @@ export async function syncLinkedAssetSite(
   if (!device.assetId) return null
 
   const [existing] = await client
-    .select({ id: assets.id, siteId: assets.siteId })
+    .select({
+      id: assets.id,
+      siteId: assets.siteId,
+      folderKind: assets.folderKind,
+    })
     .from(assets)
     .where(eq(assets.id, device.assetId))
     .limit(1)
@@ -345,12 +350,21 @@ export async function syncLinkedAssetSite(
     .update(assets)
     .set({ ...patch, updatedAt: new Date() })
     .where(eq(assets.id, existing.id))
+
+  if (existing.folderKind) {
+    await client
+      .update(assets)
+      .set({ siteId: patch.siteId, updatedAt: new Date() })
+      .where(eq(assets.parentAssetId, existing.id))
+  }
+
   return { assetId: existing.id, siteId: patch.siteId, changed: true }
 }
 
 /**
  * Bulk variant for assign-site: move every linked asset onto `siteId`.
  * Skips devices with no linked asset. Already-matching rows are left alone.
+ * Folder children inherit the same site.
  */
 export async function syncLinkedAssetSites(
   client: AssetLinkDb,
@@ -367,7 +381,11 @@ export async function syncLinkedAssetSites(
   if (assetIds.length === 0) return { updated: 0 }
 
   const matched = await client
-    .select({ id: assets.id, siteId: assets.siteId })
+    .select({
+      id: assets.id,
+      siteId: assets.siteId,
+      folderKind: assets.folderKind,
+    })
     .from(assets)
     .where(inArray(assets.id, assetIds))
   const toUpdate = matched
@@ -379,6 +397,17 @@ export async function syncLinkedAssetSites(
     .update(assets)
     .set({ siteId, updatedAt: new Date() })
     .where(inArray(assets.id, toUpdate))
+
+  const folderIds = matched
+    .filter((row) => toUpdate.includes(row.id) && row.folderKind)
+    .map((row) => row.id)
+  if (folderIds.length > 0) {
+    await client
+      .update(assets)
+      .set({ siteId, updatedAt: new Date() })
+      .where(inArray(assets.parentAssetId, folderIds))
+  }
+
   return { updated: toUpdate.length }
 }
 
