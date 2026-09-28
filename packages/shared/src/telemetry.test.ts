@@ -42,7 +42,24 @@ test("check-in payload still parses without metrics or packages", () => {
     assert.equal(parsed.data.titles, undefined)
     assert.equal(parsed.data.command_results, undefined)
     assert.equal(parsed.data.modules, undefined)
+    assert.equal(parsed.data.serial_number, undefined)
   }
+})
+
+test("check-in payload parses optional serial_number", () => {
+  const parsed = checkInSchema.safeParse({
+    ...validCheckIn,
+    serial_number: "PF1A2B3C",
+  })
+  assert.equal(parsed.success, true)
+  if (parsed.success) {
+    assert.equal(parsed.data.serial_number, "PF1A2B3C")
+  }
+  const blank = checkInSchema.safeParse({
+    ...validCheckIn,
+    serial_number: "   ",
+  })
+  assert.equal(blank.success, false)
 })
 
 test("check-in payload parses optional metrics and packages", () => {

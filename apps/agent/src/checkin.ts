@@ -4,7 +4,7 @@ import {
   type AgentCommandResult,
 } from "@nms/shared"
 
-import { collectHostIdentity } from "./collect/host"
+import { collectHostIdentity, hardwareSerial } from "./collect/host"
 import { collectMetrics } from "./collect/metrics"
 import { collectPackages } from "./collect/packages"
 import { collectServices } from "./collect/services"
@@ -26,6 +26,7 @@ export async function performCheckIn(state?: AgentState) {
   }
 
   const host = await collectHostIdentity()
+  const serialNumber = await hardwareSerial()
   const [vpn, services, metrics, packages, titles] = await Promise.all([
     collectVpn(current.tunnelName, current.vpnIpv4),
     collectServices(host.osFamily),
@@ -39,6 +40,7 @@ export async function performCheckIn(state?: AgentState) {
     checkInSecret: current.checkInSecret,
     hostname: current.hostname,
     host,
+    ...(serialNumber ? { serialNumber } : {}),
     vpn,
     services,
     metrics,

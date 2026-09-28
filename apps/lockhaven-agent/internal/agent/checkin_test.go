@@ -38,6 +38,51 @@ func TestCheckInRequestOmitsTitlesWhenNoWatchList(t *testing.T) {
 	}
 }
 
+func TestCheckInRequestOmitsEmptySerial(t *testing.T) {
+	raw, err := json.Marshal(hub.CheckInRequest{
+		DeviceID:      "11111111-1111-4111-8111-111111111111",
+		CheckInSecret: "secret",
+		AgentVersion:  "0.3.1",
+		Hostname:      "cabinet-01",
+		OSFamily:      "linux",
+		OSVersion:     "Debian GNU/Linux 13",
+		SerialNumber:  "",
+		VPN:           map[string]any{"interface_up": true, "vpn_ipv4": "10.80.30.11"},
+		Services:      []any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := parsed["serial_number"]; present {
+		t.Fatalf("empty serial_number must be omitted, got %v", parsed["serial_number"])
+	}
+
+	raw, err = json.Marshal(hub.CheckInRequest{
+		DeviceID:      "11111111-1111-4111-8111-111111111111",
+		CheckInSecret: "secret",
+		AgentVersion:  "0.3.1",
+		Hostname:      "cabinet-01",
+		OSFamily:      "linux",
+		OSVersion:     "Debian GNU/Linux 13",
+		SerialNumber:  "PF1A2B3C",
+		VPN:           map[string]any{"interface_up": true, "vpn_ipv4": "10.80.30.11"},
+		Services:      []any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["serial_number"] != "PF1A2B3C" {
+		t.Fatalf("got serial_number=%v", parsed["serial_number"])
+	}
+}
+
 func TestCheckInRequestKeepsTitlesWhenCollected(t *testing.T) {
 	parsed := marshalCheckIn(t, &collect.Titles{Items: []collect.Title{{Title: "Cabinet A"}}})
 	titles, ok := parsed["titles"].(map[string]any)

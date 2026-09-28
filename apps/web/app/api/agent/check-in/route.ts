@@ -23,9 +23,11 @@ import {
   hasPoisonedKeys,
   hostnamesMatch,
   hubCheckInResponse,
+  isPlaceholderHardwareSerial,
   normalizeHostname,
   requestedDeviceIdFromUnknown,
   resolveAgentDownloadUrl,
+  sanitizeHardwareSerial,
   severityForEvent,
   validateReportedModules,
   type AuditEventType,
@@ -328,12 +330,20 @@ export async function POST(request: Request) {
     : undefined
 
   const commands = await db.transaction(async (tx: TransactionClient) => {
+    const reportedSerial = sanitizeHardwareSerial(input.serial_number)
+    const shouldAdoptSerial =
+      reportedSerial != null &&
+      (device.serialNumber == null ||
+        device.serialNumber.trim() === "" ||
+        isPlaceholderHardwareSerial(device.serialNumber))
+
     await tx
       .update(devices)
       .set({
         ...(adoptHostname
           ? { hostname: input.hostname, hostnameChangeAllowedAt: null }
           : {}),
+        ...(shouldAdoptSerial ? { serialNumber: reportedSerial } : {}),
         osFamily: input.os_family,
         osVersion: input.os_version,
         ...(input.architecture ? { architecture: input.architecture } : {}),
@@ -412,7 +422,10 @@ export async function POST(request: Request) {
       organizationId: device.organizationId,
       siteId: device.siteId,
       assetId: device.assetId,
-      serialNumber: device.serialNumber,
+      // Prefer a real serial from this check-in so asset auto-link works even
+      // when the device row still holds an older UUID / placeholder value.
+      serialNumber:
+        reportedSerial ?? sanitizeHardwareSerial(device.serialNumber),
       hostname: adoptHostname ? input.hostname : device.hostname,
       manufacturer: input.manufacturer ?? null,
       model: input.model ?? null,

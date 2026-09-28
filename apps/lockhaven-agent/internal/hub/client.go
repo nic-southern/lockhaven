@@ -99,6 +99,7 @@ type CheckInRequest struct {
 	OSFamily       string          `json:"os_family"`
 	OSVersion      string          `json:"os_version"`
 	Architecture   string          `json:"architecture,omitempty"`
+	SerialNumber   string          `json:"serial_number,omitempty"`
 	Manufacturer   string          `json:"manufacturer,omitempty"`
 	Model          string          `json:"model,omitempty"`
 	VPN            any             `json:"vpn"`

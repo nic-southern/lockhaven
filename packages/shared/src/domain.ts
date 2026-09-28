@@ -276,6 +276,8 @@ export const checkInSchema = z.object({
   os_family: z.string().min(1),
   os_version: z.string().min(1),
   architecture: z.string().trim().min(1).max(64).optional(),
+  /** Real chassis / DMI serial only; omit when empty or BIOS placeholder. */
+  serial_number: z.string().trim().min(1).max(120).optional(),
   manufacturer: z.string().trim().max(120).optional(),
   model: z.string().trim().max(120).optional(),
   vpn: z.object({

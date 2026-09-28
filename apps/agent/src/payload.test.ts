@@ -23,9 +23,18 @@ test("builds a check-in payload that keeps hostname and secret fields", () => {
   assert.equal(payload.device_id, facts.deviceId)
   assert.equal(payload.check_in_secret, facts.checkInSecret)
   assert.equal(payload.hostname, "kiosk-01")
+  assert.equal(payload.serial_number, undefined)
   assert.equal(payload.metrics, undefined)
   assert.equal(payload.packages, undefined)
   assert.equal(payload.titles, undefined)
+})
+
+test("includes serial_number only when a real chassis serial is provided", () => {
+  const payload = buildCheckInPayload({
+    ...facts,
+    serialNumber: "PF1A2B3C",
+  })
+  assert.equal(payload.serial_number, "PF1A2B3C")
 })
 
 test("includes optional metrics, packages, and titles when collected", () => {

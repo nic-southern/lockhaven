@@ -2,13 +2,10 @@
 
 package collect
 
+// platformSerial reads the DMI product serial from sysfs (no shell).
+// Callers must run SanitizeSerial / HardwareSerial — placeholders stay raw here.
 func platformSerial() string {
-	for _, path := range []string{"/sys/class/dmi/id/product_uuid", "/etc/machine-id"} {
-		if value := readTrimmed(path); value != "" {
-			return value
-		}
-	}
-	return ""
+	return readTrimmed("/sys/class/dmi/id/product_serial")
 }
 
 func platformManufacturer() string {

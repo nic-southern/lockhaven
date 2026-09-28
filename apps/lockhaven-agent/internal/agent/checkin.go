@@ -56,7 +56,7 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 	moduleReports := collect.CollectModules(state.AssignedModules)
 
 	client := hub.New(state.BaseURL)
-	response, err := client.CheckIn(hub.CheckInRequest{
+	req := hub.CheckInRequest{
 		DeviceID:       state.DeviceID,
 		CheckInSecret:  state.CheckInSecret,
 		AgentVersion:   version.Version,
@@ -73,7 +73,12 @@ func CheckIn(state *config.State) (CheckInResult, error) {
 		Titles:         titlesPayload(titles),
 		Modules:        moduleReports,
 		CommandResults: toHubResults(state.PendingCommandResults),
-	})
+	}
+	// Only upload a real chassis serial; omit placeholders and empty values.
+	if serial := collect.HardwareSerial(); serial != "" {
+		req.SerialNumber = serial
+	}
+	response, err := client.CheckIn(req)
 	if err != nil {
 		return CheckInResult{}, err
 	}

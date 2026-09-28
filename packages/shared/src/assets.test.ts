@@ -14,6 +14,7 @@ import {
   initialAssetIdentityFromAgent,
   isContainerAsset,
   isFolderAsset,
+  isPlaceholderHardwareSerial,
   matchAssetToDevice,
   matchDeviceModel,
   normalizeSerial,
@@ -28,6 +29,7 @@ import {
   retireMonthsToYears,
   planTrackingTagPrefixRetarget,
   retargetTrackingTag,
+  sanitizeHardwareSerial,
   suggestAssetTrackingTag,
   trackingTagBodyAfterPrefix,
   warrantyState,
@@ -38,6 +40,26 @@ test("normalizeSerial strips case, spaces, and hyphens", () => {
   assert.equal(normalizeSerial(" sn-abc 12 "), "SNABC12")
   assert.equal(normalizeSerial("  "), null)
   assert.equal(normalizeSerial(null), null)
+})
+
+test("sanitizeHardwareSerial drops DMI placeholders", () => {
+  for (const value of [
+    "",
+    "  ",
+    "None",
+    "Not Specified",
+    "Default string",
+    "System Serial Number",
+    "To be filled by O.E.M.",
+    "To Be Filled By O.E.M.",
+    "0",
+    "XXXXXXXX",
+  ]) {
+    assert.equal(isPlaceholderHardwareSerial(value), true, value)
+    assert.equal(sanitizeHardwareSerial(value), null, value)
+  }
+  assert.equal(sanitizeHardwareSerial(" PF1A2B3C "), "PF1A2B3C")
+  assert.equal(isPlaceholderHardwareSerial("PF1A2B3C"), false)
 })
 
 test("suggestAssetTrackingTag is short and stable for the same seed", () => {
