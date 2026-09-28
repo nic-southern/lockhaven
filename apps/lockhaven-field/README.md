@@ -40,17 +40,30 @@ No organization API keys and no enrollment tokens.
 - Item: reassign folder via `setParent` (search by tag/serial/name)
 - Full-page navigation for assets and containers (no sidebar sheets)
 
-## Label printing
+## Label printing (Linux USB)
 
-Save & print writes the same CSV schema as Console (`schema_version,tag,serial,…`)
-and:
+Save & print / Print call the laptop helper — **not** Brother’s mobile Flutter
+SDKs (those are Android/iOS only and do not cover desktop Linux).
 
-1. Runs `print-asset-labels.sh` when found (`--dart-define=LABEL_PRINT_SCRIPT=…`
-   or the monorepo `scripts/` path), or
-2. Opens Hub `/assets/labels?ids=…` in the system browser.
+1. Writes the shared CSV schema (`schema_version,tag,serial,…`)
+2. Runs `scripts/print-asset-labels.sh` → Python layout → `ptouch-print` USB
 
-USB / Brother access stays in the laptop helper — the Flutter app does not talk
-to the printer directly.
+Requirements on the laptop:
+
+- `ptouch-print` on PATH (Nic’s spike used `~/.local/bin`)
+- `python3` + `pillow` + `qrcode`
+- Printer on, USB connected (PT-D460BT / PT-D460BTVP)
+
+Point at the helper explicitly if needed:
+
+```bash
+flutter run -d linux \
+  --dart-define=HUB_BASE_URL=https://your-console.example \
+  --dart-define=LABEL_PRINT_SCRIPT=$PWD/../../scripts/print-asset-labels.sh
+```
+
+Print failures surface the helper stderr (missing script, printer off, etc.)
+instead of opening the browser.
 
 ## Deferred
 
