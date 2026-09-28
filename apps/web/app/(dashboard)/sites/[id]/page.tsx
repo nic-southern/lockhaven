@@ -671,8 +671,15 @@ function SiteDetail() {
           ) : (
             <>
               <p className="text-xs text-muted-foreground">
-                For tape labels on Linux, export here, then follow the print
-                helper under{" "}
+                For tape labels on Linux, export here, then use the{" "}
+                <a
+                  href="/install/print-asset-labels.sh"
+                  download="print-asset-labels.sh"
+                  className="font-medium text-foreground underline-offset-4 hover:underline"
+                >
+                  print helper
+                </a>
+                . Setup steps live under{" "}
                 <Link
                   href="/settings/labels"
                   className="font-medium text-foreground underline-offset-4 hover:underline"
