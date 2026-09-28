@@ -13,16 +13,33 @@ channel. A site can follow the organization or choose **Beta**.
 On check-in, Hub returns `desired_agent_version`, `download_url`, and
 `sha256` for the resolved channel and the device's platform (Linux or Windows,
 Intel/AMD or ARM). A shipped Hub image upserts those rows from checksum files
-written next to the binaries at image build. The Go agent verifies the
-checksum, replaces its own binary, and restarts its service. It will not
-download from another host. Agents already in the field need one reinstall
-before that command can run.
+written next to the binaries at image build. That offer alone does **not**
+replace the binary. The agent downloads and swaps only when Hub also delivers
+an `update` command. It verifies the checksum, replaces its own binary, and
+restarts its service. It will not download from another host. Agents on 0.2.0
+need one reinstall before that command can run; 0.3.0 and newer can update in
+place.
+
+## How an update gets queued
+
+Hub does **not** auto-enqueue `update` when a device is behind. Something else
+must create the command:
+
+- An operator clicks **Update agent** on **Fleet** or the device **Agent** tab.
+- A playbook maps **Agent outdated** (or another kind) to the `update` action.
+- A site with **Run after close** enabled queues its after-hours steps (default
+  includes `update`) when the floor closes.
+
+Until one of those runs, Fleet shows **Behind**, the worker may keep an
+**Agent outdated** alert open, and check-ins still return the download offer —
+but the agent stays on its current version.
 
 ## Alerts
 
 When a reporting device is older than the published release for its channel,
 the worker opens a condition alert **Agent outdated**. The alert clears when
-the device catches up or no matching release exists.
+the device catches up or no matching release exists. The alert does not queue
+an update by itself.
 
 Two venue-severity condition alerts come from the same check-in data. Both
 use the shared alert lifecycle (open, acknowledge, snooze, maintenance

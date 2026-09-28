@@ -30,11 +30,14 @@ Specified`, `None`, `Default string`, `System Serial Number`, `0`,
    serial already stored is left alone. Existing hostname and secret fields
    stay required.
 10. Check-in responses may include `desired_agent_version`, `download_url`,
-    `commands`, and `modules`. Commands are a closed whitelist (`reboot`,
-    `restart`, `update`) — never a shell or SSH string. The client refuses
-    anything else and reports the result on the next check-in. Module
-    definitions are Hub-issued collector lists; the agent only reads local
-    process and file state. Poisoned module payloads fail closed (400).
+    `sha256`, `commands`, and `modules`. The desired version and download are
+    an offer only; the agent updates when a queued `update` command arrives
+    (operator, playbook, or after-hours — not automatically from being
+    behind). Commands are a closed whitelist (`reboot`, `restart`, `update`)
+    — never a shell or SSH string. The client refuses anything else and
+    reports the result on the next check-in. Module definitions are
+    Hub-issued collector lists; the agent only reads local process and file
+    state. Poisoned module payloads fail closed (400).
 11. The worker reconciles the server peer and status tables.
 
 The Linux and Windows endpoint agent is a static binary (`apps/lockhaven-agent`).
