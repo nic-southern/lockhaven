@@ -39,9 +39,7 @@ export function buildCheckInPayload(facts: CheckInFacts) {
     hostname: facts.hostname,
     os_family: facts.host.osFamily,
     os_version: facts.host.osVersion,
-    ...(facts.serialNumber
-      ? { serial_number: facts.serialNumber }
-      : {}),
+    ...(facts.serialNumber ? { serial_number: facts.serialNumber } : {}),
     vpn: facts.vpn,
     services: facts.services,
     metrics: facts.metrics,

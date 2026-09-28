@@ -369,7 +369,10 @@ const PLACEHOLDER_HARDWARE_SERIALS = new Set(
 )
 
 function serialDenylistKey(value: string) {
-  return value.trim().replace(/[\s.\-/]+/g, "").toLowerCase()
+  return value
+    .trim()
+    .replace(/[\s.\-/]+/g, "")
+    .toLowerCase()
 }
 
 /** True when the value is empty or a known BIOS/DMI placeholder. */

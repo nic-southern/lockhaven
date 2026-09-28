@@ -21,7 +21,7 @@
    and a real chassis / DMI serial when available. Linux reads
    `/sys/class/dmi/id/product_serial` (sysfs); Windows uses BIOS serial. Empty
    values and common BIOS placeholders (`To be filled by O.E.M.`, `Not
-   Specified`, `None`, `Default string`, `System Serial Number`, `0`,
+Specified`, `None`, `Default string`, `System Serial Number`, `0`,
    `XXXXXXXX`, and similar) are omitted so Hub can auto-link assets by serial.
    Existing hostname and secret fields stay required.
 10. Check-in responses may include `desired_agent_version`, `download_url`,
