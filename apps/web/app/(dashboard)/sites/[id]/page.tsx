@@ -669,40 +669,60 @@ function SiteDetail() {
               }
             />
           ) : (
-            <DataTable
-              columns={assetColumns}
-              data={assets}
-              getRowId={(row) => row.id}
-              searchPlaceholder="Search assets"
-              initialSorting={[{ id: "tag", desc: false }]}
-              onRowClick={(row) => router.push(`/assets?id=${row.id}`)}
-              emptyTitle="No assets at this site"
-              emptyDescription="Assets show up here when they are linked to this location."
-              enableRowSelection
-              rowSelection={assetRowSelection}
-              onRowSelectionChange={setAssetRowSelection}
-              bulkActions={(selected) => {
-                const ids = selected.map((row) => row.original.id)
-                return (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => exportLabelCsv(ids)}
-                    >
-                      <DownloadIcon />
-                      Export labels
-                    </Button>
-                    <Button size="sm" variant="outline" asChild>
-                      <Link href={`/assets/labels?ids=${ids.join(",")}`}>
-                        <PrinterIcon />
-                        Print labels
-                      </Link>
-                    </Button>
-                  </>
-                )
-              }}
-            />
+            <>
+              <p className="text-xs text-muted-foreground">
+                For tape labels on Linux, export here, then use the{" "}
+                <a
+                  href="/install/print-asset-labels.sh"
+                  download="print-asset-labels.sh"
+                  className="font-medium text-foreground underline-offset-4 hover:underline"
+                >
+                  print helper
+                </a>
+                . Setup steps live under{" "}
+                <Link
+                  href="/settings/labels"
+                  className="font-medium text-foreground underline-offset-4 hover:underline"
+                >
+                  Settings → Labels
+                </Link>
+                .
+              </p>
+              <DataTable
+                columns={assetColumns}
+                data={assets}
+                getRowId={(row) => row.id}
+                searchPlaceholder="Search assets"
+                initialSorting={[{ id: "tag", desc: false }]}
+                onRowClick={(row) => router.push(`/assets?id=${row.id}`)}
+                emptyTitle="No assets at this site"
+                emptyDescription="Assets show up here when they are linked to this location."
+                enableRowSelection
+                rowSelection={assetRowSelection}
+                onRowSelectionChange={setAssetRowSelection}
+                bulkActions={(selected) => {
+                  const ids = selected.map((row) => row.original.id)
+                  return (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => exportLabelCsv(ids)}
+                      >
+                        <DownloadIcon />
+                        Export labels
+                      </Button>
+                      <Button size="sm" variant="outline" asChild>
+                        <Link href={`/assets/labels?ids=${ids.join(",")}`}>
+                          <PrinterIcon />
+                          Print labels
+                        </Link>
+                      </Button>
+                    </>
+                  )
+                }}
+              />
+            </>
           )}
         </SectionCard>
       ) : null}

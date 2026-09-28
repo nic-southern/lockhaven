@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { DownloadIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -9,6 +10,7 @@ import {
 } from "@nms/shared"
 
 import { AccessDenied } from "@/components/dashboard/access-denied"
+import { CodeBlock } from "@/components/dashboard/code-block"
 import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
@@ -19,6 +21,9 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
+
+/** Served from Hub static install assets (see web Dockerfile). */
+const PRINT_ASSET_LABELS_HELPER_PATH = "/install/print-asset-labels.sh"
 
 type OrganizationRow = {
   id: string
@@ -296,7 +301,7 @@ export default function LabelsSettingsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Labels"
-        description="Company name on printed tags and the prefix used when suggesting tracking tags."
+        description="Company name and tracking tag prefix for printed tags, plus the Linux print helper for tape labels."
       />
 
       {organizations.length === 0 ? (
@@ -347,6 +352,48 @@ export default function LabelsSettingsPage() {
           ) : null}
         </>
       )}
+
+      <SectionCard
+        title="Linux print helper"
+        description="Print tape labels from a site label export on your Linux laptop. Printing stays on your computer."
+        contentClassName="gap-4"
+        actions={
+          <Button size="sm" asChild>
+            <a
+              href={PRINT_ASSET_LABELS_HELPER_PATH}
+              download="print-asset-labels.sh"
+            >
+              <DownloadIcon />
+              Download print helper
+            </a>
+          </Button>
+        }
+      >
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+          <li>
+            Download the print helper, then make it executable on your computer.
+          </li>
+          <li>
+            Install Python packages if needed:{" "}
+            <span className="font-mono text-foreground">
+              pip install --user pillow qrcode
+            </span>
+            . A local tape printer tool must already be available on this
+            computer.
+          </li>
+          <li>
+            On a site page, choose{" "}
+            <span className="text-foreground">Export labels</span> (all assets,
+            or a selection).
+          </li>
+          <li>Point the helper at the exported file and print.</li>
+        </ol>
+        <CodeBlock
+          label="Example"
+          value={`chmod +x ./print-asset-labels.sh
+./print-asset-labels.sh ./asset-labels-site-2026-09-28.csv`}
+        />
+      </SectionCard>
     </div>
   )
 }
