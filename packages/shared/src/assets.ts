@@ -314,6 +314,128 @@ export function generateTrackingTag(
   return `${normalizeTrackingTagPrefix(prefix)}-${body}`
 }
 
+/**
+ * Body after `PREFIX-` when the tag uses that org prefix scheme.
+ * Custom tags without that leading prefix return null (do not retarget).
+ */
+export function trackingTagBodyAfterPrefix(
+  tag: string,
+  prefix: string
+): string | null {
+  const normalized = normalizeTrackingTagPrefix(prefix)
+  const trimmed = tag.trim()
+  const expected = `${normalized}-`
+  if (trimmed.length <= expected.length) return null
+  if (trimmed.slice(0, expected.length).toUpperCase() !== expected) {
+    return null
+  }
+  const body = trimmed.slice(expected.length)
+  return body.length > 0 ? body : null
+}
+
+/** Replace a matching leading prefix; null when the tag is not in scheme. */
+export function retargetTrackingTag(
+  tag: string,
+  fromPrefix: string,
+  toPrefix: string
+): string | null {
+  const body = trackingTagBodyAfterPrefix(tag, fromPrefix)
+  if (body === null) return null
+  return `${normalizeTrackingTagPrefix(toPrefix)}-${body}`
+}
+
+export type TrackingTagRetargetChange = {
+  id: string
+  fromTag: string
+  toTag: string
+}
+
+export type TrackingTagRetargetConflict = {
+  id: string
+  fromTag: string
+  toTag: string
+  reason: "target_exists" | "duplicate_target"
+}
+
+export type TrackingTagRetargetPlan = {
+  fromPrefix: string
+  toPrefix: string
+  updates: TrackingTagRetargetChange[]
+  /** Tags that do not use the from-prefix scheme. */
+  skipped: number
+  /** Matching tags already using the to-prefix (no write). */
+  unchanged: number
+  conflicts: TrackingTagRetargetConflict[]
+}
+
+/**
+ * Plan a bulk prefix rewrite. Only `fromPrefix-…` tags are candidates.
+ * Skips custom tags; refuses updates that would collide with an existing tag.
+ */
+export function planTrackingTagPrefixRetarget(
+  rows: readonly { id: string; tag: string }[],
+  fromPrefix: string,
+  toPrefix: string
+): TrackingTagRetargetPlan {
+  const from = normalizeTrackingTagPrefix(fromPrefix)
+  const to = normalizeTrackingTagPrefix(toPrefix)
+  const existingByUpper = new Map<string, string>()
+  for (const row of rows) {
+    existingByUpper.set(row.tag.trim().toUpperCase(), row.id)
+  }
+
+  const updates: TrackingTagRetargetChange[] = []
+  const conflicts: TrackingTagRetargetConflict[] = []
+  let skipped = 0
+  let unchanged = 0
+  const claimedTargets = new Map<string, string>()
+
+  for (const row of rows) {
+    const fromTag = row.tag.trim()
+    const body = trackingTagBodyAfterPrefix(fromTag, from)
+    if (body === null) {
+      skipped += 1
+      continue
+    }
+    const toTag = `${to}-${body}`
+    if (toTag.toUpperCase() === fromTag.toUpperCase()) {
+      unchanged += 1
+      continue
+    }
+    const toUpper = toTag.toUpperCase()
+    const existingId = existingByUpper.get(toUpper)
+    if (existingId && existingId !== row.id) {
+      conflicts.push({
+        id: row.id,
+        fromTag,
+        toTag,
+        reason: "target_exists",
+      })
+      continue
+    }
+    if (claimedTargets.has(toUpper)) {
+      conflicts.push({
+        id: row.id,
+        fromTag,
+        toTag,
+        reason: "duplicate_target",
+      })
+      continue
+    }
+    claimedTargets.set(toUpper, row.id)
+    updates.push({ id: row.id, fromTag, toTag })
+  }
+
+  return {
+    fromPrefix: from,
+    toPrefix: to,
+    updates,
+    skipped,
+    unchanged,
+    conflicts,
+  }
+}
+
 export function suggestAssetTrackingTag(input: {
   deviceId: string
   hostname?: string | null
