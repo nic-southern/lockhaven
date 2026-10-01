@@ -22,9 +22,11 @@
    `/sys/class/dmi/id/product_serial` (sysfs); Windows uses BIOS serial. Empty
    values and common BIOS placeholders (`To be filled by O.E.M.`, `Not
 Specified`, `None`, `Default string`, `System Serial Number`, `0`,
-   `XXXXXXXX`, and similar) are omitted so Hub can auto-link assets by serial.
-   When a real chassis serial is reported, Hub replaces a stored device (and
-   linked asset) serial that is empty, an OEM placeholder, or synthetic —
+   `XXXXXXXX`, and similar) are omitted so Hub can auto-link an existing
+   unmatched asset by serial. Hub does not create a new asset on check-in;
+   operators create assets from Console when needed. When a real chassis serial
+   is reported, Hub replaces a stored device (and linked asset) serial that is
+   empty, an OEM placeholder, or synthetic —
    DMI `product_uuid` / RFC UUID (with or without hyphens) or Linux
    `/etc/machine-id` (32 hex) from older enroll paths. A different real SMBIOS
    serial already stored is left alone. Existing hostname and secret fields
