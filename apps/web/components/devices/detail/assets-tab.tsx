@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { keepPreviousData } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { PrinterIcon } from "lucide-react"
 
@@ -62,11 +63,34 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
   })
 
   const [creating, setCreating] = React.useState(false)
+  const [linkingId, setLinkingId] = React.useState<string | null>(null)
   const [tagOverride, setTagOverride] = React.useState<string | null>(null)
   const [deviceModelId, setDeviceModelId] = React.useState("")
   const [serial, setSerial] = React.useState(device.serialNumber ?? "")
   const [hostname, setHostname] = React.useState(device.hostname ?? "")
+  const [linkSearch, setLinkSearch] = React.useState("")
+  const [debouncedLinkSearch, setDebouncedLinkSearch] = React.useState("")
   const tag = tagOverride ?? suggestedTag
+
+  React.useEffect(() => {
+    const handle = window.setTimeout(
+      () => setDebouncedLinkSearch(linkSearch.trim()),
+      250
+    )
+    return () => window.clearTimeout(handle)
+  }, [linkSearch])
+
+  const unlinkedAssetsQuery = trpc.assets.page.useQuery(
+    {
+      limit: 20,
+      search: debouncedLinkSearch || undefined,
+      filters: { managed: ["false"] },
+    },
+    {
+      enabled: canUpdate && !device.assetId,
+      placeholderData: keepPreviousData,
+    }
+  )
 
   const createAsset = trpc.assets.create.useMutation()
   const linkDevice = trpc.assets.linkDevice.useMutation()
@@ -83,6 +107,10 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
       toast.error(error.message || "We couldn't update the asset.")
     },
   })
+
+  const linkHits = (unlinkedAssetsQuery.data?.items ?? []).filter(
+    (item) => item.organizationId === device.organizationId
+  )
 
   async function handleCreate() {
     setCreating(true)
@@ -109,6 +137,25 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
       toast.error(message)
     } finally {
       setCreating(false)
+    }
+  }
+
+  async function handleLink(assetId: string) {
+    setLinkingId(assetId)
+    try {
+      await linkDevice.mutateAsync({ id: assetId, deviceId: device.id })
+      await Promise.all([
+        invalidate(),
+        utils.assets.page.invalidate(),
+        utils.assets.byId.invalidate({ id: assetId }),
+      ])
+      toast.success("Asset linked")
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "We couldn't link that asset."
+      toast.error(message)
+    } finally {
+      setLinkingId(null)
     }
   }
 
@@ -266,64 +313,116 @@ export function AssetsTab({ device }: { device: DeviceDetail }) {
     <div className="flex flex-col gap-6">
       <EmptyState
         title="No asset linked"
-        description="Create an asset now, or wait for the next check-in to fill one from this device."
+        description="Link an existing asset, or create one when this device needs a tracking tag."
         bordered={false}
       />
       {canUpdate ? (
-        <SectionCard
-          title="Create asset"
-          description="Uses a short tracking tag for labels. Serial is optional."
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Tracking tag" htmlFor="create-asset-tag">
+        <>
+          <SectionCard
+            title="Link existing asset"
+            description="Search unlinked assets by tracking tag, serial, or host name."
+          >
+            <FormField label="Search" htmlFor="link-asset-search">
               <Input
-                id="create-asset-tag"
-                value={tag}
-                onChange={(event) => setTagOverride(event.target.value)}
+                id="link-asset-search"
+                value={linkSearch}
+                onChange={(event) => setLinkSearch(event.target.value)}
+                placeholder="Tracking tag, serial, or host name"
                 className="font-mono"
               />
             </FormField>
-            <FormField label="Device model" htmlFor="create-asset-model">
-              <SelectField
-                id="create-asset-model"
-                value={deviceModelId}
-                onValueChange={setDeviceModelId}
-                placeholder="Choose a model"
-                emptyLabel="Not assigned"
-                options={(modelsQuery.data ?? []).map((model) => ({
-                  value: model.id,
-                  label: model.label,
-                }))}
-              />
-            </FormField>
-            <FormField label="Serial" htmlFor="create-asset-serial">
-              <Input
-                id="create-asset-serial"
-                value={serial}
-                onChange={(event) => setSerial(event.target.value)}
-                className="font-mono"
-              />
-            </FormField>
-            <FormField label="Host name" htmlFor="create-asset-hostname">
-              <Input
-                id="create-asset-hostname"
-                value={hostname}
-                onChange={(event) => setHostname(event.target.value)}
-              />
-            </FormField>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              disabled={!tag.trim() || creating || createAsset.isPending}
-              onClick={() => void handleCreate()}
-            >
-              Create and link
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/settings/device-models">Manage models</Link>
-            </Button>
-          </div>
-        </SectionCard>
+            {linkHits.length === 0 ? (
+              <p className="mt-3 text-sm text-muted-foreground">
+                {unlinkedAssetsQuery.isFetching
+                  ? "Searching…"
+                  : debouncedLinkSearch
+                    ? "No matching unlinked assets."
+                    : "No unlinked assets yet. Create one below, or add assets from a site page."}
+              </p>
+            ) : (
+              <ul className="mt-3 flex flex-col gap-2">
+                {linkHits.map((hit) => (
+                  <li
+                    key={hit.id}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-mono text-sm">{hit.tag}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {[hit.serial, hit.hostname, hit.siteName]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={linkingId !== null || linkDevice.isPending}
+                      onClick={() => void handleLink(hit.id)}
+                    >
+                      {linkingId === hit.id ? "Linking…" : "Link"}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </SectionCard>
+
+          <SectionCard
+            title="Create asset"
+            description="Uses a short tracking tag for labels. Serial is optional."
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Tracking tag" htmlFor="create-asset-tag">
+                <Input
+                  id="create-asset-tag"
+                  value={tag}
+                  onChange={(event) => setTagOverride(event.target.value)}
+                  className="font-mono"
+                />
+              </FormField>
+              <FormField label="Device model" htmlFor="create-asset-model">
+                <SelectField
+                  id="create-asset-model"
+                  value={deviceModelId}
+                  onValueChange={setDeviceModelId}
+                  placeholder="Choose a model"
+                  emptyLabel="Not assigned"
+                  options={(modelsQuery.data ?? []).map((model) => ({
+                    value: model.id,
+                    label: model.label,
+                  }))}
+                />
+              </FormField>
+              <FormField label="Serial" htmlFor="create-asset-serial">
+                <Input
+                  id="create-asset-serial"
+                  value={serial}
+                  onChange={(event) => setSerial(event.target.value)}
+                  className="font-mono"
+                />
+              </FormField>
+              <FormField label="Host name" htmlFor="create-asset-hostname">
+                <Input
+                  id="create-asset-hostname"
+                  value={hostname}
+                  onChange={(event) => setHostname(event.target.value)}
+                />
+              </FormField>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                disabled={!tag.trim() || creating || createAsset.isPending}
+                onClick={() => void handleCreate()}
+              >
+                Create and link
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href="/settings/device-models">Manage models</Link>
+              </Button>
+            </div>
+          </SectionCard>
+        </>
       ) : null}
     </div>
   )

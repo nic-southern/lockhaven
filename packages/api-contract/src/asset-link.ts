@@ -1,20 +1,12 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 
-import {
-  assets,
-  auditEvents,
-  deviceModels,
-  devices,
-  organizations,
-} from "@nms/db"
+import { assets, auditEvents, deviceModels, devices } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
   fillEmptyAssetIdentity,
-  initialAssetIdentityFromAgent,
   matchAssetToDevice,
   matchDeviceModel,
   severityForEvent,
-  suggestAssetTrackingTag,
   type AgentReportedAssetIdentity,
 } from "@nms/shared"
 
@@ -70,7 +62,7 @@ async function loadCatalog(client: AssetLinkDb, organizationId: string) {
 async function writeLinkAudit(
   client: AssetLinkDb,
   device: LinkableDevice,
-  match: { assetId: string; reason: "serial" | "hostname" | "created" }
+  match: { assetId: string; reason: "serial" | "hostname" }
 ) {
   await client.insert(auditEvents).values({
     actorUserId: null,
@@ -87,51 +79,10 @@ async function writeLinkAudit(
   })
 }
 
-async function allocateTrackingTag(
-  client: AssetLinkDb,
-  device: LinkableDevice,
-  reported: AgentReportedAssetIdentity
-) {
-  const [organization] = await client
-    .select({ trackingTagPrefix: organizations.trackingTagPrefix })
-    .from(organizations)
-    .where(eq(organizations.id, device.organizationId))
-    .limit(1)
-  const prefix = organization?.trackingTagPrefix
-
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const tag = suggestAssetTrackingTag({
-      deviceId: device.id,
-      hostname: reported.hostname,
-      serialNumber: reported.serialNumber,
-      attempt,
-      prefix,
-    })
-    const [existing] = await client
-      .select({ id: assets.id })
-      .from(assets)
-      .where(
-        and(
-          eq(assets.organizationId, device.organizationId),
-          eq(assets.tag, tag)
-        )
-      )
-      .limit(1)
-    if (!existing) return tag
-  }
-  return suggestAssetTrackingTag({
-    deviceId: device.id,
-    hostname: reported.hostname,
-    serialNumber: `${Date.now()}`,
-    attempt: 99,
-    prefix,
-  })
-}
-
 /**
- * Org-unique serial check used by create and fill. Shared SMBIOS placeholders
- * must not abort a check-in: create already skipped taken serials; fill must
- * too, or the whole check-in transaction rolls back and the agent looks stale
+ * Org-unique serial check used by fill. Shared SMBIOS placeholders must not
+ * abort a check-in: if another asset already owns the serial, drop it from the
+ * patch or the whole check-in transaction rolls back and the agent looks stale
  * while the tunnel stays up.
  */
 async function serialTakenInOrganization(
@@ -213,85 +164,15 @@ async function fillLinkedAsset(
     )
     patch = omitTakenSerialFromPatch(patch, taken)
   }
-  if (Object.keys(patch).length === 0) return { assetId, created: false }
+  if (Object.keys(patch).length === 0) {
+    return { assetId, created: false as const }
+  }
 
   await client
     .update(assets)
     .set({ ...patch, updatedAt: new Date() })
     .where(eq(assets.id, assetId))
-  return { assetId, created: false }
-}
-
-async function createAndLinkAsset(
-  client: AssetLinkDb,
-  device: DeviceAssetReport,
-  reported: AgentReportedAssetIdentity
-) {
-  const catalog = await loadCatalog(client, device.organizationId)
-  const catalogModelId = matchDeviceModel(reported, catalog)
-  const catalogEntry = catalogModelId
-    ? (catalog.find((entry) => entry.id === catalogModelId) ?? null)
-    : null
-  const identity = initialAssetIdentityFromAgent(
-    reported,
-    catalogModelId,
-    catalogEntry
-  )
-  const tag = await allocateTrackingTag(client, device, reported)
-
-  let serial = identity.serial
-  if (
-    serial &&
-    (await serialTakenInOrganization(client, device.organizationId, serial))
-  ) {
-    serial = null
-  }
-
-  const [created] = await client
-    .insert(assets)
-    .values({
-      organizationId: device.organizationId,
-      siteId: device.siteId,
-      deviceModelId: identity.deviceModelId,
-      tag,
-      vendor: identity.vendor,
-      model: identity.model,
-      serial,
-      hostname: identity.hostname,
-      status: "in_service",
-      customFields: {},
-    })
-    .returning({ id: assets.id })
-
-  if (!created) return null
-
-  const [updated] = await client
-    .update(devices)
-    .set({ assetId: created.id, updatedAt: new Date() })
-    .where(and(eq(devices.id, device.id), isNull(devices.assetId)))
-    .returning({ id: devices.id })
-
-  if (!updated) return { assetId: created.id, created: true }
-
-  await client.insert(auditEvents).values({
-    actorUserId: null,
-    organizationId: device.organizationId,
-    siteId: device.siteId,
-    deviceId: device.id,
-    eventType: "asset_created",
-    severity: severityForEvent("asset_created"),
-    eventData: {
-      assetId: created.id,
-      tag,
-      automatic: true,
-      source: "agent",
-    },
-  })
-  await writeLinkAudit(client, device, {
-    assetId: created.id,
-    reason: "created",
-  })
-  return { assetId: created.id, created: true }
+  return { assetId, created: false as const }
 }
 
 function reportedIdentity(
@@ -412,8 +293,9 @@ export async function syncLinkedAssetSites(
 }
 
 /**
- * On attach/check-in: fill an existing linked asset, link a matching unmatched
- * asset (serial preferred), or create a short-tag asset and link it.
+ * On attach / enroll / check-in: fill an already-linked asset, or link a
+ * matching unmatched asset (serial preferred, then hostname). Never inserts a
+ * new assets row — operators create assets from the Console when needed.
  */
 export async function upsertAssetFromDeviceReport(
   client: AssetLinkDb,
@@ -427,26 +309,24 @@ export async function upsertAssetFromDeviceReport(
 
   const candidates = await unmatchedAssets(client, device.organizationId)
   const match = matchAssetToDevice(device, candidates)
-  if (match) {
-    const [updated] = await client
-      .update(devices)
-      .set({ assetId: match.assetId, updatedAt: new Date() })
-      .where(and(eq(devices.id, device.id), isNull(devices.assetId)))
-      .returning({ id: devices.id })
-    if (updated) {
-      await writeLinkAudit(client, device, match)
-      await fillLinkedAsset(client, device, match.assetId, reported)
-      return { assetId: match.assetId, created: false }
-    }
-  }
+  if (!match) return null
 
-  return createAndLinkAsset(client, device, reported)
+  const [updated] = await client
+    .update(devices)
+    .set({ assetId: match.assetId, updatedAt: new Date() })
+    .where(and(eq(devices.id, device.id), isNull(devices.assetId)))
+    .returning({ id: devices.id })
+  if (!updated) return null
+
+  await writeLinkAudit(client, device, match)
+  await fillLinkedAsset(client, device, match.assetId, reported)
+  return { assetId: match.assetId, created: false as const }
 }
 
 /**
  * When a device has no asset yet, attach the first unmatched asset in the
- * same organization whose serial or hostname matches. Prefer
- * `upsertAssetFromDeviceReport` on agent paths so missing assets are created.
+ * same organization whose serial or hostname matches. Agent paths prefer
+ * `upsertAssetFromDeviceReport`, which also fills empty identity fields.
  */
 export async function tryLinkDeviceToAsset(
   client: AssetLinkDb,
