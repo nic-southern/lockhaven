@@ -15,14 +15,14 @@ tooling for Lockhaven.
 
 ## Product suite
 
-| Component | Role |
-| --- | --- |
-| **Hub** | Control plane for organizations, sites, devices, policies, sessions, audit, and admin access |
-| **Agent** | Static Linux and Windows client: attach, enroll, check-in, and signed self-update |
-| **Console** | Web UI for inventory, fleet, alerts, tickets, software, assets, and operations |
-| **Gateway** | Private service access and policy enforcement for remote sessions |
-| **Relay** | Connectivity layer for constrained or hard-to-route environments |
-| **Field** | Desktop technician app (Linux, Windows, macOS) for on-site inventory and scan flows |
+| Component   | Role                                                                                         |
+| ----------- | -------------------------------------------------------------------------------------------- |
+| **Hub**     | Control plane for organizations, sites, devices, policies, sessions, audit, and admin access |
+| **Agent**   | Static Linux and Windows client: attach, enroll, check-in, and signed self-update            |
+| **Console** | Web UI for inventory, fleet, alerts, tickets, software, assets, and operations               |
+| **Gateway** | Private service access and policy enforcement for remote sessions                            |
+| **Relay**   | Connectivity layer for constrained or hard-to-route environments                             |
+| **Field**   | Desktop technician app (Linux, Windows, macOS) for on-site inventory and scan flows          |
 
 Customer-facing naming can be white-labeled with `PRODUCT_NAME` (defaults to
 `Lockhaven`). Screenshots below are from a live deployment with a custom product
@@ -124,17 +124,17 @@ Console / Field ──► Hub (web + API) ──► Postgres / Redis
                          └── Worker: VPN peers, health, alert evaluation
 ```
 
-| Path | Purpose |
-| --- | --- |
-| `apps/web` | Console, auth, enrollment, tRPC, health |
-| `apps/lockhaven-agent` | Linux/Windows endpoint agent |
-| `apps/agent` | TypeScript protocol reference (macOS path) |
-| `apps/lockhaven-field` | Field desktop app |
-| `apps/worker` | WireGuard reconciliation and health jobs |
-| `packages/*` | Shared schemas, db, auth, vpn, remote-access, api-contract |
-| `deploy/` | Hosted Compose stack |
-| `infra/` | Host bootstrap, systemd helpers, Terraform |
-| `docs/` | Deployment, enrollment, fleet, safety |
+| Path                   | Purpose                                                    |
+| ---------------------- | ---------------------------------------------------------- |
+| `apps/web`             | Console, auth, enrollment, tRPC, health                    |
+| `apps/lockhaven-agent` | Linux/Windows endpoint agent                               |
+| `apps/agent`           | TypeScript protocol reference (macOS path)                 |
+| `apps/lockhaven-field` | Field desktop app                                          |
+| `apps/worker`          | WireGuard reconciliation and health jobs                   |
+| `packages/*`           | Shared schemas, db, auth, vpn, remote-access, api-contract |
+| `deploy/`              | Hosted Compose stack                                       |
+| `infra/`               | Host bootstrap, systemd helpers, Terraform                 |
+| `docs/`                | Deployment, enrollment, fleet, safety                      |
 
 Deeper notes: [docs/architecture.md](docs/architecture.md),
 [docs/threat-model.md](docs/threat-model.md).
@@ -154,13 +154,13 @@ pnpm lint && pnpm typecheck && pnpm format:check
 
 Useful scripts:
 
-| Command | Purpose |
-| --- | --- |
-| `pnpm dev:web` | Console + Hub API |
-| `pnpm dev:worker` | Background reconciliation |
-| `pnpm build` | Release builds |
-| `pnpm --filter @nms/db db:migrate` | Apply migrations |
-| `pnpm db:bootstrap-admin` | Create/refresh admin user |
+| Command                            | Purpose                   |
+| ---------------------------------- | ------------------------- |
+| `pnpm dev:web`                     | Console + Hub API         |
+| `pnpm dev:worker`                  | Background reconciliation |
+| `pnpm build`                       | Release builds            |
+| `pnpm --filter @nms/db db:migrate` | Apply migrations          |
+| `pnpm db:bootstrap-admin`          | Create/refresh admin user |
 
 ## Configuration
 
