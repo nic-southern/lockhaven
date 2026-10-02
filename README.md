@@ -1,305 +1,234 @@
 # Lockhaven
 
-Protected access for remote infrastructure.
+**Protected access for remote infrastructure.**
 
-Lockhaven is a WireGuard-backed access platform for enrolling remote clients,
-maintaining private connectivity, tracking device inventory, and reaching
-services like VNC, SSH, SQL, and internal web apps without exposing devices
-directly.
+Lockhaven enrolls endpoints into a private management network, keeps inventory
+and health in one place, and opens remote sessions without exposing devices to
+the public internet.
 
-Repository: [`nic-southern/lockhaven`](https://github.com/nic-southern/lockhaven)
+This repository is the open Hub, Console, agent, Field app, worker, and deploy
+tooling for Lockhaven.
 
-## Screenshots
+![Morning ops dashboard](docs/images/readme/morning-ops.webp)
 
-![Lockhaven overview dashboard](docs/screenshots/lockhaven-overview.png)
+<p align="center"><em>Morning ops — one scan before the day starts.</em></p>
 
-![Lockhaven device management](docs/screenshots/lockhaven-device-management.png)
+## Product suite
 
-## Product Suite
+| Component   | Role                                                                                         |
+| ----------- | -------------------------------------------------------------------------------------------- |
+| **Hub**     | Control plane for organizations, sites, devices, policies, sessions, audit, and admin access |
+| **Agent**   | Static Linux and Windows client: attach, enroll, check-in, and signed self-update            |
+| **Console** | Web UI for inventory, fleet, alerts, tickets, software, assets, and operations               |
+| **Gateway** | Private service access and policy enforcement for remote sessions                            |
+| **Relay**   | Connectivity layer for constrained or hard-to-route environments                             |
+| **Field**   | Desktop technician app (Linux, Windows, macOS) for on-site inventory and scan flows          |
 
-Lockhaven is built as a foundation for a broader remote infrastructure access
-suite:
+Customer-facing naming can be white-labeled with `PRODUCT_NAME` (defaults to
+`Lockhaven`). Screenshots below are from a live deployment with a custom product
+name; inventory rows are blurred.
 
-- `Lockhaven Hub` - central control plane for organizations, sites, devices,
-  policies, sessions, audit history, and admin access.
-- `Lockhaven Agent` - lightweight client-side enrollment and check-in service
-  for managed endpoints.
-- `Lockhaven Console` - web interface for inventory, access, health, and
-  operational workflows.
-- `Lockhaven Gateway` - private access entry point for service sessions and
-  policy enforcement.
-- `Lockhaven Relay` - connectivity layer for reaching constrained or
-  hard-to-route environments.
+## What you get
 
-This repository currently contains the Hub, Console, Gateway-adjacent service
-launch flow, WireGuard reconciliation worker, deployment automation, and shared
-domain packages.
+- **Private connectivity** — Enroll devices into a WireGuard management network; launch VNC, SSH, and related sessions without inbound exposure on the device.
+- **Morning ops** — Start the day on open alerts, security updates, offline devices, quiet agents, recent sessions, and live infrastructure access.
+- **Fleet and agent lifecycle** — Track agent versions, queue restart/update actions, and offer signed self-update when an operator, playbook, or after-hours step asks for it.
+- **Sites, assets, and folders** — Inventory that is not only VPN devices: tracking tags, folders/containment, labels, and site placement for field work.
+- **Software inventory** — Packages and install-now security updates reported by the agent.
+- **Alerts, tickets, and playbooks** — Operate from open alerts through in-Console tickets and closed-whitelist automation.
+- **Access controls** — Enrollment tokens, route policies, SSO/passkeys, infrastructure just-in-time access, and audit history.
 
-## What It Does
+## Console
 
-- Enrolls devices into a private WireGuard management network.
-- Tracks device, site, organization, route policy, and service inventory.
-- Launches private service sessions without opening inbound access on devices.
-- Refreshes VPN peers and service health from a background worker.
-- Records audit events for sensitive administrative activity.
-- Supports customer-facing product naming through `PRODUCT_NAME`.
+### Morning ops
 
-## Architecture
+The landing view for operators (see hero above): tiles for what needs attention,
+with deep links into alerts, software, devices, and activity.
 
-- `apps/web` - Next.js console, session UI, tRPC route handlers, auth routes,
-  enrollment endpoints, and health checks.
-- `apps/lockhaven-field` - Flutter desktop field app (Linux, Windows, macOS)
-  for technician inventory and scan flows.
-- `apps/lockhaven-agent` - static Linux and Windows agent: attach to existing inventory,
-  enroll new hosts, check-in, systemd or Windows service install.
-- `apps/agent` - TypeScript enrollment/check-in client (macOS).
-- `apps/worker` - WireGuard reconciliation and management service health jobs.
-- `packages/shared` - domain schemas and shared product types.
-- `packages/db` - database schema, migrations, and admin bootstrap script.
-- `packages/auth` - authentication and authorization helpers.
-- `packages/vpn` - WireGuard command builders and VPN state parsing.
-- `packages/remote-access` - remote service connection provisioning.
-- `packages/api-contract` - tRPC router, procedures, and API schemas.
-- `deploy/` - production Docker Compose definition.
-- `infra/` - droplet bootstrap, systemd helpers, and Terraform provisioning.
-- `scripts/` - deployment and enrollment helpers.
+### Devices and remote access
 
-## Local Development
+Every enrolled endpoint, tunnel state, tags, and quick session actions. Device
+detail covers health, services, software, linked assets, and the **Agent** tab.
 
-- `pnpm install`
-- `pnpm dev:web`
-- `pnpm dev:worker`
-- `pnpm test`
-- `pnpm format:check`
-- `pnpm --filter @nms/db db:migrate`
-- `ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='set-a-password' pnpm db:bootstrap-admin`
-- `pnpm build`
-- `pnpm lint`
-- `pnpm typecheck`
+![Devices](docs/images/readme/devices.webp)
+
+![Device Agent tab](docs/images/readme/device-agent.webp)
+
+### Sites, assets, and labels
+
+Sites group locations. Assets carry tracking tags, optional folders
+(containment), serials, and device-model costs. Export or print labels from
+Console; USB printing stays on the operator laptop.
+
+![Sites](docs/images/readme/sites.webp)
+
+![Assets](docs/images/readme/assets.webp)
+
+![Label settings](docs/images/readme/labels-settings.webp)
+
+### Fleet and software
+
+Fleet shows agent version distribution and allowed actions (`restart` device,
+`restart` agent, `update` agent). Software surfaces install-now updates from
+agent check-ins.
+
+![Fleet](docs/images/readme/fleet.webp)
+
+![Software](docs/images/readme/software.webp)
+
+### Alerts and tickets
+
+Acknowledge, snooze, and resolve alerts. Open tickets next to the same devices
+and sites — including create-from-alert — without leaving Console.
+
+![Alerts](docs/images/readme/alerts.webp)
+
+![Tickets](docs/images/readme/tickets.webp)
+
+## Agent
+
+The endpoint agent is a **static** Linux and Windows binary
+(`apps/lockhaven-agent`):
+
+- **Attach** to a device Hub already knows (no duplicate VPN peer).
+- **Enroll** greenfield hosts when inventory does not exist yet.
+- **Check in** with metrics, packages, titles, modules, and chassis serial when
+  available.
+- **Commands** stay a closed whitelist: `reboot`, `restart`, `update`.
+- **Self-update** downloads only the Hub offer, verifies checksum, then swaps
+  the binary. Updates are operator-queued (or playbook / after-hours) — not
+  silent.
+
+Installers are served from the deployed Hub under `/install`. See
+[docs/enrollment.md](docs/enrollment.md).
+
+## Field technician app
+
+`apps/lockhaven-field` is a Flutter desktop app for site visits: browser
+sign-in handoff, site and asset browse, find-by-scan, add asset, folder
+reassign, and label handoff to the local print helper. It complements Console;
+it does not replace admin, SSO, or fleet ops.
+
+```bash
+cd apps/lockhaven-field
+flutter run -d linux --dart-define=HUB_BASE_URL=https://<console-host>
+```
+
+## Architecture (concise)
+
+```text
+Console / Field ──► Hub (web + API) ──► Postgres / Redis
+                         │
+                         ├── Agent check-in / enroll / attach
+                         ├── Remote session provisioning
+                         └── Worker: VPN peers, health, alert evaluation
+```
+
+| Path                   | Purpose                                                    |
+| ---------------------- | ---------------------------------------------------------- |
+| `apps/web`             | Console, auth, enrollment, tRPC, health                    |
+| `apps/lockhaven-agent` | Linux/Windows endpoint agent                               |
+| `apps/agent`           | TypeScript protocol reference (macOS path)                 |
+| `apps/lockhaven-field` | Field desktop app                                          |
+| `apps/worker`          | WireGuard reconciliation and health jobs                   |
+| `packages/*`           | Shared schemas, db, auth, vpn, remote-access, api-contract |
+| `deploy/`              | Hosted Compose stack                                       |
+| `infra/`               | Host bootstrap, systemd helpers, Terraform                 |
+| `docs/`                | Deployment, enrollment, fleet, safety                      |
+
+Deeper notes: [docs/architecture.md](docs/architecture.md),
+[docs/threat-model.md](docs/threat-model.md).
+
+## Getting started (developers)
+
+```bash
+pnpm install
+cp .env.example .env   # fill secrets; see Configuration below
+pnpm --filter @nms/db db:migrate
+ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='set-a-password' pnpm db:bootstrap-admin
+pnpm dev:web           # Console
+pnpm dev:worker        # optional local worker
+pnpm test
+pnpm lint && pnpm typecheck && pnpm format:check
+```
+
+Useful scripts:
+
+| Command                            | Purpose                   |
+| ---------------------------------- | ------------------------- |
+| `pnpm dev:web`                     | Console + Hub API         |
+| `pnpm dev:worker`                  | Background reconciliation |
+| `pnpm build`                       | Release builds            |
+| `pnpm --filter @nms/db db:migrate` | Apply migrations          |
+| `pnpm db:bootstrap-admin`          | Create/refresh admin user |
 
 ## Configuration
 
-Copy `/.env.example` to `/.env`, then generate the placeholders shown there:
+Copy `.env.example` to `.env`, then generate placeholders:
 
-- `openssl rand -hex 16` for `POSTGRES_PASSWORD`, `GUACAMOLE_DB_PASSWORD`, and `ADMIN_PASSWORD`
+- `openssl rand -hex 16` for `POSTGRES_PASSWORD`, database passwords used by remote-session services, and `ADMIN_PASSWORD`
 - `openssl rand -hex 32` for `REMOTE_CREDENTIALS_KEY` and `BETTER_AUTH_SECRET`
-- `VPN_SERVER_PUBLIC_KEY` is generated by `scripts/deploy-production.sh` in
-  production. For local development, set it to the public key for your local
-  VPN interface.
 
-Set `PRODUCT_NAME` to white-label the customer-facing web app name. It defaults
-to `Lockhaven`.
+Set `PRODUCT_NAME` to white-label Console and auth naming. It defaults to
+`Lockhaven` and does not rename container images, database names, or host paths.
 
-## Production Deployment
+## Hosted deploy
 
-Lockhaven supports two production paths:
+Images `lockhaven-web` and `lockhaven-worker` publish to GHCR from `main`.
+The live host is **not** updated automatically.
 
-1. **Terraform deploy** - use `/.env.stage` and `scripts/deploy-production.sh`
-   to provision the host, generate `.env.deploy`, copy the Compose file, start
-   the stack, run migrations, and refresh the admin user.
-2. **DIY existing host** - use Docker Compose directly on a host you already
-   manage. You only need `deploy/production.compose.yml` and a populated
-   `.env.deploy`; you do not need to clone this repository onto the server.
+When ready, run **Actions → Deploy → Run workflow** and type `deploy` to
+confirm. That job SSHs to the host, syncs Compose and host helpers, pulls
+images, migrates, and restarts. Requires repository secrets `DEPLOY_HOST` and
+`DEPLOY_SSH_PRIVATE_KEY` (optional `DEPLOY_SSH_USER`).
 
-### Path A: Terraform Deploy
+Full paths (Terraform bootstrap, DIY existing host, image pull credentials):
+**[docs/deployment.md](docs/deployment.md)**.
 
-Use this path when you want Lockhaven to create and bootstrap the production
-DigitalOcean droplet. The default Terraform provider config is set up for
-DigitalOcean.
+Host layout defaults to `/opt/lockhaven`.
 
-1. Copy `/.env.stage.example` to `/.env.stage`.
-2. Edit `/.env.stage` with environment-specific values, especially hostnames,
-   droplet settings, image pull credentials, admin credentials, and
-   `PRODUCT_NAME`.
-3. Copy `infra/terraform/provider.tf.example` to `infra/terraform/provider.tf`.
-   Change this provider config only if you are adapting the Terraform path away
-   from the default DigitalOcean setup.
-4. Put `DO_TOKEN` in `/.env.stage` or export `TF_VAR_do_token`.
-5. Run:
+## Client enrollment (quick)
 
-```bash
-scripts/deploy-production.sh
-```
+Create an enrollment token in Console, then install on the device. Use your
+deployed Hub hostname for `<vpn-hostname>`.
 
-The script writes `infra/terraform/terraform.tfvars`, generates local
-`.env.deploy` from `/.env.stage`, provisions the droplet, copies
-`deploy/production.compose.yml` and `.env.deploy` to the host, starts the stack,
-applies database migrations, and refreshes the admin user.
-
-`/.env.stage` may contain bootstrap-only values such as `GHCR_USER`,
-`GHCR_READ_TOKEN`, and `DO_TOKEN`. These are used by the deploy script but are
-not copied into the generated `.env.deploy`.
-
-Key `.env.stage` values:
-
-- `PRODUCT_NAME` - customer-facing name shown in the web app.
-- `GHCR_USER` - GitHub username or machine user for image pulls.
-- `GHCR_READ_TOKEN` - token with `read:packages` access.
-- `SSH_KEY_NAME` - SSH key name already uploaded to DigitalOcean.
-- `ACME_EMAIL` - contact email used for certificate issuance.
-- `ADMIN_EMAIL` and `ADMIN_PASSWORD` - admin account refreshed after each
-  production deploy.
-- `MAIL_FROM` plus `RESEND_API_KEY` or `SMTP_URL` - outbound invitations,
-  password resets, and alert messages.
-- `DO_TOKEN` - DigitalOcean API token, or export the same value as
-  `TF_VAR_do_token`.
-
-The droplet bootstrap installs Docker from Docker's apt repository and uses
-`iptables` rules in the `DOCKER-USER` chain for host access control.
-The deploy script also creates the host VPN keypair, writes
-`VPN_SERVER_PUBLIC_KEY` into `/.env.deploy`, and starts the server interface.
-
-To rerun the bootstrap against an existing droplet without touching Terraform,
-set `DEPLOY_ONLY=1` and provide `DEPLOY_HOST`.
-
-After GHCR publish on `main`, deploy manually via **Actions → Deploy**
-(type `deploy` to confirm). Requires secrets `DEPLOY_HOST` /
-`DEPLOY_SSH_PRIVATE_KEY`. See [docs/deployment.md](docs/deployment.md).
-
-## Client Enrollment
-
-Create an enrollment token in the Console, then run the installer on the remote
-client. The deployed web app serves the current installers from the `/install`
-path.
-
-Windows (agent):
-
-```powershell
-$VpnHost = "https://<vpn-hostname>"; $Token = "<enrollment-token>"; $Script = "$env:TEMP\install-lockhaven-agent.ps1"; Invoke-WebRequest -Uri "$VpnHost/install/install-lockhaven-agent.ps1" -OutFile $Script; powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $VpnHost
-```
-
-Windows (tunnel only):
-
-```powershell
-$VpnHost = "https://<vpn-hostname>"; $Token = "<enrollment-token>"; $Script = "$env:TEMP\lockhaven-enroll.ps1"; Invoke-WebRequest -Uri "$VpnHost/install/enroll-windows.ps1" -OutFile $Script; powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $VpnHost
-```
-
-Linux (agent):
-
-```bash
-VPN_HOST="https://<vpn-hostname>"; curl -fsSL "$VPN_HOST/install/install-lockhaven-agent.sh" | sudo LOCKHAVEN_TOKEN="<enrollment-token>" LOCKHAVEN_BASE_URL="$VPN_HOST" bash
-```
-
-Linux (tunnel only):
-
-```bash
-VPN_HOST="https://<vpn-hostname>"; curl -fsSL "$VPN_HOST/install/enroll-linux.sh" | sudo LOCKHAVEN_TOKEN="<enrollment-token>" LOCKHAVEN_BASE_URL="$VPN_HOST" bash
-```
-
-Android (run on a workstation; import the resulting `.conf` or QR in the
-WireGuard app on the device):
+**Linux (agent):**
 
 ```bash
 VPN_HOST="https://<vpn-hostname>"
-curl -fsSL "$VPN_HOST/install/enroll-android.sh" -o /tmp/lockhaven-enroll-android.sh
-LOCKHAVEN_TOKEN="<enrollment-token>" LOCKHAVEN_BASE_URL="$VPN_HOST" bash /tmp/lockhaven-enroll-android.sh
+curl -fsSL "$VPN_HOST/install/install-lockhaven-agent.sh" \
+  | sudo LOCKHAVEN_TOKEN="<enrollment-token>" LOCKHAVEN_BASE_URL="$VPN_HOST" bash
 ```
 
-Use the deployed VPN hostname for `<vpn-hostname>`, for example the value of
-`VPN_PUBLIC_HOSTNAME` in your environment.
+**Windows (agent):**
 
-### Path B: DIY Existing Host
-
-Use this path when you already have a Linux host with Docker and Docker Compose.
-The host must allow inbound `80/tcp`, `443/tcp`, and the WireGuard UDP port
-configured by `VPN_PUBLIC_PORT` (default `51820`).
-
-You do not need the full repository on the server. Create an app directory with
-this shape:
-
-```text
-/opt/lockhaven/
-  .env.deploy
-  deploy/
-    production.compose.yml
+```powershell
+$VpnHost = "https://<vpn-hostname>"; $Token = "<enrollment-token>"
+$Script = "$env:TEMP\install-lockhaven-agent.ps1"
+Invoke-WebRequest -Uri "$VpnHost/install/install-lockhaven-agent.ps1" -OutFile $Script
+powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $VpnHost
 ```
 
-Copy `deploy/production.compose.yml` from this repository to the server, then
-create `.env.deploy` beside the `deploy` directory. Start from `/.env.example`,
-set `APP_ENV=production`, and include the production-only values that the
-Compose file and containers need:
+Tunnel-only and Android helpers are documented in
+[docs/enrollment.md](docs/enrollment.md).
 
-- `PRODUCT_NAME`
-- `APP_BASE_URL`, `BETTER_AUTH_URL`, `NEXTAUTH_URL`, and
-  `NEXT_PUBLIC_APP_URL`
-- `ROOT_DOMAIN`, `APP_HOSTNAME`, `GUAC_HOSTNAME`, and `ACME_EMAIL`
-- `GUACAMOLE_BASE_URL`, `GUACAMOLE_DATABASE_URL`, and
-  `GUACAMOLE_API_SESSION_TIMEOUT`
-- `DATABASE_URL` and `REDIS_URL`
-- `POSTGRES_PASSWORD` and `GUACAMOLE_DB_PASSWORD`
-- `BETTER_AUTH_SECRET` and `REMOTE_CREDENTIALS_KEY`
-- `MAIL_FROM`, plus `RESEND_API_KEY` or `SMTP_URL`
-- `VPN_PUBLIC_HOSTNAME`, `VPN_PUBLIC_PORT`, `VPN_SERVER_IP`,
-  `VPN_DEFAULT_ALLOWED_IPS`, `WIREGUARD_INTERFACE`, and `VPNCTL_PATH`
-- `REMOTE_ACCESS_PROVIDER`
-- `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`, and `ADMIN_ROLE`
-- `MAIL_FROM`, plus `RESEND_API_KEY` or `SMTP_URL` for outbound mail
-- `SESSION_RECORDING_ROOT` and `SESSION_RECORDING_RETENTION_DAYS` for
-  session recordings (optional; defaults are set in Compose)
-- `SSO_OIDC_ISSUER`, `SSO_OIDC_DISCOVERY_URL`, `SSO_OIDC_CLIENT_ID`,
-  `SSO_OIDC_CLIENT_SECRET`, and `SSO_ALLOWED_DOMAINS` for single sign-on
-  (optional alongside password and passkeys until a real client secret is
-  set on the host; `SSO_REQUIRED` stays false unless you turn it on)
-- `WEB_IMAGE` and `WORKER_IMAGE`
+## Safety
 
-You can use the published Lockhaven images directly; you only need to build and
-publish your own images if you are customizing the app. Set:
+- Do not commit secrets, private keys, state files, or real inventory.
+- Prefer example values and sanitized screenshots.
+- See [docs/public-repo-safety.md](docs/public-repo-safety.md).
 
-```bash
-WEB_IMAGE=ghcr.io/nic-southern/lockhaven-web:<tag>
-WORKER_IMAGE=ghcr.io/nic-southern/lockhaven-worker:<tag>
-```
+## Docs
 
-Then log in to GHCR and start the stack:
+- [Deployment](docs/deployment.md)
+- [Enrollment](docs/enrollment.md)
+- [Fleet / agent updates](docs/fleet.md)
+- [Architecture](docs/architecture.md)
+- [Infrastructure access](docs/infrastructure.md)
+- [SSO](docs/sso.md)
+- [Database](docs/database.md)
 
-```bash
-cd /opt/lockhaven
-printf '%s\n' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-docker compose --env-file .env.deploy -f deploy/production.compose.yml pull
-docker compose --env-file .env.deploy -f deploy/production.compose.yml up -d --remove-orphans
-```
+## Repository
 
-After the data services are healthy, apply migrations and refresh the admin
-account through the internal one-shot `migrate` service:
-
-```bash
-docker compose --env-file .env.deploy -f deploy/production.compose.yml run --rm migrate
-```
-
-## Image Pull Credentials
-
-Production hosts need permission to pull the Lockhaven images from GHCR.
-
-For the Terraform deploy path, set these in `/.env.stage`:
-
-- `GHCR_USER` - GitHub username or machine user used for `docker login`.
-- `GHCR_READ_TOKEN` - GitHub token with `read:packages` access.
-
-For the DIY existing-host path, use the same credentials directly on the host
-before running `docker compose pull`:
-
-```bash
-printf '%s\n' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-```
-
-If the package is private, the token may also need `repo` access for the account
-or machine user that owns the package.
-
-## Terraform Pre-Flight
-
-Before `terraform init`, make sure you have:
-
-- a DigitalOcean personal access token with droplet, firewall, and DNS
-  permissions
-- the name of an SSH key already uploaded to DigitalOcean, matching
-  `ssh_key_name`
-- the matching private key loaded in your SSH agent for Terraform file copies
-- a local `provider.tf` copied from `infra/terraform/provider.tf.example`
-- a staged root file at `/.env.stage`
-- `DO_TOKEN` set in `/.env.stage`, or `TF_VAR_do_token` exported in your shell
-
-## Notes
-
-- Container images publish as `lockhaven-web` and `lockhaven-worker`.
-- `PRODUCT_NAME` changes visible product naming, not package names, database
-  names, or host paths.
+Public source for Lockhaven Hub, Console, agent, Field, and deploy tooling.
+See the GitHub remote configured for this checkout.
