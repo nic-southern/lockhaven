@@ -107,13 +107,16 @@ Installers are served from the deployed Hub under `/install`. See
 `apps/lockhaven-field` is a Flutter desktop app for site visits: browser
 sign-in handoff, site and asset browse, find-by-scan, add asset, folder
 reassign, and label handoff to the local print helper. It complements Console;
-it does not replace admin, SSO, or fleet ops.
+it does not replace admin, SSO, or fleet ops. Targets: Linux, Windows, macOS.
 
 ```bash
 cd apps/lockhaven-field
+# Linux:
 flutter run -d linux --dart-define=HUB_BASE_URL=https://<console-host>
+# Warehouse Mac (see apps/lockhaven-field/README.md):
+flutter run -d macos --dart-define=HUB_BASE_URL=https://<console-host> \
+  --dart-define=LABEL_PRINT_SCRIPT=$PWD/../../scripts/print-asset-labels.sh
 ```
-
 ## Architecture (concise)
 
 ```text

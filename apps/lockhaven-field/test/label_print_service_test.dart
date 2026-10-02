@@ -2,12 +2,14 @@ import "package:flutter_test/flutter_test.dart";
 import "package:lockhaven_field/labels/label_print_service.dart";
 
 void main() {
-  test("printHelperEnvironment prepends ~/.local/bin for ptouch-print", () {
+  test("printHelperEnvironment prepends ~/.local/bin and Homebrew bins", () {
     final env = printHelperEnvironment({
       "HOME": "/home/tech",
       "PATH": "/usr/bin:/bin",
     });
     expect(env["PATH"], startsWith("/home/tech/.local/bin:"));
+    expect(env["PATH"], contains("/opt/homebrew/bin"));
+    expect(env["PATH"], contains("/usr/local/bin"));
     expect(env["PATH"], contains("/usr/bin"));
   });
 
@@ -21,6 +23,23 @@ void main() {
     expect(
       candidates,
       contains("/home/nic/git/lockhaven/scripts/print-asset-labels.sh"),
+    );
+  });
+
+  test("scriptSearchCandidates includes macOS checkout layouts", () {
+    final candidates = scriptSearchCandidates(
+      cwd: "/Users/nic/Developer/lockhaven/apps/lockhaven-field",
+      home: "/Users/nic",
+      executable:
+          "/Users/nic/Developer/lockhaven/apps/lockhaven-field/build/macos/Build/Products/Debug/lockhaven_field.app/Contents/MacOS/lockhaven_field",
+    );
+    expect(
+      candidates,
+      contains("/Users/nic/Developer/lockhaven/scripts/print-asset-labels.sh"),
+    );
+    expect(
+      candidates,
+      contains("/Users/nic/Projects/lockhaven/scripts/print-asset-labels.sh"),
     );
   });
 }
