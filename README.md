@@ -117,6 +117,7 @@ flutter run -d linux --dart-define=HUB_BASE_URL=https://<console-host>
 flutter run -d macos --dart-define=HUB_BASE_URL=https://<console-host> \
   --dart-define=LABEL_PRINT_SCRIPT=$PWD/../../scripts/print-asset-labels.sh
 ```
+
 ## Architecture (concise)
 
 ```text
