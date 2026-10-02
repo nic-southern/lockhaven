@@ -57,8 +57,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   flutter-field:
-    name: flutter/field
-    runs-on: ubuntu-latest
+    name: flutter/field (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
     defaults:
       run:
         working-directory: apps/lockhaven-field
@@ -75,6 +81,12 @@ jobs:
       - run: flutter analyze --fatal-infos
 
       - run: flutter test
+
+      # macOS target: compile the desktop app (ad-hoc signing; no Apple team).
+      # Linux/Windows desktop builds stay out of this job to keep Linux CI light.
+      - name: Build macOS (debug)
+        if: runner.os == 'macOS'
+        run: flutter build macos --debug
 
   publish-containers:
     needs:

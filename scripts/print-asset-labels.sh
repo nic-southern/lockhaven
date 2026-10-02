@@ -18,6 +18,8 @@
 #
 # Requires: python3, ptouch-print. Pillow/qrcode install into a repo-local
 # venv on first run (scripts/.venv-labels) — no global pip needed.
+# Fonts: DejaVu Sans (Linux fonts-dejavu-core; macOS brew --cask font-dejavu).
+# Install ptouch-print: ./scripts/install-ptouch-print.sh (Linux + macOS).
 # CSV schema v1 columns: schema_version,tag,serial,company_name,qr_text,site_name
 set -euo pipefail
 
@@ -185,10 +187,16 @@ def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
         if bold
         else ["DejaVuSans.ttf", "DejaVuSans-Bold.ttf"]
     )
+    home = Path.home()
     roots = [
         "/usr/share/fonts/truetype/dejavu",
         "/usr/share/fonts/TTF",
         "/usr/share/fonts/dejavu",
+        # macOS Homebrew font-dejavu cask → ~/Library/Fonts
+        str(home / "Library" / "Fonts"),
+        "/Library/Fonts",
+        "/opt/homebrew/share/fonts",
+        "/usr/local/share/fonts",
     ]
     for root in roots:
         for name in names:
@@ -197,7 +205,9 @@ def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
                 return ImageFont.truetype(str(path), size=size)
     raise SystemExit(
         "DejaVu fonts not found (needed for readable tape text). "
-        "Install fonts-dejavu-core or place DejaVuSans*.ttf under /usr/share/fonts."
+        "Linux: install fonts-dejavu-core. "
+        "macOS: brew install --cask font-dejavu "
+        "(installs DejaVuSans*.ttf into ~/Library/Fonts)."
     )
 
 

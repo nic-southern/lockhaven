@@ -207,22 +207,29 @@ String _processDetail(ProcessResult result, {required String tool}) {
   ].join("\n");
 }
 
-/// Ensure `~/.local/bin` is on PATH for spawned tools (`ptouch-print`).
+/// Ensure label tools are on PATH for spawned helper + `ptouch-print`.
+///
+/// Covers `~/.local/bin` (install-ptouch-print.sh), Homebrew on Apple Silicon
+/// (`/opt/homebrew/bin`) and Intel (`/usr/local/bin`), and `~/bin`.
 Map<String, String> printHelperEnvironment(Map<String, String> base) {
   final env = Map<String, String>.from(base);
   final home = env["HOME"]?.trim();
   final extras = <String>[
     if (home != null && home.isNotEmpty) "$home/.local/bin",
     if (home != null && home.isNotEmpty) "$home/bin",
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
     "/usr/local/bin",
+    "/usr/local/sbin",
   ];
   final existing = env["PATH"] ?? "";
   final parts = <String>[
     ...extras.where((p) => p.isNotEmpty),
-    ...existing.split(":").where((p) => p.isNotEmpty),
+    ...existing.split(Platform.isWindows ? ";" : ":").where((p) => p.isNotEmpty),
   ];
   final seen = <String>{};
-  env["PATH"] = parts.where((p) => seen.add(p)).join(":");
+  final sep = Platform.isWindows ? ";" : ":";
+  env["PATH"] = parts.where((p) => seen.add(p)).join(sep);
   return env;
 }
 
@@ -266,6 +273,10 @@ List<String> scriptSearchCandidates({
     add("$home/lockhaven/scripts/print-asset-labels.sh");
     add("$home/git/lockhaven/scripts/print-asset-labels.sh");
     add("$home/src/lockhaven/scripts/print-asset-labels.sh");
+    // Common macOS checkout layouts
+    add("$home/Developer/lockhaven/scripts/print-asset-labels.sh");
+    add("$home/Projects/lockhaven/scripts/print-asset-labels.sh");
+    add("$home/code/lockhaven/scripts/print-asset-labels.sh");
   }
 
   final seen = <String>{};

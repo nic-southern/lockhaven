@@ -11,4 +11,8 @@ PRODUCT_NAME = lockhaven_field
 PRODUCT_BUNDLE_IDENTIFIER = com.lockhaven.lockhavenField
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.lockhaven. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Lockhaven. All rights reserved.
+
+// Local warehouse dogfood uses ad-hoc signing (project CODE_SIGN_IDENTITY = "-").
+// No Apple Developer Team is required for flutter run -d macos / flutter build macos.
+// Set DEVELOPMENT_TEAM only if you switch to a Developer ID or App Store profile.
