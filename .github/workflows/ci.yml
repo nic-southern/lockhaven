@@ -96,7 +96,7 @@ jobs:
         if: matrix.target == 'macos'
         working-directory: ${{ github.workspace }}
         run: |
-          brew install libusb libgd cmake pkg-config || true
+          brew install libusb libgd cmake pkg-config gettext argp-standalone || true
           brew install dylibbundler || true
 
       - run: flutter pub get

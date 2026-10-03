@@ -34,11 +34,15 @@ PR / CI runs also upload GitHub Actions artifacts named
 6. **Print** uses the helper **inside the app** (private CPython + venv with
    Pillow/qrcode + DejaVu fonts). You do **not** need Homebrew Python.
 7. If print says the tape printer tool is missing, run the one-time installer
-   (needs cmake, libusb, libgd — Homebrew is fine for _this_ binary only):
+   (Homebrew is fine for _this_ binary only). The installer clones Dominic
+   Radermacher’s git (`git.familie-radermacher.ch`; a full clone, not
+   `--depth 1`) and installs to `~/.local/bin`:
    ```bash
+   brew install cmake libusb libgd pkg-config gettext argp-standalone
    chmod +x ./install-ptouch-print.sh
    ./install-ptouch-print.sh   # → ~/.local/bin/ptouch-print
    export PATH="$HOME/.local/bin:$PATH"
+   ptouch-print --list-supported | grep -i D460   # expect PT-D460BT
    ptouch-print --info
    ```
    CI often bundles `ptouch-print` inside the app as well; Field looks there
@@ -56,9 +60,10 @@ Use this only when you are changing Field itself.
 2. **Flutter** stable 3.24+ (`flutter doctor`; desktop macOS enabled).
 3. Optional print from a checkout (not needed for the downloaded `.app`):
    ```bash
-   brew install python cmake libusb libgd pkg-config
+   brew install python cmake libusb libgd pkg-config gettext argp-standalone
    brew install --cask font-dejavu
    ./scripts/install-ptouch-print.sh
+   ptouch-print --list-supported | grep -i D460   # expect PT-D460BT
    ```
 4. Run:
    ```bash
