@@ -1,3 +1,5 @@
+import "dart:io";
+
 import "package:flutter_test/flutter_test.dart";
 import "package:lockhaven_field/labels/label_print_service.dart";
 
@@ -10,10 +12,11 @@ void main() {
       },
       extraBinDirs: ["/Applications/Lockhaven Field.app/Contents/Resources/label-tools/bin"],
     );
+    final sep = Platform.isWindows ? ";" : ":";
     expect(
       env["PATH"],
       startsWith(
-        "/Applications/Lockhaven Field.app/Contents/Resources/label-tools/bin:",
+        "/Applications/Lockhaven Field.app/Contents/Resources/label-tools/bin$sep",
       ),
     );
     expect(env["PATH"], contains("/home/tech/.local/bin"));
@@ -64,6 +67,18 @@ void main() {
       bundled,
       contains(
         "/Applications/Lockhaven Field.app/Contents/Resources/label-tools/print-asset-labels.sh",
+      ),
+    );
+  });
+
+  test("bundledScriptCandidates walks a Windows install next to label-tools", () {
+    final bundled = bundledScriptCandidates(
+      r"C:\Program Files\Lockhaven Field\lockhaven_field.exe",
+    );
+    expect(
+      bundled,
+      contains(
+        "C:/Program Files/Lockhaven Field/label-tools/print-asset-labels.sh",
       ),
     );
   });

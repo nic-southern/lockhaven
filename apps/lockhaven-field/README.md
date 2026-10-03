@@ -11,12 +11,12 @@ One Flutter codebase with **Linux**, **Windows**, and **macOS** targets.
 CI packages Field on every push. After a `main` deploy, Hub serves the same
 files next to the agent binaries:
 
-| File | URL |
-| --- | --- |
-| Mac (Apple silicon) | `/install/lockhaven-field-macos-arm64.zip` |
-| Linux (x86_64) | `/install/lockhaven-field-linux-amd64.tar.gz` |
-| Windows (x86_64) | `/install/lockhaven-field-windows-amd64.zip` |
-| Tape printer tool installer | `/install/install-ptouch-print.sh` |
+| File                        | URL                                           |
+| --------------------------- | --------------------------------------------- |
+| Mac (Apple silicon)         | `/install/lockhaven-field-macos-arm64.zip`    |
+| Linux (x86_64)              | `/install/lockhaven-field-linux-amd64.tar.gz` |
+| Windows (x86_64)            | `/install/lockhaven-field-windows-amd64.zip`  |
+| Tape printer tool installer | `/install/install-ptouch-print.sh`            |
 
 Console: **Settings → Labels → Field app**.
 
@@ -34,7 +34,7 @@ PR / CI runs also upload GitHub Actions artifacts named
 6. **Print** uses the helper **inside the app** (private CPython + venv with
    Pillow/qrcode + DejaVu fonts). You do **not** need Homebrew Python.
 7. If print says the tape printer tool is missing, run the one-time installer
-   (needs cmake, libusb, libgd — Homebrew is fine for *this* binary only):
+   (needs cmake, libusb, libgd — Homebrew is fine for _this_ binary only):
    ```bash
    chmod +x ./install-ptouch-print.sh
    ./install-ptouch-print.sh   # → ~/.local/bin/ptouch-print

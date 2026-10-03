@@ -260,39 +260,48 @@ List<String> scriptSearchCandidates({
     add(path);
   }
 
-  add("$cwd/scripts/print-asset-labels.sh");
-  add("$cwd/../scripts/print-asset-labels.sh");
-  add("$cwd/../../scripts/print-asset-labels.sh");
-  add("$cwd/../../../scripts/print-asset-labels.sh");
+  add(_posixJoin(cwd, "scripts/print-asset-labels.sh"));
+  add(_posixJoin(_posixDirname(cwd), "scripts/print-asset-labels.sh"));
+  add(
+    _posixJoin(
+      _posixDirname(_posixDirname(cwd)),
+      "scripts/print-asset-labels.sh",
+    ),
+  );
+  add(
+    _posixJoin(
+      _posixDirname(_posixDirname(_posixDirname(cwd))),
+      "scripts/print-asset-labels.sh",
+    ),
+  );
 
-  var dir = Directory(cwd).absolute;
+  var dir = _posixNormalize(cwd);
   for (var i = 0; i < 8; i += 1) {
-    add("${dir.path}/scripts/print-asset-labels.sh");
-    final parent = dir.parent;
-    if (parent.path == dir.path) break;
+    add(_posixJoin(dir, "scripts/print-asset-labels.sh"));
+    final parent = _posixDirname(dir);
+    if (parent == dir) break;
     dir = parent;
   }
 
   if (executable != null && executable.isNotEmpty) {
-    var exeDir = File(executable).absolute.parent;
+    var exeDir = _posixDirname(executable);
     for (var i = 0; i < 10; i += 1) {
-      add("${exeDir.path}/scripts/print-asset-labels.sh");
-      final parent = exeDir.parent;
-      if (parent.path == exeDir.path) break;
+      add(_posixJoin(exeDir, "scripts/print-asset-labels.sh"));
+      final parent = _posixDirname(exeDir);
+      if (parent == exeDir) break;
       exeDir = parent;
     }
   }
 
   if (home != null && home.isNotEmpty) {
-    add("$home/.local/bin/print-asset-labels.sh");
-    add("$home/bin/print-asset-labels.sh");
-    add("$home/lockhaven/scripts/print-asset-labels.sh");
-    add("$home/git/lockhaven/scripts/print-asset-labels.sh");
-    add("$home/src/lockhaven/scripts/print-asset-labels.sh");
-    // Common macOS checkout layouts
-    add("$home/Developer/lockhaven/scripts/print-asset-labels.sh");
-    add("$home/Projects/lockhaven/scripts/print-asset-labels.sh");
-    add("$home/code/lockhaven/scripts/print-asset-labels.sh");
+    add(_posixJoin(home, ".local/bin/print-asset-labels.sh"));
+    add(_posixJoin(home, "bin/print-asset-labels.sh"));
+    add(_posixJoin(home, "lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "git/lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "src/lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "Developer/lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "Projects/lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "code/lockhaven/scripts/print-asset-labels.sh"));
   }
 
   final seen = <String>{};
@@ -300,28 +309,63 @@ List<String> scriptSearchCandidates({
 }
 
 /// Helper next to a shipped Field binary (macOS .app Resources, Linux bundle).
+///
+/// Paths are walked as POSIX strings so Windows CI can still assert Mac/Linux
+/// layouts without [File.absolute] prefixing the runner drive.
 List<String> bundledScriptCandidates(String? executable) {
   if (executable == null || executable.isEmpty) return const [];
   final out = <String>[];
-  final exe = File(executable).absolute;
-  var dir = exe.parent;
+  var dir = _posixDirname(executable);
 
-  if (dir.path.endsWith("MacOS")) {
-    final contents = dir.parent;
+  if (_posixEndsWithSegment(dir, "MacOS")) {
+    final contents = _posixDirname(dir);
     out.add(
-      "${contents.path}/Resources/label-tools/print-asset-labels.sh",
+      _posixJoin(contents, "Resources/label-tools/print-asset-labels.sh"),
     );
   }
-  out.add("${dir.path}/label-tools/print-asset-labels.sh");
-  out.add("${dir.path}/Contents/Resources/label-tools/print-asset-labels.sh");
+  out.add(_posixJoin(dir, "label-tools/print-asset-labels.sh"));
+  out.add(
+    _posixJoin(dir, "Contents/Resources/label-tools/print-asset-labels.sh"),
+  );
 
-  // Walk a few parents for Flutter's intermediates_do_not_run layout.
   for (var i = 0; i < 6; i += 1) {
-    out.add("${dir.path}/label-tools/print-asset-labels.sh");
-    final parent = dir.parent;
-    if (parent.path == dir.path) break;
+    out.add(_posixJoin(dir, "label-tools/print-asset-labels.sh"));
+    final parent = _posixDirname(dir);
+    if (parent == dir) break;
     dir = parent;
   }
   final seen = <String>{};
   return out.where((p) => seen.add(p)).toList();
+}
+
+String _posixNormalize(String path) {
+  var n = path.replaceAll(r"\", "/");
+  if (n.length > 1 && n.endsWith("/")) {
+    n = n.substring(0, n.length - 1);
+  }
+  return n;
+}
+
+String _posixDirname(String path) {
+  final n = _posixNormalize(path);
+  if (n.isEmpty || n == "/") return n;
+  if (n.length == 2 && n[1] == ":") return n;
+  if (n.length == 3 && n[1] == ":" && n[2] == "/") return n;
+  final i = n.lastIndexOf("/");
+  if (i <= 0) return "";
+  if (i == 2 && n[1] == ":") return n.substring(0, 3);
+  return n.substring(0, i);
+}
+
+String _posixJoin(String dir, String rel) {
+  final a = _posixNormalize(dir);
+  final b = rel.replaceAll(r"\", "/").replaceFirst(RegExp(r"^/+"), "");
+  if (a.isEmpty) return b;
+  if (a.endsWith("/")) return "$a$b";
+  return "$a/$b";
+}
+
+bool _posixEndsWithSegment(String path, String segment) {
+  final n = _posixNormalize(path);
+  return n == segment || n.endsWith("/$segment");
 }
