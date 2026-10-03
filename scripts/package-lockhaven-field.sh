@@ -36,6 +36,31 @@ fi
 mkdir -p "$DIST_DIR"
 DIST_DIR="$(cd "$DIST_DIR" && pwd)"
 
+# Git Bash `pwd` is /d/foo; native Windows Python/PowerShell need D:/foo.
+native_path() {
+  local p="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$p"
+    return 0
+  fi
+  case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)
+      if [[ -d "$p" ]]; then
+        (cd "$p" && pwd -W)
+        return 0
+      fi
+      local dir base
+      dir="$(dirname "$p")"
+      base="$(basename "$p")"
+      if [[ -d "$dir" ]]; then
+        echo "$(cd "$dir" && pwd -W)/${base}"
+        return 0
+      fi
+      ;;
+  esac
+  echo "$p"
+}
+
 bundle_ptouch_print() {
   local dest="$1"
   mkdir -p "$dest/bin"
@@ -76,8 +101,18 @@ sha256_file() {
   local path="$1"
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$path" | awk '{print $1}' >"${path}.sha256"
-  else
+  elif command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$path" | awk '{print $1}' >"${path}.sha256"
+  else
+    LOCKHAVEN_HASH_PATH="$(native_path "$path")" python3 - <<'PY'
+import hashlib
+import os
+from pathlib import Path
+
+src = Path(os.environ["LOCKHAVEN_HASH_PATH"])
+digest = hashlib.sha256(src.read_bytes()).hexdigest()
+src.with_name(src.name + ".sha256").write_text(digest + "\n", encoding="utf-8")
+PY
   fi
 }
 
@@ -143,21 +178,30 @@ case "$KIND" in
     staging="$(mktemp -d "${TMPDIR:-/tmp}/field-win.XXXXXX")"
     mkdir -p "$staging/lockhaven-field"
     cp -a "$SRC"/. "$staging/lockhaven-field/"
-    (
-      cd "$staging"
-      if command -v zip >/dev/null 2>&1; then
+    if command -v zip >/dev/null 2>&1; then
+      (
+        cd "$staging"
         zip -qry "$DIST_DIR/$zip_name" lockhaven-field
-      else
-        python3 - <<PY
-import pathlib, zipfile
-root = pathlib.Path("$staging/lockhaven-field")
-out = pathlib.Path("$DIST_DIR/$zip_name")
+      )
+    else
+      # Native Windows Python cannot open Git Bash /d/... paths.
+      export LOCKHAVEN_ZIP_ROOT
+      export LOCKHAVEN_ZIP_OUT
+      LOCKHAVEN_ZIP_ROOT="$(native_path "$staging/lockhaven-field")"
+      LOCKHAVEN_ZIP_OUT="$(native_path "$DIST_DIR/$zip_name")"
+      python3 - <<'PY'
+import os
+import zipfile
+from pathlib import Path
+
+root = Path(os.environ["LOCKHAVEN_ZIP_ROOT"])
+out = Path(os.environ["LOCKHAVEN_ZIP_OUT"])
+out.parent.mkdir(parents=True, exist_ok=True)
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
     for path in root.rglob("*"):
         zf.write(path, path.relative_to(root.parent))
 PY
-      fi
-    )
+    fi
     rm -rf "$staging"
     sha256_file "$DIST_DIR/$zip_name"
     echo "Wrote $DIST_DIR/$zip_name"
