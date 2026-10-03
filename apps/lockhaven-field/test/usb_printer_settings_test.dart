@@ -90,11 +90,28 @@ USB:
       const PrinterSelection(id: "serial:E75J012345", usbSerial: "E75J012345"),
     );
     expect(env["PTOUCH_SERIAL"], "E75J012345");
+    expect(env["PTOUCH_PRINT"], isNull);
     expect(
       withSelectedPrinter({"PTOUCH_SERIAL": "old"}, null)["PTOUCH_SERIAL"],
       isNull,
     );
   });
+
+  test(
+    "withSelectedPrinter passes the same ptouch-print binary Settings used",
+    () {
+      final env = withSelectedPrinter(
+        {"PATH": "/usr/bin", "PTOUCH_PRINT": "/broken/ptouch-print"},
+        const PrinterSelection(
+          id: "serial:E75J012345",
+          usbSerial: "E75J012345",
+        ),
+        ptouchPrint: "/opt/homebrew/bin/ptouch-print",
+      );
+      expect(env["PTOUCH_SERIAL"], "E75J012345");
+      expect(env["PTOUCH_PRINT"], "/opt/homebrew/bin/ptouch-print");
+    },
+  );
 
   test("catalog Windows build is honest about USB print", () async {
     final catalog = UsbPrinterCatalog(
@@ -108,6 +125,48 @@ USB:
     expect(result.usbPrintSupported, isFalse);
     expect(result.message, "USB print is not available on this build.");
     expect(result.devices, isEmpty);
+  });
+
+  test("catalog lists with the ptouch-print binary that starts", () async {
+    const tool = "/opt/homebrew/bin/ptouch-print";
+    final calls = <String>[];
+    final catalog = UsbPrinterCatalog(
+      config: const FieldConfig(hubBaseUrl: "http://127.0.0.1:3000"),
+      isWindows: false,
+      lookOnDisk: false,
+      runner: (exe, args, {environment}) async {
+        calls.add("$exe ${args.join(" ")}");
+        if (exe == "which") {
+          return ProcessResult(1, 0, tool, "");
+        }
+        if (exe == tool && args.contains("--help")) {
+          return ProcessResult(1, 0, "--list-connected --serial\n", "");
+        }
+        if (exe == tool && args.contains("--list-connected")) {
+          return ProcessResult(
+            1,
+            0,
+            "PT-D460BT\tserial E75J012345\t(USB bus 1, device 8)\n",
+            "",
+          );
+        }
+        if (exe == tool && args.contains("--info")) {
+          return ProcessResult(
+            1,
+            0,
+            "maximum printing width for this tape is 120px\n",
+            "",
+          );
+        }
+        return ProcessResult(1, 127, "", "");
+      },
+    );
+    final result = await catalog.scan();
+    expect(result.devices.any((row) => row.usbSerial == "E75J012345"), isTrue);
+    expect(
+      calls.where((call) => call.contains("--list-connected")).single,
+      "$tool --list-connected",
+    );
   });
 
   test("catalog helper-missing uses product-neutral copy", () async {

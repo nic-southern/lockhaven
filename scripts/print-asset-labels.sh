@@ -13,6 +13,8 @@
 #   PTOUCH_PRECUT=0 ./scripts/print-asset-labels.sh labels.csv  # disable --precut
 #   PTOUCH_SERIAL=E75J012345 ./scripts/print-asset-labels.sh labels.csv
 #     (USB serial from `ptouch-print --list-connected`; Field Settings sets this)
+#   PTOUCH_PRINT=/opt/homebrew/bin/ptouch-print ./scripts/print-asset-labels.sh labels.csv
+#     (absolute binary Field resolved; same one as `ptouch-print --list-connected`)
 #
 # Left tape leader (~23 mm on PT-D460BT) is mostly a hardware gap between the
 # print head and cutter. --precut (on by default) can shrink waste between
@@ -33,7 +35,8 @@ if [[ -z "${LOCKHAVEN_LABEL_FONTS:-}" && -d "$SCRIPT_DIR/fonts" ]]; then
   export LOCKHAVEN_LABEL_FONTS="$SCRIPT_DIR/fonts"
 fi
 # Prefer a bundled tape tool over PATH (Resources/label-tools/bin).
-export PATH="$SCRIPT_DIR/bin:${HOME:+$HOME/.local/bin}:$PATH"
+# Keep system bins so a Finder-launched app can still find bash and python3.
+export PATH="$SCRIPT_DIR/bin:${HOME:+$HOME/.local/bin}:${HOME:+$HOME/bin}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 
 SETTLE_SECONDS="${SETTLE_SECONDS:-3}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-30}"
@@ -67,13 +70,16 @@ bundled_label_python() {
 }
 
 ensure_label_venv() {
-  local bundled
+  local bundled dep_err
   if bundled="$(bundled_label_python)"; then
-    if python_has_label_deps "$bundled"; then
+    if dep_err="$("$bundled" -c 'import qrcode; from PIL import Image, ImageDraw, ImageFont' 2>&1)"; then
       LABEL_PYTHON="$bundled"
       return 0
     fi
-    echo "Bundled label Python is present but missing pillow/qrcode." >&2
+    echo "Bundled label Python failed:" >&2
+    if [[ -n "$dep_err" ]]; then
+      echo "$dep_err" >&2
+    fi
   fi
 
   local python_bin="$VENV_DIR/bin/python"
@@ -170,7 +176,22 @@ if ! bundled_label_python >/dev/null; then
   need python3
 fi
 if [[ "$DRY_RUN" -eq 0 ]]; then
-  need ptouch-print
+  # Field passes the absolute binary Settings used for --list-connected.
+  # That wins over PATH, including a broken copy in label-tools/bin.
+  if [[ -n "${PTOUCH_PRINT:-}" ]]; then
+    if [[ ! -x "$PTOUCH_PRINT" ]]; then
+      echo "Tape printer tool is not runnable: $PTOUCH_PRINT" >&2
+      exit 1
+    fi
+  else
+    resolved="$(command -v ptouch-print || true)"
+    if [[ -z "$resolved" ]]; then
+      echo "Missing required command: ptouch-print" >&2
+      exit 1
+    fi
+    PTOUCH_PRINT="$resolved"
+  fi
+  export PTOUCH_PRINT
 fi
 
 ensure_label_venv
@@ -202,6 +223,7 @@ out_dir = Path(os.environ["LOCKHAVEN_LABEL_OUT"])
 dry_run = os.environ["LOCKHAVEN_LABEL_DRY_RUN"] == "1"
 settle = float(os.environ["LOCKHAVEN_LABEL_SETTLE"])
 timeout = os.environ["LOCKHAVEN_LABEL_TIMEOUT"]
+ptouch = os.environ.get("PTOUCH_PRINT", "").strip() or "ptouch-print"
 precut = os.environ.get("LOCKHAVEN_LABEL_PRECUT", "1").strip().lower() not in (
     "0",
     "false",
@@ -243,11 +265,29 @@ def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
             path = Path(root) / name
             if path.is_file():
                 return ImageFont.truetype(str(path), size=size)
+    # Stock macOS has Arial. DejaVu stays first when the download or
+    # checkout bundled it.
+    mac_arial = (
+        [
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/Library/Fonts/Arial Bold.ttf",
+            "/Library/Fonts/Arial.ttf",
+        ]
+        if bold
+        else [
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/Library/Fonts/Arial.ttf",
+            "/Library/Fonts/Arial Bold.ttf",
+        ]
+    )
+    for path in mac_arial:
+        if Path(path).is_file():
+            return ImageFont.truetype(path, size=size)
     raise SystemExit(
-        "DejaVu fonts not found (needed for readable tape text). "
-        "Field downloads include fonts next to the helper. "
-        "Linux checkout: install fonts-dejavu-core. "
-        "macOS checkout: brew install --cask font-dejavu."
+        "No label font found (DejaVu Sans or Arial). "
+        "Field downloads include the font. From a checkout, install DejaVu Sans and try again."
     )
 
 
@@ -421,17 +461,22 @@ for index, row in enumerate(rows, start=1):
 
     if dry_run:
         continue
-    cmd = ["ptouch-print", f"--timeout={timeout}"]
+    cmd = [ptouch, f"--timeout={timeout}"]
     printer_serial = os.environ.get("PTOUCH_SERIAL", "").strip()
     if printer_serial and printer_serial not in ("-", "auto"):
         # Field Settings / `ptouch-print --list-connected` USB serial.
+        # Vendored ptouch-print: --serial <serial> (separate argument).
         cmd.extend(["--serial", printer_serial])
     if precut:
         # Chain / small-margin mode. First label still has ~23 mm physical leader.
         cmd.append("--precut")
     cmd.extend(["--image", str(label_png)])
     print("+", " ".join(cmd), flush=True)
-    subprocess.run(cmd, check=True)
+    completed = subprocess.run(cmd)
+    if completed.returncode != 0:
+        # ptouch-print already wrote its own stderr. Do not wrap it in a
+        # traceback that the app would have to dig through.
+        raise SystemExit(completed.returncode if completed.returncode > 0 else 1)
     if index < len(rows):
         print(f"Settling {settle}s before next job…", flush=True)
         time.sleep(settle)
