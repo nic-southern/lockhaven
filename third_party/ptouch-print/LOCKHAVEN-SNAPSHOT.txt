@@ -1,0 +1,10 @@
+Vendored ptouch-print snapshot for Lockhaven.
+
+This directory is the only source tree that
+scripts/install-ptouch-print.sh builds. Install never clones a third-party
+host.
+
+Snapshot: 02be73c75be483bd2bf947a048d447200e3229af
+License: GNU GPL v3 (see COPYING)
+
+Tree path: third_party/ptouch-print in this GitHub repository.

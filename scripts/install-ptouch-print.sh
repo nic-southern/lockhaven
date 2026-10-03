@@ -1,23 +1,33 @@
 #!/usr/bin/env bash
-# Build and install Dominic Radermacher's ptouch-print into ~/.local/bin.
-# Supports Linux and macOS (Homebrew libusb/libgd/gettext/argp-standalone).
-# Same binary Field expects.
+# Build and install ptouch-print into ~/.local/bin from the Lockhaven GitHub
+# tree (third_party/ptouch-print). Same binary Field expects.
 #
 # Usage:
 #   ./scripts/install-ptouch-print.sh
 #   PREFIX="$HOME/.local" ./scripts/install-ptouch-print.sh
 #
-# Upstream is dumb HTTP (gitweb). Do not use --depth 1 as the only clone:
-# that fails with "dumb http transport does not support shallow capabilities".
-# There is no public GitHub copy of this tree (clarkewd/ptouch-print 404s).
+# Warehouse Mac (after this lands on main):
+#   curl -fsSL -o install-ptouch-print.sh \
+#     https://raw.githubusercontent.com/nic-southern/lockhaven/main/scripts/install-ptouch-print.sh // pragma: allowlist secret
+#   chmod +x install-ptouch-print.sh
+#   ./install-ptouch-print.sh
+#
+# Override the GitHub ref used when this script is not next to the vendor tree:
+#   PTOUCH_LOCKHAVEN_REF=main ./install-ptouch-print.sh
 set -euo pipefail
 
 PREFIX="${PREFIX:-$HOME/.local}"
 BIN_DIR="$PREFIX/bin"
 SRC_DIR="${PTOUCH_SRC_DIR:-${TMPDIR:-/tmp}/ptouch-print-src}"
-# Official source: https://dominic.familie-radermacher.ch/projekte/ptouch-print/
-REPO_URL="${PTOUCH_REPO_URL:-https://git.familie-radermacher.ch/linux/ptouch-print.git}"
-export GIT_TERMINAL_PROMPT=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCKHAVEN_GITHUB="${LOCKHAVEN_GITHUB:-https://github.com/nic-southern/lockhaven}" # // pragma: allowlist secret
+# Feature-branch tarball first so a curl of this file from the PR works before
+# merge; then main (post-merge / after the feature branch is deleted).
+LOCKHAVEN_VENDOR_REFS=(
+  ${PTOUCH_LOCKHAVEN_REF:+"$PTOUCH_LOCKHAVEN_REF"}
+  "cursor/vendor-ptouch-print-github-ef4f"
+  "main"
+)
 
 need() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -47,9 +57,77 @@ prepend_cmake_prefix() {
   CMAKE_PREFIX_PATH="${dir}${CMAKE_PREFIX_PATH:+;$CMAKE_PREFIX_PATH}"
 }
 
+copy_vendor_tree() {
+  local from="$1"
+  local dest="$2"
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  cp -a "$from"/. "$dest"/
+}
+
+find_local_vendor() {
+  local candidate
+  if [[ -n "${PTOUCH_VENDOR_DIR:-}" ]]; then
+    printf '%s\n' "$PTOUCH_VENDOR_DIR"
+    return 0
+  fi
+  for candidate in \
+    "$SCRIPT_DIR/ptouch-print-src" \
+    "$SCRIPT_DIR/../third_party/ptouch-print" \
+    "$SCRIPT_DIR/third_party/ptouch-print"
+  do
+    if [[ -f "$candidate/CMakeLists.txt" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+fetch_github_vendor() {
+  local dest="$1"
+  need curl
+  need tar
+  local tmp ref url found
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+  local seen="|"
+  local -a refs=()
+  local r
+  for r in "${LOCKHAVEN_VENDOR_REFS[@]}"; do
+    [[ -z "$r" ]] && continue
+    [[ "$seen" == *"|$r|"* ]] && continue
+    seen+="$r|"
+    refs+=("$r")
+  done
+  for ref in "${refs[@]}"; do
+    url="${LOCKHAVEN_GITHUB}/archive/refs/heads/${ref}.tar.gz"
+    echo "Fetching vendored ptouch-print from ${LOCKHAVEN_GITHUB} (ref ${ref})"
+    rm -rf "${tmp:?}"/*
+    if ! curl -fsSL "$url" | tar -xz -C "$tmp"; then
+      echo "Could not download $url" >&2
+      continue
+    fi
+    found=""
+    for cmake_file in "$tmp"/*/third_party/ptouch-print/CMakeLists.txt; do
+      if [[ -f "$cmake_file" ]]; then
+        found="$cmake_file"
+        break
+      fi
+    done
+    if [[ -n "$found" ]]; then
+      copy_vendor_tree "$(dirname "$found")" "$dest"
+      return 0
+    fi
+    echo "Archive for ref ${ref} did not contain third_party/ptouch-print." >&2
+  done
+  echo "Could not fetch ptouch-print from ${LOCKHAVEN_GITHUB}." >&2
+  echo "Use a Lockhaven checkout, or set PTOUCH_LOCKHAVEN_REF to a branch that contains third_party/ptouch-print." >&2
+  return 1
+}
+
 os="$(uname -s)"
 echo "Installing ptouch-print for $os → $BIN_DIR"
-echo "Source: $REPO_URL"
 
 if [[ "$os" == "Darwin" ]]; then
   brew_bin=""
@@ -80,10 +158,10 @@ if [[ "$os" == "Darwin" ]]; then
   fi
 fi
 
-need git
 need cmake
 need make
 need pkg-config
+need git
 
 if [[ "$os" == "Darwin" ]]; then
   if ! pkg-config --exists libusb-1.0; then
@@ -106,24 +184,25 @@ else
   fi
 fi
 
-clone_repo() {
-  local url="$1"
-  local dest="$2"
-  echo "Cloning $url → $dest"
-  # Try a shallow clone first (GitHub/GitLab smart HTTP). Upstream gitweb is
-  # dumb HTTP and rejects --depth; fall back to a full clone of the same URL.
-  if git clone --depth 1 "$url" "$dest"; then
-    return 0
-  fi
-  echo "Shallow clone failed (expected on dumb HTTP); retrying a full clone of the same URL." >&2
-  rm -rf "$dest"
-  git clone "$url" "$dest"
-}
+vendor=""
+if vendor="$(find_local_vendor)"; then
+  echo "Source: $vendor"
+  copy_vendor_tree "$vendor" "$SRC_DIR"
+else
+  echo "Source: ${LOCKHAVEN_GITHUB} (vendored third_party/ptouch-print)"
+  fetch_github_vendor "$SRC_DIR"
+fi
 
-rm -rf "$SRC_DIR"
-clone_repo "$REPO_URL" "$SRC_DIR"
+if [[ ! -f "$SRC_DIR/CMakeLists.txt" ]]; then
+  echo "Vendored ptouch-print tree is missing CMakeLists.txt" >&2
+  exit 1
+fi
 
 mkdir -p "$SRC_DIR/build"
+# gitversion.cmake writes version.h into the build dir; seed the snapshot.
+if [[ -f "$SRC_DIR/version.h" ]]; then
+  cp "$SRC_DIR/version.h" "$SRC_DIR/build/version.h"
+fi
 cmake_args=(
   -S "$SRC_DIR"
   -B "$SRC_DIR/build"
@@ -155,7 +234,7 @@ if [[ -n "$supported" ]]; then
   echo "$supported" | head -40
 fi
 if ! echo "$supported" | grep -qiE 'D460'; then
-  echo "ptouch-print did not list a D460 model. Check the clone and rebuild." >&2
+  echo "ptouch-print did not list a D460 model. Check the vendored tree and rebuild." >&2
   exit 1
 fi
 echo
