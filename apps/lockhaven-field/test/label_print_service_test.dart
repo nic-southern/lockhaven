@@ -170,7 +170,7 @@ void main() {
         Process.runSync("chmod", ["+x", bundled.path]);
       }
       final working = File(
-        "${dir.path}${sep}.local${sep}bin${sep}ptouch-print",
+        "${dir.path}$sep.local${sep}bin${sep}ptouch-print",
       );
       working.parent.createSync(recursive: true);
       working.writeAsStringSync("#!/bin/sh\nexit 0\n");
