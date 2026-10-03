@@ -160,20 +160,28 @@ void main() {
       addTearDown(() {
         if (dir.existsSync()) dir.deleteSync(recursive: true);
       });
-      final script = File("${dir.path}/print-asset-labels.sh")
+      final sep = Platform.pathSeparator;
+      final script = File("${dir.path}${sep}print-asset-labels.sh")
         ..writeAsStringSync("#!/bin/bash\n");
-      final bundled = File("${dir.path}/bin/ptouch-print");
+      final bundled = File("${dir.path}${sep}bin${sep}ptouch-print");
       bundled.parent.createSync(recursive: true);
       bundled.writeAsStringSync("#!/bin/sh\nexit 1\n");
       if (!Platform.isWindows) {
         Process.runSync("chmod", ["+x", bundled.path]);
       }
-      final working = File("${dir.path}/.local/bin/ptouch-print");
+      final working = File(
+        "${dir.path}${sep}.local${sep}bin${sep}ptouch-print",
+      );
       working.parent.createSync(recursive: true);
       working.writeAsStringSync("#!/bin/sh\nexit 0\n");
       if (!Platform.isWindows) {
         Process.runSync("chmod", ["+x", working.path]);
       }
+
+      // Windows disk candidates use backslashes; File.path may keep the
+      // separators used to create the temp file. Compare the path identity.
+      String slash(String path) => path.replaceAll("\\", "/");
+      bool samePath(String a, String b) => slash(a) == slash(b);
 
       final resolved = await resolvePtouchPrint(
         env: {"HOME": dir.path, "PATH": "/usr/bin:/bin"},
@@ -183,7 +191,7 @@ void main() {
           if (exe == "which") {
             return ProcessResult(1, 0, bundled.path, "");
           }
-          if (exe == bundled.path) {
+          if (samePath(exe, bundled.path)) {
             return ProcessResult(
               1,
               127,
@@ -191,7 +199,7 @@ void main() {
               "dyld: Library not loaded: libusb\n",
             );
           }
-          if (exe == working.path && args.contains("--help")) {
+          if (samePath(exe, working.path) && args.contains("--help")) {
             return ProcessResult(
               1,
               0,
@@ -202,7 +210,8 @@ void main() {
           return ProcessResult(1, 127, "", "not found");
         },
       );
-      expect(resolved, working.path);
+      expect(resolved, isNotNull);
+      expect(slash(resolved!), slash(working.path));
 
       final env = withSelectedPrinter(
         {"PATH": "/usr/bin"},
@@ -212,7 +221,7 @@ void main() {
         ),
         ptouchPrint: resolved,
       );
-      expect(env["PTOUCH_PRINT"], working.path);
+      expect(slash(env["PTOUCH_PRINT"]!), slash(working.path));
       expect(env["PTOUCH_SERIAL"], "E75J012345");
     },
   );
