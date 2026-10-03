@@ -1,0 +1,5 @@
+#define GIT_BRANCH "master"
+#define GIT_COMMIT "02be73c"
+#define GIT_COMMITS "0"
+#define GIT_TAG "v1.9"
+#define VERSION "v1.9.r0.g02be73c"

@@ -34,17 +34,23 @@ PR / CI runs also upload GitHub Actions artifacts named
 6. **Print** uses the helper **inside the app** (private CPython + venv with
    Pillow/qrcode + DejaVu fonts). You do **not** need Homebrew Python.
 7. If print says the tape printer tool is missing, run the one-time installer
-   (Homebrew is fine for _this_ binary only). The installer clones Dominic
-   Radermacher’s git (`git.familie-radermacher.ch`; a full clone, not
-   `--depth 1`) and installs to `~/.local/bin`:
+   (Homebrew is fine for _this_ binary only). It builds the copy of
+   `ptouch-print` that lives in this GitHub repo
+   (`third_party/ptouch-print`) and installs to `~/.local/bin`. Prefer
+   **main** (not a deleted feature branch):
    ```bash
    brew install cmake libusb libgd pkg-config gettext argp-standalone
-   chmod +x ./install-ptouch-print.sh
+   curl -fsSL -o install-ptouch-print.sh \
+     https://raw.githubusercontent.com/nic-southern/lockhaven/main/scripts/install-ptouch-print.sh # // pragma: allowlist secret
+   chmod +x install-ptouch-print.sh
    ./install-ptouch-print.sh   # → ~/.local/bin/ptouch-print
    export PATH="$HOME/.local/bin:$PATH"
    ptouch-print --list-supported | grep -i D460   # expect PT-D460BT
    ptouch-print --info
    ```
+   If you already have the script from a Field zip or a Lockhaven checkout,
+   run that file instead (it uses the vendored tree next to the script, or
+   fetches the same tree from `github.com/nic-southern/lockhaven`). <!-- // pragma: allowlist secret -->
    CI often bundles `ptouch-print` inside the app as well; Field looks there
    first, then `~/.local/bin`.
 

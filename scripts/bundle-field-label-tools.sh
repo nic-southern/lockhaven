@@ -183,6 +183,12 @@ copy_helper_scripts() {
   cp "$REQ_FILE" "$DEST/requirements-labels.txt"
   cp "$SCRIPT_DIR/install-ptouch-print.sh" "$DEST/install-ptouch-print.sh"
   chmod 0755 "$DEST/install-ptouch-print.sh"
+  vendor="$SCRIPT_DIR/../third_party/ptouch-print"
+  if [[ -f "$vendor/CMakeLists.txt" ]]; then
+    rm -rf "$DEST/ptouch-print-src"
+    mkdir -p "$DEST/ptouch-print-src"
+    cp -a "$vendor"/. "$DEST/ptouch-print-src"/
+  fi
 }
 
 if [[ "$USE_SYSTEM_PYTHON" -eq 1 ]]; then
@@ -211,7 +217,8 @@ This folder is the private print toolkit inside Field:
 
 Field looks here first. You do not need Homebrew Python.
 If print still cannot find the tape printer tool, run install-ptouch-print.sh
-once (needs cmake, libusb, and libgd on this computer).
+once (needs cmake, libusb, and libgd on this computer). That script builds
+the vendored sources from github.com/nic-southern/lockhaven. // pragma: allowlist secret
 EOF
 
 echo "Bundled label tools at $DEST" >&2
