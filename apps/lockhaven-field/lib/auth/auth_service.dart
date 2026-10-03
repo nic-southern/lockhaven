@@ -8,6 +8,38 @@ import "package:lockhaven_field/hub/models.dart";
 import "package:path_provider/path_provider.dart";
 import "package:url_launcher/url_launcher.dart";
 
+String normalizeHubBaseUrl(String raw) {
+  final trimmed = raw.trim();
+  if (trimmed.isEmpty) return "";
+  return trimmed.replaceAll(RegExp(r"/$"), "");
+}
+
+class HubPrefs {
+  Future<File> _file() async {
+    final dir = await getApplicationSupportDirectory();
+    return File("${dir.path}/hub_base_url.txt");
+  }
+
+  Future<String?> read() async {
+    try {
+      final file = await _file();
+      if (!await file.exists()) return null;
+      final value = normalizeHubBaseUrl(await file.readAsString());
+      return value.isEmpty ? null : value;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> write(String url) async {
+    final value = normalizeHubBaseUrl(url);
+    if (value.isEmpty) return;
+    final file = await _file();
+    await file.parent.create(recursive: true);
+    await file.writeAsString(value);
+  }
+}
+
 class SessionStore {
   Future<File> _file() async {
     final dir = await getApplicationSupportDirectory();
@@ -87,10 +119,13 @@ class AuthService {
   AuthService({
     required this.config,
     SessionStore? store,
-  }) : store = store ?? SessionStore();
+    HubPrefs? hubPrefs,
+  })  : store = store ?? SessionStore(),
+        hubPrefs = hubPrefs ?? HubPrefs();
 
   final FieldConfig config;
   final SessionStore store;
+  final HubPrefs hubPrefs;
 
   HubClient clientFor(StoredSession? session) {
     return HubClient(
@@ -108,11 +143,21 @@ class AuthService {
     return session;
   }
 
-  Future<StoredSession> signInWithBrowser() async {
+  Future<StoredSession> signInWithBrowser({String? hubBaseUrl}) async {
+    final base = normalizeHubBaseUrl(hubBaseUrl ?? config.hubBaseUrl);
+    if (base.isEmpty) {
+      throw HubException("Enter the Console address before signing in.");
+    }
+    final parsed = Uri.tryParse(base);
+    if (parsed == null ||
+        !(parsed.isScheme("https") || parsed.isScheme("http"))) {
+      throw HubException("Console address must start with https:// or http://.");
+    }
+
     final loopback = LoopbackAuthServer();
     final redirectUri = await loopback.start();
     final state = _randomState();
-    final authUrl = Uri.parse("${config.hubBaseUrl}/field/auth").replace(
+    final authUrl = Uri.parse("$base/field/auth").replace(
       queryParameters: {
         "redirect_uri": redirectUri.toString(),
         "state": state,
@@ -148,7 +193,7 @@ class AuthService {
     }
 
     final client = HubClient(
-      baseUrl: config.hubBaseUrl,
+      baseUrl: base,
       getToken: () async => null,
     );
     try {
@@ -157,9 +202,10 @@ class AuthService {
         token: exchanged.token,
         expiresAt: exchanged.expiresAt,
         user: exchanged.user,
-        hubBaseUrl: config.hubBaseUrl,
+        hubBaseUrl: base,
       );
       await store.write(session);
+      await hubPrefs.write(base);
       return session;
     } finally {
       client.close();

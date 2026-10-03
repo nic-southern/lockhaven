@@ -73,10 +73,11 @@ class LabelPrintService {
       throw LabelPrintException(
         "Label helper not found.",
         detail:
-            "Run Field from the Lockhaven checkout, or pass "
+            "Use a Field download (helper is inside the app), run from a "
+            "Lockhaven checkout, or pass "
             "--dart-define=LABEL_PRINT_SCRIPT=/path/to/"
-            "print-asset-labels.sh. Also needs ptouch-print on PATH "
-            "(often ~/.local/bin).",
+            "print-asset-labels.sh. Needs the tape printer tool on PATH "
+            "or inside the app (often ~/.local/bin).",
       );
     }
 
@@ -84,7 +85,13 @@ class LabelPrintService {
       script,
       [csvFile.path],
       runInShell: false,
-      environment: printHelperEnvironment(Platform.environment),
+      environment: printHelperEnvironment(
+        Platform.environment,
+        extraBinDirs: [
+          "${File(script).parent.path}/bin",
+          File(script).parent.path,
+        ],
+      ),
     );
 
     if (result.exitCode == 0) {
@@ -175,7 +182,7 @@ String _humanizeHelperFailure(ProcessResult result) {
         blob.contains("timeout")) {
       // fall through to more specific checks below
     } else if (blob.contains("missing required command")) {
-      return "ptouch-print not found. Install it and keep it on PATH (~/.local/bin).";
+      return "Tape printer tool not found. Install it once (install-ptouch-print.sh) or keep it on PATH (~/.local/bin).";
     }
   }
   if (blob.contains("no printer") ||
@@ -191,7 +198,7 @@ String _humanizeHelperFailure(ProcessResult result) {
     return "Printer did not respond in time. Wait a moment and try again.";
   }
   if (blob.contains("pillow") || blob.contains("qrcode") || blob.contains("venv")) {
-    return "Label helper could not set up Python packages. See detail below.";
+    return "Label helper could not prepare layout tools. Reinstall Field or see detail below.";
   }
   return "Label helper failed.";
 }
@@ -209,12 +216,17 @@ String _processDetail(ProcessResult result, {required String tool}) {
 
 /// Ensure label tools are on PATH for spawned helper + `ptouch-print`.
 ///
-/// Covers `~/.local/bin` (install-ptouch-print.sh), Homebrew on Apple Silicon
-/// (`/opt/homebrew/bin`) and Intel (`/usr/local/bin`), and `~/bin`.
-Map<String, String> printHelperEnvironment(Map<String, String> base) {
+/// Covers bundled `label-tools/bin` inside the Field app, `~/.local/bin`
+/// (install-ptouch-print.sh), Homebrew on Apple Silicon (`/opt/homebrew/bin`)
+/// and Intel (`/usr/local/bin`), and `~/bin`.
+Map<String, String> printHelperEnvironment(
+  Map<String, String> base, {
+  List<String> extraBinDirs = const [],
+}) {
   final env = Map<String, String>.from(base);
   final home = env["HOME"]?.trim();
   final extras = <String>[
+    ...extraBinDirs,
     if (home != null && home.isNotEmpty) "$home/.local/bin",
     if (home != null && home.isNotEmpty) "$home/bin",
     "/opt/homebrew/bin",
@@ -244,41 +256,116 @@ List<String> scriptSearchCandidates({
     if (path.isNotEmpty) out.add(path);
   }
 
-  add("$cwd/scripts/print-asset-labels.sh");
-  add("$cwd/../scripts/print-asset-labels.sh");
-  add("$cwd/../../scripts/print-asset-labels.sh");
-  add("$cwd/../../../scripts/print-asset-labels.sh");
+  for (final path in bundledScriptCandidates(executable)) {
+    add(path);
+  }
 
-  var dir = Directory(cwd).absolute;
+  add(_posixJoin(cwd, "scripts/print-asset-labels.sh"));
+  add(_posixJoin(_posixDirname(cwd), "scripts/print-asset-labels.sh"));
+  add(
+    _posixJoin(
+      _posixDirname(_posixDirname(cwd)),
+      "scripts/print-asset-labels.sh",
+    ),
+  );
+  add(
+    _posixJoin(
+      _posixDirname(_posixDirname(_posixDirname(cwd))),
+      "scripts/print-asset-labels.sh",
+    ),
+  );
+
+  var dir = _posixNormalize(cwd);
   for (var i = 0; i < 8; i += 1) {
-    add("${dir.path}/scripts/print-asset-labels.sh");
-    final parent = dir.parent;
-    if (parent.path == dir.path) break;
+    add(_posixJoin(dir, "scripts/print-asset-labels.sh"));
+    final parent = _posixDirname(dir);
+    if (parent == dir) break;
     dir = parent;
   }
 
   if (executable != null && executable.isNotEmpty) {
-    var exeDir = File(executable).absolute.parent;
+    var exeDir = _posixDirname(executable);
     for (var i = 0; i < 10; i += 1) {
-      add("${exeDir.path}/scripts/print-asset-labels.sh");
-      final parent = exeDir.parent;
-      if (parent.path == exeDir.path) break;
+      add(_posixJoin(exeDir, "scripts/print-asset-labels.sh"));
+      final parent = _posixDirname(exeDir);
+      if (parent == exeDir) break;
       exeDir = parent;
     }
   }
 
   if (home != null && home.isNotEmpty) {
-    add("$home/.local/bin/print-asset-labels.sh");
-    add("$home/bin/print-asset-labels.sh");
-    add("$home/lockhaven/scripts/print-asset-labels.sh");
-    add("$home/git/lockhaven/scripts/print-asset-labels.sh");
-    add("$home/src/lockhaven/scripts/print-asset-labels.sh");
-    // Common macOS checkout layouts
-    add("$home/Developer/lockhaven/scripts/print-asset-labels.sh");
-    add("$home/Projects/lockhaven/scripts/print-asset-labels.sh");
-    add("$home/code/lockhaven/scripts/print-asset-labels.sh");
+    add(_posixJoin(home, ".local/bin/print-asset-labels.sh"));
+    add(_posixJoin(home, "bin/print-asset-labels.sh"));
+    add(_posixJoin(home, "lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "git/lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "src/lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "Developer/lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "Projects/lockhaven/scripts/print-asset-labels.sh"));
+    add(_posixJoin(home, "code/lockhaven/scripts/print-asset-labels.sh"));
   }
 
   final seen = <String>{};
   return out.where((p) => seen.add(p)).toList();
+}
+
+/// Helper next to a shipped Field binary (macOS .app Resources, Linux bundle).
+///
+/// Paths are walked as POSIX strings so Windows CI can still assert Mac/Linux
+/// layouts without [File.absolute] prefixing the runner drive.
+List<String> bundledScriptCandidates(String? executable) {
+  if (executable == null || executable.isEmpty) return const [];
+  final out = <String>[];
+  var dir = _posixDirname(executable);
+
+  if (_posixEndsWithSegment(dir, "MacOS")) {
+    final contents = _posixDirname(dir);
+    out.add(
+      _posixJoin(contents, "Resources/label-tools/print-asset-labels.sh"),
+    );
+  }
+  out.add(_posixJoin(dir, "label-tools/print-asset-labels.sh"));
+  out.add(
+    _posixJoin(dir, "Contents/Resources/label-tools/print-asset-labels.sh"),
+  );
+
+  for (var i = 0; i < 6; i += 1) {
+    out.add(_posixJoin(dir, "label-tools/print-asset-labels.sh"));
+    final parent = _posixDirname(dir);
+    if (parent == dir) break;
+    dir = parent;
+  }
+  final seen = <String>{};
+  return out.where((p) => seen.add(p)).toList();
+}
+
+String _posixNormalize(String path) {
+  var n = path.replaceAll(r"\", "/");
+  if (n.length > 1 && n.endsWith("/")) {
+    n = n.substring(0, n.length - 1);
+  }
+  return n;
+}
+
+String _posixDirname(String path) {
+  final n = _posixNormalize(path);
+  if (n.isEmpty || n == "/") return n;
+  if (n.length == 2 && n[1] == ":") return n;
+  if (n.length == 3 && n[1] == ":" && n[2] == "/") return n;
+  final i = n.lastIndexOf("/");
+  if (i <= 0) return "";
+  if (i == 2 && n[1] == ":") return n.substring(0, 3);
+  return n.substring(0, i);
+}
+
+String _posixJoin(String dir, String rel) {
+  final a = _posixNormalize(dir);
+  final b = rel.replaceAll(r"\", "/").replaceFirst(RegExp(r"^/+"), "");
+  if (a.isEmpty) return b;
+  if (a.endsWith("/")) return "$a$b";
+  return "$a/$b";
+}
+
+bool _posixEndsWithSegment(String path, String segment) {
+  final n = _posixNormalize(path);
+  return n == segment || n.endsWith("/$segment");
 }

@@ -8,11 +8,13 @@ class AppState extends ChangeNotifier {
   AppState({FieldConfig? config, AuthService? authService})
       : config = config ?? FieldConfig.fromEnvironment(),
         auth = authService ??
-            AuthService(config: config ?? FieldConfig.fromEnvironment());
+            AuthService(config: config ?? FieldConfig.fromEnvironment()),
+        hubBaseUrl = (config ?? FieldConfig.fromEnvironment()).hubBaseUrl;
 
   final FieldConfig config;
   final AuthService auth;
 
+  String hubBaseUrl;
   StoredSession? session;
   HubClient? _client;
   String? errorMessage;
@@ -33,8 +35,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> bootstrap() async {
+    final savedHub = await auth.hubPrefs.read();
+    if (savedHub != null && savedHub.isNotEmpty) {
+      hubBaseUrl = savedHub;
+    }
     session = await auth.restore();
     if (session != null) {
+      hubBaseUrl = session!.hubBaseUrl;
       _client = auth.clientFor(session);
       try {
         await refreshSites();
@@ -52,7 +59,7 @@ class AppState extends ChangeNotifier {
     errorMessage = null;
     notifyListeners();
     try {
-      session = await auth.signInWithBrowser();
+      session = await auth.signInWithBrowser(hubBaseUrl: hubBaseUrl);
       _client?.close();
       _client = auth.clientFor(session);
       await refreshSites();

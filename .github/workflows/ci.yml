@@ -57,14 +57,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   flutter-field:
-    name: flutter/field (${{ matrix.os }})
+    name: flutter/field (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
+        include:
+          - name: linux
+            os: ubuntu-latest
+            target: linux
+          - name: macos
+            os: macos-latest
+            target: macos
+          - name: windows
+            os: windows-latest
+            target: windows
     defaults:
       run:
         working-directory: apps/lockhaven-field
@@ -76,17 +83,93 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Linux desktop packages
+        if: matrix.target == 'linux'
+        working-directory: ${{ github.workspace }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libusb-1.0-0-dev libgd-dev \
+            python3-venv python3-pip curl bzip2 zip
+
+      - name: macOS print-tool packages
+        if: matrix.target == 'macos'
+        working-directory: ${{ github.workspace }}
+        run: |
+          brew install libusb libgd cmake pkg-config || true
+          brew install dylibbundler || true
+
       - run: flutter pub get
 
       - run: flutter analyze --fatal-infos
 
       - run: flutter test
 
-      # macOS target: compile the desktop app (ad-hoc signing; no Apple team).
-      # Linux/Windows desktop builds stay out of this job to keep Linux CI light.
-      - name: Build macOS (debug)
-        if: runner.os == 'macOS'
-        run: flutter build macos --debug
+      - name: Smoke-test bundled label helper
+        if: matrix.target == 'linux'
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/test-label-helper-bundle.sh
+
+      - name: Enable Linux desktop
+        if: matrix.target == 'linux'
+        run: flutter config --enable-linux-desktop
+
+      - name: Build Linux (release)
+        if: matrix.target == 'linux'
+        env:
+          FIELD_HUB_BASE_URL: ${{ vars.FIELD_HUB_BASE_URL }}
+        run: |
+          define=()
+          if [ -n "${FIELD_HUB_BASE_URL:-}" ]; then
+            define=(--dart-define="HUB_BASE_URL=${FIELD_HUB_BASE_URL}")
+          fi
+          flutter build linux --release "${define[@]}"
+
+      - name: Package Linux tarball
+        if: matrix.target == 'linux'
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/package-lockhaven-field.sh linux
+
+      - name: Build macOS (release)
+        if: matrix.target == 'macos'
+        env:
+          FIELD_HUB_BASE_URL: ${{ vars.FIELD_HUB_BASE_URL }}
+        run: |
+          define=()
+          if [ -n "${FIELD_HUB_BASE_URL:-}" ]; then
+            define=(--dart-define="HUB_BASE_URL=${FIELD_HUB_BASE_URL}")
+          fi
+          flutter build macos --release "${define[@]}"
+
+      - name: Package macOS zip
+        if: matrix.target == 'macos'
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/package-lockhaven-field.sh macos
+
+      - name: Build Windows (release)
+        if: matrix.target == 'windows'
+        env:
+          FIELD_HUB_BASE_URL: ${{ vars.FIELD_HUB_BASE_URL }}
+        shell: bash
+        run: |
+          define=()
+          if [ -n "${FIELD_HUB_BASE_URL:-}" ]; then
+            define=(--dart-define="HUB_BASE_URL=${FIELD_HUB_BASE_URL}")
+          fi
+          flutter build windows --release "${define[@]}"
+
+      - name: Package Windows zip
+        if: matrix.target == 'windows'
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        run: bash scripts/package-lockhaven-field.sh windows
+
+      - name: Upload Field artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lockhaven-field-${{ matrix.target }}
+          path: dist/field/lockhaven-field-*
+          if-no-files-found: error
 
   publish-containers:
     needs:
@@ -111,6 +194,14 @@ jobs:
             file: apps/worker/Dockerfile
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download Field desktop artifacts
+        if: matrix.name == 'web'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lockhaven-field-*
+          path: apps/web/public/install
+          merge-multiple: true
 
       - uses: docker/setup-buildx-action@v3
 

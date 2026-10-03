@@ -1,13 +1,25 @@
+import "dart:io";
+
 import "package:flutter_test/flutter_test.dart";
 import "package:lockhaven_field/labels/label_print_service.dart";
 
 void main() {
-  test("printHelperEnvironment prepends ~/.local/bin and Homebrew bins", () {
-    final env = printHelperEnvironment({
-      "HOME": "/home/tech",
-      "PATH": "/usr/bin:/bin",
-    });
-    expect(env["PATH"], startsWith("/home/tech/.local/bin:"));
+  test("printHelperEnvironment prepends extra bin dirs then ~/.local/bin", () {
+    final env = printHelperEnvironment(
+      {
+        "HOME": "/home/tech",
+        "PATH": "/usr/bin:/bin",
+      },
+      extraBinDirs: ["/Applications/Lockhaven Field.app/Contents/Resources/label-tools/bin"],
+    );
+    final sep = Platform.isWindows ? ";" : ":";
+    expect(
+      env["PATH"],
+      startsWith(
+        "/Applications/Lockhaven Field.app/Contents/Resources/label-tools/bin$sep",
+      ),
+    );
+    expect(env["PATH"], contains("/home/tech/.local/bin"));
     expect(env["PATH"], contains("/opt/homebrew/bin"));
     expect(env["PATH"], contains("/usr/local/bin"));
     expect(env["PATH"], contains("/usr/bin"));
@@ -40,6 +52,34 @@ void main() {
     expect(
       candidates,
       contains("/Users/nic/Projects/lockhaven/scripts/print-asset-labels.sh"),
+    );
+    expect(
+      candidates.first,
+      "/Users/nic/Developer/lockhaven/apps/lockhaven-field/build/macos/Build/Products/Debug/lockhaven_field.app/Contents/Resources/label-tools/print-asset-labels.sh",
+    );
+  });
+
+  test("bundledScriptCandidates prefers macOS Resources label-tools", () {
+    final bundled = bundledScriptCandidates(
+      "/Applications/Lockhaven Field.app/Contents/MacOS/lockhaven_field",
+    );
+    expect(
+      bundled,
+      contains(
+        "/Applications/Lockhaven Field.app/Contents/Resources/label-tools/print-asset-labels.sh",
+      ),
+    );
+  });
+
+  test("bundledScriptCandidates walks a Windows install next to label-tools", () {
+    final bundled = bundledScriptCandidates(
+      r"C:\Program Files\Lockhaven Field\lockhaven_field.exe",
+    );
+    expect(
+      bundled,
+      contains(
+        "C:/Program Files/Lockhaven Field/label-tools/print-asset-labels.sh",
+      ),
     );
   });
 }
