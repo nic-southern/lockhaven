@@ -124,6 +124,7 @@ No organization API keys and no enrollment tokens.
 - **Add asset** / **Add folder** — serial-first items; folders named (cabinet, TRT, …)
 - **Device model** search/dropdown on add and edit (Hub `deviceModels` catalog)
 - **Save** or **Save & print** on add (print via local helper)
+- **Settings** — choose the tape printer from devices on this computer
 - Stay-in-flow after saving an item: scan the next serial without leaving the screen
   (device model stays selected for batch adds of the same type)
 - Folder detail: **Add asset** into the folder, or find an existing item
@@ -141,6 +142,12 @@ the same Pillow + DejaVu layout that passed the Brother spike.
 fonts live in `label-tools/` inside the app (or next to the Linux binary).
 Field prefers that copy. `ptouch-print` is bundled when CI can build it;
 otherwise install once with `install-ptouch-print.sh`.
+
+**Printer selection:** Settings (bottom bar, also on sign-in) lists devices
+from `ptouch-print --list-connected` plus `lsusb` / `system_profiler`. Compatible
+tape printers are highlighted. The USB serial is stored and passed as
+`PTOUCH_SERIAL` → `ptouch-print --serial`. Windows builds show that USB print
+is not available.
 
 **From a git checkout:** the helper creates `scripts/.venv-labels` on first
 run. Requirements:

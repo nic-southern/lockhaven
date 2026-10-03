@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:lockhaven_field/auth/auth_service.dart";
+import "package:lockhaven_field/screens/settings_screen.dart";
 import "package:lockhaven_field/state/app_state.dart";
 
 class SignInScreen extends StatefulWidget {
@@ -37,6 +38,22 @@ class _SignInScreenState extends State<SignInScreen> {
     final state = widget.state;
 
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        actions: [
+          IconButton(
+            tooltip: "Settings",
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SettingsScreen(config: state.config),
+                ),
+              );
+            },
+            icon: const Icon(Icons.settings_outlined),
+          ),
+        ],
+      ),
       body: Stack(
         children: [
           Positioned.fill(
@@ -71,16 +88,14 @@ class _SignInScreenState extends State<SignInScreen> {
                       const SizedBox(height: 8),
                       Text(
                         "Field",
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: scheme.primary,
-                            ),
+                        style: Theme.of(context).textTheme.titleLarge
+                            ?.copyWith(color: scheme.primary),
                       ),
                       const SizedBox(height: 16),
                       Text(
                         "Sign in with your Console account to work sites, assets, and scans on this computer.",
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
+                        style: Theme.of(context).textTheme.bodyLarge
+                            ?.copyWith(color: scheme.onSurfaceVariant),
                       ),
                       const SizedBox(height: 20),
                       TextField(
@@ -103,7 +118,9 @@ class _SignInScreenState extends State<SignInScreen> {
                             ? const SizedBox(
                                 height: 18,
                                 width: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               )
                             : const Text("Sign in with browser"),
                       ),
@@ -111,9 +128,8 @@ class _SignInScreenState extends State<SignInScreen> {
                         const SizedBox(height: 16),
                         Text(
                           state.errorMessage!,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: scheme.error,
-                              ),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: scheme.error),
                         ),
                       ],
                     ],

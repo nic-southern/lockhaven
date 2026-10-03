@@ -3,6 +3,8 @@ import "dart:io";
 import "package:lockhaven_field/config.dart";
 import "package:lockhaven_field/hub/models.dart";
 import "package:lockhaven_field/labels/label_payload.dart";
+import "package:lockhaven_field/labels/printer_store.dart";
+import "package:lockhaven_field/labels/usb_printers.dart";
 import "package:path_provider/path_provider.dart";
 
 enum LabelPrintPath {
@@ -29,9 +31,8 @@ class LabelPrintException implements Exception {
   final String? detail;
 
   @override
-  String toString() => detail == null || detail!.isEmpty
-      ? message
-      : "$message\n$detail";
+  String toString() =>
+      detail == null || detail!.isEmpty ? message : "$message\n$detail";
 }
 
 /// Prints via the proven laptop helper (DejaVu text + QR), not Dart bitmaps.
@@ -41,12 +42,14 @@ class LabelPrintService {
   LabelPrintService({
     required this.config,
     this.scriptOverride,
+    this.printerStore,
   });
 
   final FieldConfig config;
 
   /// Injected for tests.
   final String? scriptOverride;
+  final PrinterStore? printerStore;
 
   Future<LabelPrintResult> printAssetLabel({
     required AssetSummary asset,
@@ -81,16 +84,20 @@ class LabelPrintService {
       );
     }
 
+    final selection = await (printerStore ?? PrinterStore()).read();
     final result = await Process.run(
       script,
       [csvFile.path],
       runInShell: false,
-      environment: printHelperEnvironment(
-        Platform.environment,
-        extraBinDirs: [
-          "${File(script).parent.path}/bin",
-          File(script).parent.path,
-        ],
+      environment: withSelectedPrinter(
+        printHelperEnvironment(
+          Platform.environment,
+          extraBinDirs: [
+            "${File(script).parent.path}/bin",
+            File(script).parent.path,
+          ],
+        ),
+        selection,
       ),
     );
 
@@ -132,11 +139,9 @@ class LabelPrintService {
     }
 
     try {
-      final which = await Process.run(
-        "which",
-        ["print-asset-labels.sh"],
-        environment: printHelperEnvironment(Platform.environment),
-      );
+      final which = await Process.run("which", [
+        "print-asset-labels.sh",
+      ], environment: printHelperEnvironment(Platform.environment));
       if (which.exitCode == 0) {
         final path = (which.stdout as String).trim();
         if (path.isNotEmpty && await File(path).exists()) return path;
@@ -197,7 +202,9 @@ String _humanizeHelperFailure(ProcessResult result) {
   if (blob.contains("timeout") || blob.contains("status")) {
     return "Printer did not respond in time. Wait a moment and try again.";
   }
-  if (blob.contains("pillow") || blob.contains("qrcode") || blob.contains("venv")) {
+  if (blob.contains("pillow") ||
+      blob.contains("qrcode") ||
+      blob.contains("venv")) {
     return "Label helper could not prepare layout tools. Reinstall Field or see detail below.";
   }
   return "Label helper failed.";
@@ -237,7 +244,9 @@ Map<String, String> printHelperEnvironment(
   final existing = env["PATH"] ?? "";
   final parts = <String>[
     ...extras.where((p) => p.isNotEmpty),
-    ...existing.split(Platform.isWindows ? ";" : ":").where((p) => p.isNotEmpty),
+    ...existing
+        .split(Platform.isWindows ? ";" : ":")
+        .where((p) => p.isNotEmpty),
   ];
   final seen = <String>{};
   final sep = Platform.isWindows ? ";" : ":";
