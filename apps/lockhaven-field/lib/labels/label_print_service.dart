@@ -105,11 +105,7 @@ class LabelPrintService {
       runner: runner ?? runCommand,
       scriptPath: script,
     );
-    final env = withSelectedPrinter(
-      baseEnv,
-      selection,
-      ptouchPrint: ptouch,
-    );
+    final env = withSelectedPrinter(baseEnv, selection, ptouchPrint: ptouch);
     final launch = labelPrintLaunch(script: script, csvPath: csvFile.path);
     final ProcessResult result;
     try {
@@ -232,10 +228,7 @@ String _processText(Object? value) {
 /// How Field starts the helper. `/bin/bash` runs the script even when the
 /// download lost the executable bit or `env` cannot see `bash` on PATH.
 class LabelPrintLaunch {
-  const LabelPrintLaunch({
-    required this.executable,
-    required this.arguments,
-  });
+  const LabelPrintLaunch({required this.executable, required this.arguments});
 
   final String executable;
   final List<String> arguments;

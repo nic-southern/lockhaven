@@ -97,15 +97,21 @@ USB:
     );
   });
 
-  test("withSelectedPrinter passes the same ptouch-print binary Settings used", () {
-    final env = withSelectedPrinter(
-      {"PATH": "/usr/bin", "PTOUCH_PRINT": "/broken/ptouch-print"},
-      const PrinterSelection(id: "serial:E75J012345", usbSerial: "E75J012345"),
-      ptouchPrint: "/opt/homebrew/bin/ptouch-print",
-    );
-    expect(env["PTOUCH_SERIAL"], "E75J012345");
-    expect(env["PTOUCH_PRINT"], "/opt/homebrew/bin/ptouch-print");
-  });
+  test(
+    "withSelectedPrinter passes the same ptouch-print binary Settings used",
+    () {
+      final env = withSelectedPrinter(
+        {"PATH": "/usr/bin", "PTOUCH_PRINT": "/broken/ptouch-print"},
+        const PrinterSelection(
+          id: "serial:E75J012345",
+          usbSerial: "E75J012345",
+        ),
+        ptouchPrint: "/opt/homebrew/bin/ptouch-print",
+      );
+      expect(env["PTOUCH_SERIAL"], "E75J012345");
+      expect(env["PTOUCH_PRINT"], "/opt/homebrew/bin/ptouch-print");
+    },
+  );
 
   test("catalog Windows build is honest about USB print", () async {
     final catalog = UsbPrinterCatalog(
@@ -156,10 +162,7 @@ USB:
       },
     );
     final result = await catalog.scan();
-    expect(
-      result.devices.any((row) => row.usbSerial == "E75J012345"),
-      isTrue,
-    );
+    expect(result.devices.any((row) => row.usbSerial == "E75J012345"), isTrue);
     expect(
       calls.where((call) => call.contains("--list-connected")).single,
       "$tool --list-connected",

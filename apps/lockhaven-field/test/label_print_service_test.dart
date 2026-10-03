@@ -7,11 +7,10 @@ import "package:lockhaven_field/labels/usb_printers.dart";
 void main() {
   test("printHelperEnvironment prepends extra bin dirs then ~/.local/bin", () {
     final env = printHelperEnvironment(
-      {
-        "HOME": "/home/tech",
-        "PATH": "/usr/bin:/bin",
-      },
-      extraBinDirs: ["/Applications/Lockhaven Field.app/Contents/Resources/label-tools/bin"],
+      {"HOME": "/home/tech", "PATH": "/usr/bin:/bin"},
+      extraBinDirs: [
+        "/Applications/Lockhaven Field.app/Contents/Resources/label-tools/bin",
+      ],
     );
     final sep = Platform.isWindows ? ";" : ":";
     expect(
@@ -41,8 +40,7 @@ void main() {
     final candidates = scriptSearchCandidates(
       cwd: "/home/nic/git/lockhaven/apps/lockhaven-field",
       home: "/home/nic",
-      executable:
-          "/home/nic/git/lockhaven/apps/lockhaven-field/build/linux/x64/debug/bundle/lockhaven_field",
+      executable: "/home/nic/git/lockhaven/apps/lockhaven-field/build/linux/x64/debug/bundle/lockhaven_field",
     );
     expect(
       candidates,
@@ -54,8 +52,7 @@ void main() {
     final candidates = scriptSearchCandidates(
       cwd: "/Users/nic/Developer/lockhaven/apps/lockhaven-field",
       home: "/Users/nic",
-      executable:
-          "/Users/nic/Developer/lockhaven/apps/lockhaven-field/build/macos/Build/Products/Debug/lockhaven_field.app/Contents/MacOS/lockhaven_field",
+      executable: "/Users/nic/Developer/lockhaven/apps/lockhaven-field/build/macos/Build/Products/Debug/lockhaven_field.app/Contents/MacOS/lockhaven_field",
     );
     expect(
       candidates,
@@ -93,9 +90,7 @@ void main() {
     );
     expect(
       candidates,
-      contains(
-        "/Users/nic/Developer/lockhaven/scripts/print-asset-labels.sh",
-      ),
+      contains("/Users/nic/Developer/lockhaven/scripts/print-asset-labels.sh"),
     );
     expect(
       candidates.first,
@@ -103,24 +98,32 @@ void main() {
     );
   });
 
-  test("bundledScriptCandidates walks a Windows install next to label-tools", () {
-    final bundled = bundledScriptCandidates(
-      r"C:\Program Files\Lockhaven Field\lockhaven_field.exe",
-    );
-    expect(
-      bundled,
-      contains(
-        "C:/Program Files/Lockhaven Field/label-tools/print-asset-labels.sh",
-      ),
-    );
-  });
+  test(
+    "bundledScriptCandidates walks a Windows install next to label-tools",
+    () {
+      final bundled = bundledScriptCandidates(
+        r"C:\Program Files\Lockhaven Field\lockhaven_field.exe",
+      );
+      expect(
+        bundled,
+        contains(
+          "C:/Program Files/Lockhaven Field/label-tools/print-asset-labels.sh",
+        ),
+      );
+    },
+  );
 
   test("label helper failure shows stderr instead of a generic sentence", () {
     const stderr =
         "No P-Touch printer with serial E75J012345 found\n"
         "interface claim error: LIBUSB_ERROR_BUSY\n";
     final text = labelHelperFailureText(
-      ProcessResult(1, 5, "Working directory: /tmp\n+ /opt/homebrew/bin/ptouch-print --timeout=30 --serial E75J012345 --image label.png\n", stderr),
+      ProcessResult(
+        1,
+        5,
+        "Working directory: /tmp\n+ /opt/homebrew/bin/ptouch-print --timeout=30 --serial E75J012345 --image label.png\n",
+        stderr,
+      ),
       tool: "/Applications/Lockhaven Field.app/Contents/Resources/label-tools/print-asset-labels.sh",
     );
     expect(text, startsWith("No P-Touch printer with serial E75J012345 found"));
@@ -150,60 +153,67 @@ void main() {
     expect(launch.arguments, [script, "/tmp/label.csv"]);
   });
 
-  test("resolvePtouchPrint skips a broken which hit and uses the runnable binary", () async {
-    final dir = Directory.systemTemp.createTempSync("lh-ptouch-");
-    addTearDown(() {
-      if (dir.existsSync()) dir.deleteSync(recursive: true);
-    });
-    final script = File("${dir.path}/print-asset-labels.sh")..writeAsStringSync("#!/bin/bash\n");
-    final bundled = File("${dir.path}/bin/ptouch-print");
-    bundled.parent.createSync(recursive: true);
-    bundled.writeAsStringSync("#!/bin/sh\nexit 1\n");
-    if (!Platform.isWindows) {
-      Process.runSync("chmod", ["+x", bundled.path]);
-    }
-    final working = File("${dir.path}/.local/bin/ptouch-print");
-    working.parent.createSync(recursive: true);
-    working.writeAsStringSync("#!/bin/sh\nexit 0\n");
-    if (!Platform.isWindows) {
-      Process.runSync("chmod", ["+x", working.path]);
-    }
+  test(
+    "resolvePtouchPrint skips a broken which hit and uses the runnable binary",
+    () async {
+      final dir = Directory.systemTemp.createTempSync("lh-ptouch-");
+      addTearDown(() {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+      });
+      final script = File("${dir.path}/print-asset-labels.sh")
+        ..writeAsStringSync("#!/bin/bash\n");
+      final bundled = File("${dir.path}/bin/ptouch-print");
+      bundled.parent.createSync(recursive: true);
+      bundled.writeAsStringSync("#!/bin/sh\nexit 1\n");
+      if (!Platform.isWindows) {
+        Process.runSync("chmod", ["+x", bundled.path]);
+      }
+      final working = File("${dir.path}/.local/bin/ptouch-print");
+      working.parent.createSync(recursive: true);
+      working.writeAsStringSync("#!/bin/sh\nexit 0\n");
+      if (!Platform.isWindows) {
+        Process.runSync("chmod", ["+x", working.path]);
+      }
 
-    final resolved = await resolvePtouchPrint(
-      env: {"HOME": dir.path, "PATH": "/usr/bin:/bin"},
-      lookOnDisk: true,
-      scriptPath: script.path,
-      runner: (exe, args, {environment}) async {
-        if (exe == "which") {
-          return ProcessResult(1, 0, bundled.path, "");
-        }
-        if (exe == bundled.path) {
-          return ProcessResult(
-            1,
-            127,
-            "",
-            "dyld: Library not loaded: libusb\n",
-          );
-        }
-        if (exe == working.path && args.contains("--help")) {
-          return ProcessResult(
-            1,
-            0,
-            "usage: ptouch-print --list-connected --serial\n",
-            "",
-          );
-        }
-        return ProcessResult(1, 127, "", "not found");
-      },
-    );
-    expect(resolved, working.path);
+      final resolved = await resolvePtouchPrint(
+        env: {"HOME": dir.path, "PATH": "/usr/bin:/bin"},
+        lookOnDisk: true,
+        scriptPath: script.path,
+        runner: (exe, args, {environment}) async {
+          if (exe == "which") {
+            return ProcessResult(1, 0, bundled.path, "");
+          }
+          if (exe == bundled.path) {
+            return ProcessResult(
+              1,
+              127,
+              "",
+              "dyld: Library not loaded: libusb\n",
+            );
+          }
+          if (exe == working.path && args.contains("--help")) {
+            return ProcessResult(
+              1,
+              0,
+              "usage: ptouch-print --list-connected --serial\n",
+              "",
+            );
+          }
+          return ProcessResult(1, 127, "", "not found");
+        },
+      );
+      expect(resolved, working.path);
 
-    final env = withSelectedPrinter(
-      {"PATH": "/usr/bin"},
-      const PrinterSelection(id: "serial:E75J012345", usbSerial: "E75J012345"),
-      ptouchPrint: resolved,
-    );
-    expect(env["PTOUCH_PRINT"], working.path);
-    expect(env["PTOUCH_SERIAL"], "E75J012345");
-  });
+      final env = withSelectedPrinter(
+        {"PATH": "/usr/bin"},
+        const PrinterSelection(
+          id: "serial:E75J012345",
+          usbSerial: "E75J012345",
+        ),
+        ptouchPrint: resolved,
+      );
+      expect(env["PTOUCH_PRINT"], working.path);
+      expect(env["PTOUCH_SERIAL"], "E75J012345");
+    },
+  );
 }

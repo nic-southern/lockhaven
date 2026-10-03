@@ -81,7 +81,7 @@ fi
 argv="$(cat "$argv_log")"
 printf '%s\n' "$argv"
 for flag in "--timeout=30" "--serial" "E75J012345" "--precut" "--image"; do
-  if ! printf '%s\n' "$argv" | grep -Fxq "$flag"; then
+  if ! printf '%s\n' "$argv" | grep -Fxq -- "$flag"; then
     echo "expected ptouch-print argv to include $flag" >&2
     echo "$argv" >&2
     exit 1
