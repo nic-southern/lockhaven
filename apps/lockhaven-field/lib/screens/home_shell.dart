@@ -1,5 +1,6 @@
 import "package:flutter/material.dart";
 import "package:lockhaven_field/screens/find_scan_screen.dart";
+import "package:lockhaven_field/screens/settings_screen.dart";
 import "package:lockhaven_field/screens/sites_screen.dart";
 import "package:lockhaven_field/state/app_state.dart";
 
@@ -20,6 +21,7 @@ class _HomeShellState extends State<HomeShell> {
     final pages = [
       SitesScreen(state: widget.state),
       FindScanScreen(state: widget.state),
+      SettingsScreen(config: widget.state.config),
     ];
 
     return Scaffold(
@@ -37,6 +39,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.qr_code_scanner_outlined),
             selectedIcon: Icon(Icons.qr_code_scanner),
             label: "Find",
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: "Settings",
           ),
         ],
       ),

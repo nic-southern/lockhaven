@@ -11,6 +11,8 @@
 #   ./scripts/print-asset-labels.sh --dry-run labels.csv   # write PNGs only
 #   SETTLE_SECONDS=4 ./scripts/print-asset-labels.sh labels.csv
 #   PTOUCH_PRECUT=0 ./scripts/print-asset-labels.sh labels.csv  # disable --precut
+#   PTOUCH_SERIAL=E75J012345 ./scripts/print-asset-labels.sh labels.csv
+#     (USB serial from `ptouch-print --list-connected`; Field Settings sets this)
 #
 # Left tape leader (~23 mm on PT-D460BT) is mostly a hardware gap between the
 # print head and cutter. --precut (on by default) can shrink waste between
@@ -183,6 +185,7 @@ export LOCKHAVEN_LABEL_DRY_RUN="$DRY_RUN"
 export LOCKHAVEN_LABEL_SETTLE="$SETTLE_SECONDS"
 export LOCKHAVEN_LABEL_TIMEOUT="$TIMEOUT_SECONDS"
 export LOCKHAVEN_LABEL_PRECUT="$PTOUCH_PRECUT"
+export PTOUCH_SERIAL="${PTOUCH_SERIAL:-}"
 
 "$LABEL_PYTHON" <<'PY'
 import csv
@@ -419,6 +422,10 @@ for index, row in enumerate(rows, start=1):
     if dry_run:
         continue
     cmd = ["ptouch-print", f"--timeout={timeout}"]
+    printer_serial = os.environ.get("PTOUCH_SERIAL", "").strip()
+    if printer_serial and printer_serial not in ("-", "auto"):
+        # Field Settings / `ptouch-print --list-connected` USB serial.
+        cmd.extend(["--serial", printer_serial])
     if precut:
         # Chain / small-margin mode. First label still has ~23 mm physical leader.
         cmd.append("--precut")
