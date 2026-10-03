@@ -73,10 +73,11 @@ class LabelPrintService {
       throw LabelPrintException(
         "Label helper not found.",
         detail:
-            "Run Field from the Lockhaven checkout, or pass "
+            "Use a Field download (helper is inside the app), run from a "
+            "Lockhaven checkout, or pass "
             "--dart-define=LABEL_PRINT_SCRIPT=/path/to/"
-            "print-asset-labels.sh. Also needs ptouch-print on PATH "
-            "(often ~/.local/bin).",
+            "print-asset-labels.sh. Needs the tape printer tool on PATH "
+            "or inside the app (often ~/.local/bin).",
       );
     }
 
@@ -84,7 +85,13 @@ class LabelPrintService {
       script,
       [csvFile.path],
       runInShell: false,
-      environment: printHelperEnvironment(Platform.environment),
+      environment: printHelperEnvironment(
+        Platform.environment,
+        extraBinDirs: [
+          "${File(script).parent.path}/bin",
+          File(script).parent.path,
+        ],
+      ),
     );
 
     if (result.exitCode == 0) {
@@ -175,7 +182,7 @@ String _humanizeHelperFailure(ProcessResult result) {
         blob.contains("timeout")) {
       // fall through to more specific checks below
     } else if (blob.contains("missing required command")) {
-      return "ptouch-print not found. Install it and keep it on PATH (~/.local/bin).";
+      return "Tape printer tool not found. Install it once (install-ptouch-print.sh) or keep it on PATH (~/.local/bin).";
     }
   }
   if (blob.contains("no printer") ||
@@ -191,7 +198,7 @@ String _humanizeHelperFailure(ProcessResult result) {
     return "Printer did not respond in time. Wait a moment and try again.";
   }
   if (blob.contains("pillow") || blob.contains("qrcode") || blob.contains("venv")) {
-    return "Label helper could not set up Python packages. See detail below.";
+    return "Label helper could not prepare layout tools. Reinstall Field or see detail below.";
   }
   return "Label helper failed.";
 }
@@ -209,12 +216,17 @@ String _processDetail(ProcessResult result, {required String tool}) {
 
 /// Ensure label tools are on PATH for spawned helper + `ptouch-print`.
 ///
-/// Covers `~/.local/bin` (install-ptouch-print.sh), Homebrew on Apple Silicon
-/// (`/opt/homebrew/bin`) and Intel (`/usr/local/bin`), and `~/bin`.
-Map<String, String> printHelperEnvironment(Map<String, String> base) {
+/// Covers bundled `label-tools/bin` inside the Field app, `~/.local/bin`
+/// (install-ptouch-print.sh), Homebrew on Apple Silicon (`/opt/homebrew/bin`)
+/// and Intel (`/usr/local/bin`), and `~/bin`.
+Map<String, String> printHelperEnvironment(
+  Map<String, String> base, {
+  List<String> extraBinDirs = const [],
+}) {
   final env = Map<String, String>.from(base);
   final home = env["HOME"]?.trim();
   final extras = <String>[
+    ...extraBinDirs,
     if (home != null && home.isNotEmpty) "$home/.local/bin",
     if (home != null && home.isNotEmpty) "$home/bin",
     "/opt/homebrew/bin",
@@ -242,6 +254,10 @@ List<String> scriptSearchCandidates({
   final out = <String>[];
   void add(String path) {
     if (path.isNotEmpty) out.add(path);
+  }
+
+  for (final path in bundledScriptCandidates(executable)) {
+    add(path);
   }
 
   add("$cwd/scripts/print-asset-labels.sh");
@@ -279,6 +295,33 @@ List<String> scriptSearchCandidates({
     add("$home/code/lockhaven/scripts/print-asset-labels.sh");
   }
 
+  final seen = <String>{};
+  return out.where((p) => seen.add(p)).toList();
+}
+
+/// Helper next to a shipped Field binary (macOS .app Resources, Linux bundle).
+List<String> bundledScriptCandidates(String? executable) {
+  if (executable == null || executable.isEmpty) return const [];
+  final out = <String>[];
+  final exe = File(executable).absolute;
+  var dir = exe.parent;
+
+  if (dir.path.endsWith("MacOS")) {
+    final contents = dir.parent;
+    out.add(
+      "${contents.path}/Resources/label-tools/print-asset-labels.sh",
+    );
+  }
+  out.add("${dir.path}/label-tools/print-asset-labels.sh");
+  out.add("${dir.path}/Contents/Resources/label-tools/print-asset-labels.sh");
+
+  // Walk a few parents for Flutter's intermediates_do_not_run layout.
+  for (var i = 0; i < 6; i += 1) {
+    out.add("${dir.path}/label-tools/print-asset-labels.sh");
+    final parent = dir.parent;
+    if (parent.path == dir.path) break;
+    dir = parent;
+  }
   final seen = <String>{};
   return out.where((p) => seen.add(p)).toList();
 }

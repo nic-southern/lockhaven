@@ -75,3 +75,4 @@ apps/lockhaven-field/**/ephemeral/
 
 # Label print helper local venv (auto-created by print-asset-labels.sh)
 scripts/.venv-labels/
+scripts/.cache/

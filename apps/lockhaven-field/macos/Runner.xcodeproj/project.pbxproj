@@ -213,6 +213,7 @@
 				33CC10EB2044A3C60003C045 /* Resources */,
 				33CC110E2044A8840003C045 /* Bundle Framework */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
+				A1LHFLDBUNDLELBLTOOLS01 /* Bundle label tools */,
 			);
 			buildRules = (
 			);
@@ -318,6 +319,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "echo \"$PRODUCT_NAME.app\" > \"$PROJECT_DIR\"/Flutter/ephemeral/.app_filename && \"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh embed\n";
+		};
+		A1LHFLDBUNDLELBLTOOLS01 /* Bundle label tools */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle label tools";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "set -euo pipefail\nif [[ \"${CONFIGURATION:-}\" == \"Debug\" ]]; then\n  echo \"note: skip label-tools bundle in Debug; Release/CI packages the private venv\" >&2\n  exit 0\nfi\nBUNDLE_SCRIPT=\"$PROJECT_DIR/../../../scripts/bundle-field-label-tools.sh\"\nDEST=\"$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Resources/label-tools\"\nif [[ ! -x \"$BUNDLE_SCRIPT\" ]]; then\n  echo \"warning: $BUNDLE_SCRIPT not found; skip label-tools bundle\" >&2\n  exit 0\nfi\n\"$BUNDLE_SCRIPT\" \"$DEST\"\n";
 		};
 		33CC111E2044C6BF0003C045 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;

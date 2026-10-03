@@ -1,14 +1,40 @@
 import "package:flutter/material.dart";
+import "package:lockhaven_field/auth/auth_service.dart";
 import "package:lockhaven_field/state/app_state.dart";
 
-class SignInScreen extends StatelessWidget {
+class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key, required this.state});
 
   final AppState state;
 
   @override
+  State<SignInScreen> createState() => _SignInScreenState();
+}
+
+class _SignInScreenState extends State<SignInScreen> {
+  late final TextEditingController hubController;
+
+  @override
+  void initState() {
+    super.initState();
+    hubController = TextEditingController(text: widget.state.hubBaseUrl);
+  }
+
+  @override
+  void dispose() {
+    hubController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _signIn() async {
+    widget.state.hubBaseUrl = normalizeHubBaseUrl(hubController.text);
+    await widget.state.signIn();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final state = widget.state;
 
     return Scaffold(
       body: Stack(
@@ -56,9 +82,23 @@ class SignInScreen extends StatelessWidget {
                               color: scheme.onSurfaceVariant,
                             ),
                       ),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: hubController,
+                        enabled: !state.busy,
+                        keyboardType: TextInputType.url,
+                        autocorrect: false,
+                        decoration: const InputDecoration(
+                          labelText: "Console address",
+                          hintText: "https://console.example",
+                        ),
+                        onSubmitted: (_) {
+                          if (!state.busy) _signIn();
+                        },
+                      ),
+                      const SizedBox(height: 20),
                       FilledButton(
-                        onPressed: state.busy ? null : () => state.signIn(),
+                        onPressed: state.busy ? null : _signIn,
                         child: state.busy
                             ? const SizedBox(
                                 height: 18,
@@ -67,18 +107,13 @@ class SignInScreen extends StatelessWidget {
                               )
                             : const Text("Sign in with browser"),
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        "Hub: ${state.config.hubBaseUrl}",
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                      ),
                       if (state.errorMessage != null) ...[
                         const SizedBox(height: 16),
                         Text(
                           state.errorMessage!,
-                          style: TextStyle(color: scheme.error),
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: scheme.error,
+                              ),
                         ),
                       ],
                     ],

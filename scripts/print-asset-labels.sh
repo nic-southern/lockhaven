@@ -16,16 +16,22 @@
 # print head and cutter. --precut (on by default) can shrink waste between
 # chained labels; it does not remove the first-label leader.
 #
-# Requires: python3, ptouch-print. Pillow/qrcode install into a repo-local
-# venv on first run (scripts/.venv-labels) — no global pip needed.
-# Fonts: DejaVu Sans (Linux fonts-dejavu-core; macOS brew --cask font-dejavu).
-# Install ptouch-print: ./scripts/install-ptouch-print.sh (Linux + macOS).
+# Requires: python3 (or a bundled venv next to this script), ptouch-print.
+# Pillow/qrcode: bundled Field app venv, or repo-local scripts/.venv-labels.
+# Fonts: bundled fonts/ when present; else DejaVu on the system.
+# Install ptouch-print: ./scripts/install-ptouch-print.sh (unless bundled).
 # CSV schema v1 columns: schema_version,tag,serial,company_name,qr_text,site_name
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${LOCKHAVEN_LABEL_VENV:-$SCRIPT_DIR/.venv-labels}"
 REQ_FILE="$SCRIPT_DIR/requirements-labels.txt"
+# Field .app / Linux bundle: private interpreter + fonts live beside this script.
+if [[ -z "${LOCKHAVEN_LABEL_FONTS:-}" && -d "$SCRIPT_DIR/fonts" ]]; then
+  export LOCKHAVEN_LABEL_FONTS="$SCRIPT_DIR/fonts"
+fi
+# Prefer a bundled tape tool over PATH (Resources/label-tools/bin).
+export PATH="$SCRIPT_DIR/bin:${HOME:+$HOME/.local/bin}:$PATH"
 
 SETTLE_SECONDS="${SETTLE_SECONDS:-3}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-30}"
@@ -42,7 +48,32 @@ python_has_label_deps() {
   "$1" -c 'import qrcode; from PIL import Image, ImageDraw, ImageFont' 2>/dev/null
 }
 
+bundled_label_python() {
+  if [[ -x "$SCRIPT_DIR/bin/label-python" ]]; then
+    echo "$SCRIPT_DIR/bin/label-python"
+    return 0
+  fi
+  if [[ -x "$SCRIPT_DIR/venv/bin/python" ]]; then
+    echo "$SCRIPT_DIR/venv/bin/python"
+    return 0
+  fi
+  if [[ -n "${LOCKHAVEN_LABEL_PYTHON:-}" && -x "${LOCKHAVEN_LABEL_PYTHON}" ]]; then
+    echo "$LOCKHAVEN_LABEL_PYTHON"
+    return 0
+  fi
+  return 1
+}
+
 ensure_label_venv() {
+  local bundled
+  if bundled="$(bundled_label_python)"; then
+    if python_has_label_deps "$bundled"; then
+      LABEL_PYTHON="$bundled"
+      return 0
+    fi
+    echo "Bundled label Python is present but missing pillow/qrcode." >&2
+  fi
+
   local python_bin="$VENV_DIR/bin/python"
 
   # Prefer a repo-local venv so Field/CI do not depend on global pip state.
@@ -133,7 +164,9 @@ need() {
   }
 }
 
-need python3
+if ! bundled_label_python >/dev/null; then
+  need python3
+fi
 if [[ "$DRY_RUN" -eq 0 ]]; then
   need ptouch-print
 fi
@@ -188,7 +221,9 @@ def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
         else ["DejaVuSans.ttf", "DejaVuSans-Bold.ttf"]
     )
     home = Path.home()
+    bundled = os.environ.get("LOCKHAVEN_LABEL_FONTS", "").strip()
     roots = [
+        bundled,
         "/usr/share/fonts/truetype/dejavu",
         "/usr/share/fonts/TTF",
         "/usr/share/fonts/dejavu",
@@ -199,15 +234,17 @@ def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
         "/usr/local/share/fonts",
     ]
     for root in roots:
+        if not root:
+            continue
         for name in names:
             path = Path(root) / name
             if path.is_file():
                 return ImageFont.truetype(str(path), size=size)
     raise SystemExit(
         "DejaVu fonts not found (needed for readable tape text). "
-        "Linux: install fonts-dejavu-core. "
-        "macOS: brew install --cask font-dejavu "
-        "(installs DejaVuSans*.ttf into ~/Library/Fonts)."
+        "Field downloads include fonts next to the helper. "
+        "Linux checkout: install fonts-dejavu-core. "
+        "macOS checkout: brew install --cask font-dejavu."
     )
 
 

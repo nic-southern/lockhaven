@@ -301,7 +301,7 @@ export default function LabelsSettingsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Labels"
-        description="Company name and tracking tag prefix for printed tags, plus the Linux print helper for tape labels."
+        description="Company name and tracking tag prefix for printed tags, plus Field and the print helper for tape labels."
       />
 
       {organizations.length === 0 ? (
@@ -352,6 +352,59 @@ export default function LabelsSettingsPage() {
           ) : null}
         </>
       )}
+
+      <SectionCard
+        title="Field app"
+        description="Download Field for site visits on this computer. Sign in with your Console account. Mac and Linux downloads include label layout tools."
+        contentClassName="gap-4"
+      >
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" asChild>
+            <a
+              href="/install/lockhaven-field-macos-arm64.zip"
+              download="lockhaven-field-macos-arm64.zip"
+            >
+              <DownloadIcon />
+              Field for Mac
+            </a>
+          </Button>
+          <Button size="sm" asChild>
+            <a
+              href="/install/lockhaven-field-linux-amd64.tar.gz"
+              download="lockhaven-field-linux-amd64.tar.gz"
+            >
+              <DownloadIcon />
+              Field for Linux
+            </a>
+          </Button>
+          <Button size="sm" asChild>
+            <a
+              href="/install/lockhaven-field-windows-amd64.zip"
+              download="lockhaven-field-windows-amd64.zip"
+            >
+              <DownloadIcon />
+              Field for Windows
+            </a>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <a
+              href="/install/install-ptouch-print.sh"
+              download="install-ptouch-print.sh"
+            >
+              <DownloadIcon />
+              Tape printer tool
+            </a>
+          </Button>
+        </div>
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+          <li>Download Field for this computer and open it.</li>
+          <li>Enter your Console address, then sign in with the browser.</li>
+          <li>
+            Print from Field when the printer is connected. If print cannot find
+            the tape printer tool, run the one-time installer from this page.
+          </li>
+        </ol>
+      </SectionCard>
 
       <SectionCard
         title="Linux print helper"
