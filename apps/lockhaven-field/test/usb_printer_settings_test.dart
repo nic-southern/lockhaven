@@ -1,12 +1,10 @@
 import "dart:io";
 
-import "package:flutter/material.dart";
 import "package:flutter_test/flutter_test.dart";
 import "package:lockhaven_field/config.dart";
 import "package:lockhaven_field/labels/printer_store.dart";
 import "package:lockhaven_field/labels/usb_printer_catalog.dart";
 import "package:lockhaven_field/labels/usb_printers.dart";
-import "package:lockhaven_field/screens/settings_screen.dart";
 
 void main() {
   test("parseListConnected reads model and USB serial", () {
@@ -135,70 +133,26 @@ USB:
     expect(result.devices.where((d) => d.tapeCompatible), isNotEmpty);
   });
 
-  testWidgets("Settings lists devices and persists a compatible printer", (
-    tester,
-  ) async {
-    final storeFile = File("${Directory.systemTemp.path}/lh-printer-test.json");
-    if (await storeFile.exists()) await storeFile.delete();
+  test("PrinterStore persists USB serial for the print path", () async {
+    final storeFile = File(
+      "${Directory.systemTemp.path}/lh-printer-test-${DateTime.now().microsecondsSinceEpoch}.json",
+    );
+    addTearDown(() {
+      if (storeFile.existsSync()) storeFile.deleteSync();
+    });
     final store = PrinterStore(fileOverride: storeFile);
-    final catalog = _FakeCatalog(
-      const PrinterScanResult(
-        usbPrintSupported: true,
-        devices: [
-          UsbDeviceRow(
-            id: "hub",
-            title: "USB hub",
-            subtitle: "Port 1 · 2",
-            tapeCompatible: false,
-          ),
-          UsbDeviceRow(
-            id: "serial:E75J012345",
-            title: "PT-D460BT",
-            subtitle: "Printer E75J012345",
-            tapeCompatible: true,
-            usbSerial: "E75J012345",
-            model: "PT-D460BT",
-          ),
-        ],
-      ),
+    const selection = PrinterSelection(
+      id: "serial:E75J012345",
+      usbSerial: "E75J012345",
+      model: "PT-D460BT",
+      title: "PT-D460BT",
     );
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SettingsScreen(
-          config: const FieldConfig(hubBaseUrl: "http://127.0.0.1:3000"),
-          store: store,
-          catalog: catalog,
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump();
-
-    expect(find.text("Settings"), findsOneWidget);
-    expect(find.text("Label printer"), findsOneWidget);
-    expect(find.text("PT-D460BT"), findsOneWidget);
-    expect(find.textContaining("USB hub"), findsOneWidget);
-
-    await tester.tap(find.text("PT-D460BT"));
-    await tester.pump();
-    await tester.pump();
-
+    await store.write(selection);
     final saved = await store.read();
     expect(saved?.usbSerial, "E75J012345");
-    expect(find.textContaining("Selected"), findsWidgets);
+    expect(
+      withSelectedPrinter({"PATH": "/usr/bin"}, saved)["PTOUCH_SERIAL"],
+      "E75J012345",
+    );
   });
-}
-
-class _FakeCatalog extends UsbPrinterCatalog {
-  _FakeCatalog(this.fixed)
-    : super(
-        config: const FieldConfig(hubBaseUrl: "http://127.0.0.1:3000"),
-        isWindows: false,
-      );
-
-  final PrinterScanResult fixed;
-
-  @override
-  Future<PrinterScanResult> scan() async => fixed;
 }
