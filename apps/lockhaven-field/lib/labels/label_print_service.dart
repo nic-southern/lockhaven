@@ -41,6 +41,23 @@ class LabelPrintException implements Exception {
       detail == null || detail!.isEmpty ? message : "$message\n$detail";
 }
 
+/// Writes `lockhaven-label-<stamp>.csv` for the label helper.
+///
+/// [getTemporaryDirectory] is not created for us. On macOS that path is
+/// `Library/Caches/<bundle id>`; on Linux the temp parent can be missing
+/// too. [File.writeAsString] does not create it, so Print fails with
+/// [PathNotFoundException] until the parent exists.
+Future<File> writeAssetLabelCsvFile({
+  required Directory directory,
+  required String contents,
+  required int stamp,
+}) async {
+  final csvFile = File("${directory.path}/lockhaven-label-$stamp.csv");
+  await csvFile.parent.create(recursive: true);
+  await csvFile.writeAsString(contents);
+  return csvFile;
+}
+
 /// Prints via the proven laptop helper (DejaVu text + QR), not Dart bitmaps.
 ///
 /// The helper creates `scripts/.venv-labels` with pillow/qrcode on first run.
@@ -76,8 +93,11 @@ class LabelPrintService {
 
     final dir = await getTemporaryDirectory();
     final stamp = DateTime.now().millisecondsSinceEpoch;
-    final csvFile = File("${dir.path}/lockhaven-label-$stamp.csv");
-    await csvFile.writeAsString(formatAssetLabelCsv([row]));
+    final csvFile = await writeAssetLabelCsvFile(
+      directory: dir,
+      contents: formatAssetLabelCsv([row]),
+      stamp: stamp,
+    );
 
     final script = scriptOverride ?? await resolvePrintScript(config);
     if (script == null) {

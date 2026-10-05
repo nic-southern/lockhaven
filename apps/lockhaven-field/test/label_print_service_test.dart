@@ -5,6 +5,38 @@ import "package:lockhaven_field/labels/label_print_service.dart";
 import "package:lockhaven_field/labels/usb_printers.dart";
 
 void main() {
+  test("label csv write creates a missing parent directory", () async {
+    final root = Directory.systemTemp.createTempSync("lh-label-csv-");
+    addTearDown(() {
+      if (root.existsSync()) root.deleteSync(recursive: true);
+    });
+
+    const contents =
+        "schema_version,tag,serial,company_name,qr_text,site_name\r\n"
+        "1,LH-1,,,,LH-1,\r\n";
+    // macOS caches (`Library/Caches/<bundle id>`) and a missing Linux temp
+    // parent. getTemporaryDirectory does not create either one.
+    const parents = <String>[
+      "Library/Caches/com.lockhaven.lockhavenField",
+      "tmp/lockhaven-field",
+    ];
+    for (final relative in parents) {
+      final missing = Directory("${root.path}/$relative");
+      expect(missing.existsSync(), isFalse);
+
+      final file = await writeAssetLabelCsvFile(
+        directory: missing,
+        contents: contents,
+        stamp: 1791210621736,
+      );
+
+      expect(missing.existsSync(), isTrue);
+      expect(file.existsSync(), isTrue);
+      expect(file.path, "${missing.path}/lockhaven-label-1791210621736.csv");
+      expect(await file.readAsString(), contents);
+    }
+  });
+
   test("printHelperEnvironment prepends extra bin dirs then ~/.local/bin", () {
     final env = printHelperEnvironment(
       {"HOME": "/home/tech", "PATH": "/usr/bin:/bin"},
@@ -169,9 +201,7 @@ void main() {
       if (!Platform.isWindows) {
         Process.runSync("chmod", ["+x", bundled.path]);
       }
-      final working = File(
-        "${dir.path}$sep.local${sep}bin${sep}ptouch-print",
-      );
+      final working = File("${dir.path}$sep.local${sep}bin${sep}ptouch-print");
       working.parent.createSync(recursive: true);
       working.writeAsStringSync("#!/bin/sh\nexit 0\n");
       if (!Platform.isWindows) {
