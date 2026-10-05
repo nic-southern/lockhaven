@@ -436,17 +436,28 @@ bool looksLikeMissingTool(String blob) {
       t.contains("cannot find");
 }
 
-/// Env var consumed by `print-asset-labels.sh` → `ptouch-print --serial`.
+/// Env consumed by `print-asset-labels.sh`.
+///
+/// `PTOUCH_SERIAL` becomes `ptouch-print --serial`. `PTOUCH_PRINT` is the
+/// absolute binary Settings already used for `--list-connected`, so Print
+/// does not search PATH again and pick a different copy.
 Map<String, String> withSelectedPrinter(
   Map<String, String> env,
-  PrinterSelection? selection,
-) {
+  PrinterSelection? selection, {
+  String? ptouchPrint,
+}) {
   final next = Map<String, String>.from(env);
   final serial = selection?.usbSerial?.trim();
   if (serial == null || serial.isEmpty || serial == "-") {
     next.remove("PTOUCH_SERIAL");
-    return next;
+  } else {
+    next["PTOUCH_SERIAL"] = serial;
   }
-  next["PTOUCH_SERIAL"] = serial;
+  final tool = ptouchPrint?.trim();
+  if (tool == null || tool.isEmpty) {
+    next.remove("PTOUCH_PRINT");
+  } else {
+    next["PTOUCH_PRINT"] = tool;
+  }
   return next;
 }

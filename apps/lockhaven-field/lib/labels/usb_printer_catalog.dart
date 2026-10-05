@@ -4,12 +4,6 @@ import "package:lockhaven_field/config.dart";
 import "package:lockhaven_field/labels/label_print_service.dart";
 import "package:lockhaven_field/labels/usb_printers.dart";
 
-typedef CommandRunner = Future<ProcessResult> Function(
-  String executable,
-  List<String> arguments, {
-  Map<String, String>? environment,
-});
-
 class PrinterScanResult {
   const PrinterScanResult({
     required this.usbPrintSupported,
@@ -75,7 +69,12 @@ class UsbPrinterCatalog {
     );
 
     final peripherals = await _listPeripherals(env);
-    final ptouch = await _resolvePtouch(env);
+    final ptouch = await resolvePtouchPrint(
+      env: env,
+      runner: runner,
+      lookOnDisk: lookOnDisk,
+      scriptPath: script,
+    );
     if (ptouch == null) {
       return PrinterScanResult(
         usbPrintSupported: true,
@@ -145,25 +144,6 @@ class UsbPrinterCatalog {
       return parseSystemProfilerUsb(_blob(profiler));
     }
     return const [];
-  }
-
-  Future<String?> _resolvePtouch(Map<String, String> env) async {
-    final which = await _run("which", const ["ptouch-print"], env);
-    if (which.exitCode == 0) {
-      final path = (which.stdout as String).trim();
-      if (path.isNotEmpty) return path;
-    }
-    final home = env["HOME"];
-    if (!lookOnDisk) return null;
-    final candidates = <String>[
-      if (home != null && home.isNotEmpty) "$home/.local/bin/ptouch-print",
-      "/opt/homebrew/bin/ptouch-print",
-      "/usr/local/bin/ptouch-print",
-    ];
-    for (final path in candidates) {
-      if (await File(path).exists()) return path;
-    }
-    return null;
   }
 
   Future<ProcessResult> _run(

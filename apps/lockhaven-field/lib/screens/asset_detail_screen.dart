@@ -278,18 +278,21 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(result.message ?? "Sent to the label printer.")),
       );
-    } on LabelPrintException catch (err) {
+    } catch (err) {
       if (!mounted) return;
+      final message = formatPrintError(err);
       setState(() {
         saving = false;
-        error = err.toString();
+        error = message;
       });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        saving = false;
-        error = "Could not print the label.";
-      });
+      final firstLine = message.split("\n").first.trim();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            firstLine.isEmpty ? "Could not print the label." : firstLine,
+          ),
+        ),
+      );
     }
   }
 
@@ -441,6 +444,13 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
               : ListView(
                   padding: const EdgeInsets.all(20),
                   children: [
+                    if (error != null) ...[
+                      Text(
+                        error!,
+                        style: TextStyle(color: scheme.error),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     if (current.isContainer)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8),
@@ -617,13 +627,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
                             onTap: () => _openAsset(child.id),
                           ),
                         ),
-                    ],
-                    if (error != null) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        error!,
-                        style: TextStyle(color: scheme.error),
-                      ),
                     ],
                   ],
                 ),

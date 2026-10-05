@@ -267,9 +267,9 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
           );
           printed = true;
           printMessage = result.message;
-        } on LabelPrintException catch (printErr) {
+        } catch (printErr) {
           // Asset is already saved — keep going, but show why print failed.
-          printMessage = printErr.toString();
+          printMessage = formatPrintError(printErr);
         }
       }
 

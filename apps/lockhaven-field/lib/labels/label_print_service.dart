@@ -7,6 +7,12 @@ import "package:lockhaven_field/labels/printer_store.dart";
 import "package:lockhaven_field/labels/usb_printers.dart";
 import "package:path_provider/path_provider.dart";
 
+typedef CommandRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+});
+
 enum LabelPrintPath {
   /// CSV → `print-asset-labels.sh` (Python/Pillow layout) → `ptouch-print`.
   helper,
@@ -43,6 +49,7 @@ class LabelPrintService {
     required this.config,
     this.scriptOverride,
     this.printerStore,
+    this.runner,
   });
 
   final FieldConfig config;
@@ -50,6 +57,7 @@ class LabelPrintService {
   /// Injected for tests.
   final String? scriptOverride;
   final PrinterStore? printerStore;
+  final CommandRunner? runner;
 
   Future<LabelPrintResult> printAssetLabel({
     required AssetSummary asset,
@@ -85,21 +93,30 @@ class LabelPrintService {
     }
 
     final selection = await (printerStore ?? PrinterStore()).read();
-    final result = await Process.run(
-      script,
-      [csvFile.path],
-      runInShell: false,
-      environment: withSelectedPrinter(
-        printHelperEnvironment(
-          Platform.environment,
-          extraBinDirs: [
-            "${File(script).parent.path}/bin",
-            File(script).parent.path,
-          ],
-        ),
-        selection,
-      ),
+    final baseEnv = printHelperEnvironment(
+      Platform.environment,
+      extraBinDirs: [
+        "${File(script).parent.path}/bin",
+        File(script).parent.path,
+      ],
     );
+    final ptouch = await resolvePtouchPrint(
+      env: baseEnv,
+      runner: runner ?? runCommand,
+      scriptPath: script,
+    );
+    final env = withSelectedPrinter(baseEnv, selection, ptouchPrint: ptouch);
+    final launch = labelPrintLaunch(script: script, csvPath: csvFile.path);
+    final ProcessResult result;
+    try {
+      result = await (runner ?? runCommand)(
+        launch.executable,
+        launch.arguments,
+        environment: env,
+      );
+    } catch (error) {
+      throw LabelPrintException(formatPrintError(error));
+    }
 
     if (result.exitCode == 0) {
       await _rememberScript(script);
@@ -110,10 +127,7 @@ class LabelPrintService {
       );
     }
 
-    throw LabelPrintException(
-      _humanizeHelperFailure(result),
-      detail: _processDetail(result, tool: script),
-    );
+    throw LabelPrintException(labelHelperFailureText(result, tool: script));
   }
 
   static Future<String?> resolvePrintScript(FieldConfig config) async {
@@ -176,49 +190,169 @@ class LabelPrintService {
   }
 }
 
-String _humanizeHelperFailure(ProcessResult result) {
-  final blob = "${result.stderr}\n${result.stdout}".toLowerCase();
-  if (blob.contains("missing required command: ptouch-print") ||
-      blob.contains("ptouch-print")) {
-    if (blob.contains("no printer") ||
-        blob.contains("device not found") ||
-        blob.contains("libusb") ||
-        blob.contains("permission denied") ||
-        blob.contains("timeout")) {
-      // fall through to more specific checks below
-    } else if (blob.contains("missing required command")) {
-      return "Tape printer tool not found. Install it once (install-ptouch-print.sh) or keep it on PATH (~/.local/bin).";
-    }
-  }
-  if (blob.contains("no printer") ||
-      blob.contains("device not found") ||
-      blob.contains("could not find") ||
-      blob.contains("unable to find") ||
-      blob.contains("access denied") ||
-      blob.contains("permission denied") ||
-      blob.contains("libusb")) {
-    return "Printer not found. Turn it on and plug in the USB cable.";
-  }
-  if (blob.contains("timeout") || blob.contains("status")) {
-    return "Printer did not respond in time. Wait a moment and try again.";
-  }
-  if (blob.contains("pillow") ||
-      blob.contains("qrcode") ||
-      blob.contains("venv")) {
-    return "Label helper could not prepare layout tools. Reinstall Field or see detail below.";
-  }
-  return "Label helper failed.";
+/// Text shown when printing fails. Helper stderr/stdout is the message;
+/// a generic sentence is only the fallback when the helper said nothing.
+String formatPrintError(Object error) {
+  final text = error.toString().trim();
+  if (text.isEmpty) return "Could not print the label.";
+  return text;
 }
 
-String _processDetail(ProcessResult result, {required String tool}) {
-  final stderr = (result.stderr as String).trim();
-  final stdout = (result.stdout as String).trim();
-  return [
+String labelHelperFailureText(ProcessResult result, {String? tool}) {
+  final stderr = _processText(result.stderr);
+  final stdout = _processText(result.stdout);
+  final parts = <String>[
     if (stderr.isNotEmpty) stderr,
-    if (stdout.isNotEmpty) stdout,
-    "Helper: $tool",
-    "Exit ${result.exitCode}",
-  ].join("\n");
+    if (stdout.isNotEmpty && stdout != stderr) stdout,
+  ];
+  if (parts.isEmpty) {
+    parts.add("Could not print the label.");
+  }
+  if (tool != null && tool.isNotEmpty) {
+    parts.add(tool);
+  }
+  parts.add("Exit ${result.exitCode}");
+  var text = parts.join("\n").trim();
+  const maxChars = 2000;
+  if (text.length > maxChars) {
+    text = "${text.substring(0, maxChars).trim()}\n…";
+  }
+  return text;
+}
+
+String _processText(Object? value) {
+  if (value == null) return "";
+  return value.toString().trim();
+}
+
+/// How Field starts the helper. `/bin/bash` runs the script even when the
+/// download lost the executable bit or `env` cannot see `bash` on PATH.
+class LabelPrintLaunch {
+  const LabelPrintLaunch({required this.executable, required this.arguments});
+
+  final String executable;
+  final List<String> arguments;
+}
+
+LabelPrintLaunch labelPrintLaunch({
+  required String script,
+  required String csvPath,
+}) {
+  if (!Platform.isWindows && File("/bin/bash").existsSync()) {
+    return LabelPrintLaunch(
+      executable: "/bin/bash",
+      arguments: [script, csvPath],
+    );
+  }
+  return LabelPrintLaunch(executable: script, arguments: [csvPath]);
+}
+
+Future<ProcessResult> runCommand(
+  String executable,
+  List<String> arguments, {
+  Map<String, String>? environment,
+}) {
+  return Process.run(
+    executable,
+    arguments,
+    environment: environment,
+    runInShell: false,
+  );
+}
+
+/// Absolute `ptouch-print` Settings and Print both invoke.
+///
+/// Prefers a binary whose `--help` actually runs. A bundled copy that fails
+/// to start (missing library, not executable) is skipped in favor of the
+/// next candidate, including `~/.local/bin` and Homebrew.
+Future<String?> resolvePtouchPrint({
+  required Map<String, String> env,
+  CommandRunner? runner,
+  bool lookOnDisk = true,
+  String? scriptPath,
+  bool probe = true,
+}) async {
+  final run = runner ?? runCommand;
+  final candidates = <String>[];
+  void add(String? path) {
+    final trimmed = path?.trim() ?? "";
+    if (trimmed.isEmpty || candidates.contains(trimmed)) return;
+    candidates.add(trimmed);
+  }
+
+  final which = await _tryRun(run, "which", const ["ptouch-print"], env);
+  if (which.exitCode == 0) {
+    add(_processText(which.stdout).split("\n").first);
+  }
+  if (lookOnDisk) {
+    for (final path in ptouchDiskCandidates(
+      home: env["HOME"],
+      scriptPath: scriptPath,
+    )) {
+      if (await isRunnableFile(path)) add(path);
+    }
+  }
+
+  if (!probe) {
+    return candidates.isEmpty ? null : candidates.first;
+  }
+  for (final path in candidates) {
+    final help = await _tryRun(run, path, const ["--help"], env);
+    if (_ptouchHelpOk(help)) return path;
+  }
+  return null;
+}
+
+/// Disk locations checked when `which ptouch-print` misses the binary
+/// Settings can still run (app bundle, user install, Homebrew).
+List<String> ptouchDiskCandidates({String? home, String? scriptPath}) {
+  final out = <String>[];
+  final script = scriptPath?.trim();
+  if (script != null && script.isNotEmpty) {
+    final parent = File(script).parent.path;
+    final sep = Platform.pathSeparator;
+    out.add("$parent${sep}bin${sep}ptouch-print");
+  }
+  final homeDir = home?.trim();
+  if (homeDir != null && homeDir.isNotEmpty) {
+    out.add(
+      "$homeDir${Platform.pathSeparator}.local${Platform.pathSeparator}bin${Platform.pathSeparator}ptouch-print",
+    );
+  }
+  out.add("/opt/homebrew/bin/ptouch-print");
+  out.add("/usr/local/bin/ptouch-print");
+  return out;
+}
+
+Future<bool> isRunnableFile(String path) async {
+  final file = File(path);
+  if (!await file.exists()) return false;
+  if (Platform.isWindows) return true;
+  try {
+    return (await file.stat()).mode & 0x49 != 0;
+  } catch (_) {
+    return false;
+  }
+}
+
+bool _ptouchHelpOk(ProcessResult result) {
+  if (result.exitCode == 0) return true;
+  final blob = "${_processText(result.stdout)}\n${_processText(result.stderr)}"
+      .toLowerCase();
+  return blob.contains("list-connected") || blob.contains("--serial");
+}
+
+Future<ProcessResult> _tryRun(
+  CommandRunner runner,
+  String executable,
+  List<String> arguments,
+  Map<String, String> env,
+) async {
+  try {
+    return await runner(executable, arguments, environment: env);
+  } catch (error) {
+    return ProcessResult(0, 127, "", error.toString());
+  }
 }
 
 /// Ensure label tools are on PATH for spawned helper + `ptouch-print`.
@@ -241,12 +375,18 @@ Map<String, String> printHelperEnvironment(
     "/usr/local/bin",
     "/usr/local/sbin",
   ];
+  // Finder-launched apps often have a short PATH. Keep system bins at the
+  // end so `bash`, `python3`, and `which` still resolve after the prepends.
+  final systemTail = Platform.isWindows
+      ? const <String>[]
+      : const <String>["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
   final existing = env["PATH"] ?? "";
   final parts = <String>[
     ...extras.where((p) => p.isNotEmpty),
     ...existing
         .split(Platform.isWindows ? ";" : ":")
         .where((p) => p.isNotEmpty),
+    ...systemTail,
   ];
   final seen = <String>{};
   final sep = Platform.isWindows ? ";" : ":";
@@ -285,7 +425,7 @@ List<String> scriptSearchCandidates({
   );
 
   var dir = _posixNormalize(cwd);
-  for (var i = 0; i < 8; i += 1) {
+  for (var i = 0; i < 12; i += 1) {
     add(_posixJoin(dir, "scripts/print-asset-labels.sh"));
     final parent = _posixDirname(dir);
     if (parent == dir) break;
@@ -294,7 +434,7 @@ List<String> scriptSearchCandidates({
 
   if (executable != null && executable.isNotEmpty) {
     var exeDir = _posixDirname(executable);
-    for (var i = 0; i < 10; i += 1) {
+    for (var i = 0; i < 14; i += 1) {
       add(_posixJoin(exeDir, "scripts/print-asset-labels.sh"));
       final parent = _posixDirname(exeDir);
       if (parent == exeDir) break;

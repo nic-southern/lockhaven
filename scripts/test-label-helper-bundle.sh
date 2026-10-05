@@ -46,4 +46,45 @@ if [[ ${#pngs[@]} -lt 1 ]]; then
 fi
 
 "$TMP/moved-tools/bin/label-python" -c 'import qrcode; from PIL import Image'
+
+# Print must call the absolute binary (PTOUCH_PRINT), not a decoy earlier on PATH.
+decoy_marker="$TMP/decoy-ran"
+argv_log="$TMP/ptouch-argv"
+mkdir -p "$TMP/not-on-path"
+cat >"$TMP/moved-tools/bin/ptouch-print" <<EOF
+#!/bin/sh
+echo decoy > "$decoy_marker"
+exit 9
+EOF
+chmod 0755 "$TMP/moved-tools/bin/ptouch-print"
+cat >"$TMP/not-on-path/ptouch-print" <<EOF
+#!/bin/sh
+printf '%s\n' "\$@" > "$argv_log"
+exit 0
+EOF
+chmod 0755 "$TMP/not-on-path/ptouch-print"
+
+print_out="$TMP/print-pngs"
+mkdir -p "$print_out"
+OUT_DIR="$print_out" PATH="/usr/bin:/bin" LOCKHAVEN_LABEL_VENV="" \
+  PTOUCH_PRINT="$TMP/not-on-path/ptouch-print" PTOUCH_SERIAL="E75J012345" \
+  "$TMP/moved-tools/print-asset-labels.sh" "$csv"
+
+if [[ -f "$decoy_marker" ]]; then
+  echo "print invoked the decoy ptouch-print instead of PTOUCH_PRINT" >&2
+  exit 1
+fi
+if [[ ! -f "$argv_log" ]]; then
+  echo "ptouch-print was not invoked; argv log missing" >&2
+  exit 1
+fi
+argv="$(cat "$argv_log")"
+printf '%s\n' "$argv"
+for flag in "--timeout=30" "--serial" "E75J012345" "--precut" "--image"; do
+  if ! printf '%s\n' "$argv" | grep -Fxq -- "$flag"; then
+    echo "expected ptouch-print argv to include $flag" >&2
+    echo "$argv" >&2
+    exit 1
+  fi
+done
 echo "bundle-field-label-tools smoke test ok (${pngs[0]})"
