@@ -115,8 +115,9 @@ class _SiteAssetsScreenState extends State<SiteAssetsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final folders = assets.where((a) => a.isContainer).toList();
-    final items = assets.where((a) => !a.isContainer).toList();
+    final groups = groupSiteAssets(assets);
+    final folders = groups.folders;
+    final items = groups.loose;
 
     return Scaffold(
       appBar: AppBar(
