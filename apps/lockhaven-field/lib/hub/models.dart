@@ -210,13 +210,31 @@ class AssetSummary {
     return tag;
   }
 
+  /// Name or tag of the folder this asset is filed in.
+  String? get folderLabel {
+    final named = parentName?.trim();
+    if (named != null && named.isNotEmpty) return named;
+    final tagged = parentTag?.trim();
+    if (tagged != null && tagged.isNotEmpty) return tagged;
+    return null;
+  }
+
+  /// Filed inside a folder. Site section grouping uses the same parent
+  /// fact as the row subtitle.
+  bool get isInsideFolder {
+    if (isContainer) return false;
+    final parentId = parentAssetId?.trim() ?? "";
+    if (parentId.isNotEmpty) return true;
+    return folderLabel != null;
+  }
+
   String get subtitle {
     final catalog = deviceModelName?.trim();
     final catalogCode = deviceModelCode?.trim();
+    final placement = folderLabel;
     final parts = <String>[
       if (isContainer) "Container",
-      if (!isContainer && parentTag != null)
-        "In ${parentName ?? parentTag}",
+      if (isInsideFolder && placement != null) "In $placement",
       if (catalog != null && catalog.isNotEmpty)
         catalog
       else ...[
@@ -233,6 +251,27 @@ class AssetSummary {
     ];
     return parts.join(" · ");
   }
+}
+
+/// Site inventory split: folders, then assets that are not inside a folder.
+class SiteAssetGroups {
+  const SiteAssetGroups({required this.folders, required this.loose});
+
+  final List<AssetSummary> folders;
+  final List<AssetSummary> loose;
+}
+
+SiteAssetGroups groupSiteAssets(Iterable<AssetSummary> assets) {
+  final folders = <AssetSummary>[];
+  final loose = <AssetSummary>[];
+  for (final asset in assets) {
+    if (asset.isContainer) {
+      folders.add(asset);
+    } else if (!asset.isInsideFolder) {
+      loose.add(asset);
+    }
+  }
+  return SiteAssetGroups(folders: folders, loose: loose);
 }
 
 String statusLabel(String status) {

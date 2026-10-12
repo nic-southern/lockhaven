@@ -119,4 +119,69 @@ void main() {
       "Invalid input: expected string, received undefined",
     );
   });
+
+  test("groupSiteAssets keeps folder contents out of the loose section", () {
+    AssetSummary row(
+      String tag, {
+      bool isContainer = false,
+      String? name,
+      String? parentAssetId,
+      String? parentTag,
+      String? parentName,
+      String? serial,
+    }) {
+      return AssetSummary.fromJson({
+        "id": "asset-$tag",
+        "organizationId": "org-1",
+        "tag": tag,
+        "name": name,
+        "serial": serial,
+        "isContainer": isContainer,
+        "parentAssetId": parentAssetId,
+        "parentTag": parentTag,
+        "parentName": parentName,
+        "status": "in_service",
+      });
+    }
+
+    final folder = row("FLD-1", isContainer: true, name: "Cabinet A");
+    final inFolderByTag = row(
+      "ITEM-A",
+      parentTag: "FLD-1",
+      serial: "SN-A",
+    );
+    final inFolderById = row(
+      "ITEM-B",
+      parentAssetId: "asset-FLD-1",
+      parentTag: "FLD-1",
+      parentName: "Cabinet A",
+      serial: "SN-B",
+    );
+    final inFolderIdOnly = row(
+      "ITEM-C",
+      parentAssetId: "asset-FLD-1",
+      serial: "SN-C",
+    );
+    final loose = row("ITEM-D", serial: "SN-D");
+
+    final groups = groupSiteAssets([
+      folder,
+      inFolderByTag,
+      inFolderById,
+      inFolderIdOnly,
+      loose,
+    ]);
+
+    expect(groups.folders.map((asset) => asset.tag), ["FLD-1"]);
+    expect(groups.loose.map((asset) => asset.tag), ["ITEM-D"]);
+    expect(inFolderByTag.isInsideFolder, isTrue);
+    expect(inFolderByTag.subtitle, contains("In FLD-1"));
+    expect(inFolderById.isInsideFolder, isTrue);
+    expect(inFolderById.subtitle, contains("In Cabinet A"));
+    expect(inFolderIdOnly.isInsideFolder, isTrue);
+    expect(inFolderIdOnly.folderLabel, isNull);
+    expect(loose.isInsideFolder, isFalse);
+    expect(loose.folderLabel, isNull);
+    expect(folder.subtitle, contains("Container"));
+  });
 }
