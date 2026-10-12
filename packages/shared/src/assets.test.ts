@@ -33,6 +33,8 @@ import {
   retargetTrackingTag,
   sanitizeHardwareSerial,
   shouldAdoptHardwareSerial,
+  pickUnusedTrackingTag,
+  planAssetCreate,
   suggestAssetTrackingTag,
   trackingTagBodyAfterPrefix,
   warrantyState,
@@ -193,6 +195,92 @@ test("suggestAssetTrackingTag is short and stable for the same seed", () => {
   assert.equal(first, second)
   assert.match(first, /^LH-[0-9A-Z]{6}$/)
   assert.notEqual(first, "SN-LONG-SMBIOS-VALUE")
+})
+
+test("pickUnusedTrackingTag skips tags already on file", () => {
+  const deviceId = "11111111-1111-4111-8111-111111111111"
+  const first = suggestAssetTrackingTag({
+    deviceId,
+    prefix: "NME",
+  })
+  const second = suggestAssetTrackingTag({
+    deviceId,
+    attempt: 1,
+    prefix: "NME",
+  })
+  const next = pickUnusedTrackingTag({
+    deviceId,
+    prefix: "NME",
+    taken: [first],
+  })
+  assert.notEqual(next, first)
+  assert.equal(next, second)
+  const burned = Array.from({ length: 8 }, (_, attempt) =>
+    suggestAssetTrackingTag({ deviceId, attempt, prefix: "NME" })
+  )
+  const fresh = pickUnusedTrackingTag({
+    deviceId,
+    prefix: "NME",
+    taken: burned,
+    nonce: "scan-1",
+  })
+  assert.ok(fresh)
+  assert.equal(
+    burned.some((tag) => tag.toUpperCase() === fresh?.toUpperCase()),
+    false
+  )
+})
+
+test("planAssetCreate updates a scanned serial instead of inserting", () => {
+  const existing = {
+    id: "asset-1",
+    tag: "NME-ITEM01",
+    serial: "SN-EXISTING",
+    isContainer: false,
+  }
+  const folder = {
+    id: "folder-1",
+    tag: "NME-FOLDER",
+    serial: null,
+    isContainer: true,
+  }
+  assert.deepEqual(
+    planAssetCreate({
+      tag: "NME-FOLDER",
+      serial: "SN-EXISTING",
+      matches: [existing, folder],
+    }),
+    { action: "update", assetId: "asset-1" }
+  )
+})
+
+test("planAssetCreate assigns a new tag when a new serial reuses a folder tag", () => {
+  assert.deepEqual(
+    planAssetCreate({
+      tag: "NME-FOLDER",
+      serial: "SN-NEW",
+      matches: [
+        {
+          id: "folder-1",
+          tag: "NME-FOLDER",
+          serial: null,
+          isContainer: true,
+        },
+      ],
+    }),
+    { action: "insert", tag: "" }
+  )
+})
+
+test("planAssetCreate inserts when nothing matches", () => {
+  assert.deepEqual(
+    planAssetCreate({
+      tag: "NME-NEWTAG",
+      serial: "SN-100",
+      matches: [],
+    }),
+    { action: "insert", tag: "NME-NEWTAG" }
+  )
 })
 
 test("suggestAssetTrackingTag honors a custom prefix", () => {

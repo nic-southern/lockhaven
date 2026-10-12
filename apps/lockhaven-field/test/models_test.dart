@@ -184,4 +184,31 @@ void main() {
     expect(loose.folderLabel, isNull);
     expect(folder.subtitle, contains("Container"));
   });
+
+  test("matchScannedAsset prefers an existing serial over a folder tag", () {
+    AssetSummary row(
+      String tag, {
+      String? serial,
+      bool isContainer = false,
+    }) {
+      return AssetSummary(
+        id: "id-$tag",
+        organizationId: "org-1",
+        tag: tag,
+        serial: serial,
+        isContainer: isContainer,
+      );
+    }
+
+    final folder = row("NME-FOLDER", isContainer: true);
+    final existing = row("NME-ITEM", serial: "SN-EXISTING");
+    final match = matchScannedAsset(
+      "NME-FOLDER\nSN-EXISTING",
+      [folder, existing],
+    );
+    expect(match?.tag, "NME-ITEM");
+    expect(matchScannedAsset("SN-EXISTING", [folder, existing])?.tag, "NME-ITEM");
+    expect(matchScannedAsset("NME-FOLDER", [folder, existing]), isNull);
+    expect(matchScannedAsset("SN-MISSING", [folder, existing]), isNull);
+  });
 }

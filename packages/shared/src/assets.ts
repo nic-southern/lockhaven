@@ -661,6 +661,111 @@ export function suggestAssetTrackingTag(input: {
   )
 }
 
+/**
+ * Next tracking tag that is not already in use.
+ * Suggestions are a hash of site + serial + attempt, so the first few attempts
+ * repeat for a site. Walk forward, then mix in a nonce, until the tag is free.
+ */
+export function pickUnusedTrackingTag(input: {
+  deviceId: string
+  hostname?: string | null
+  serialNumber?: string | null
+  attempt?: number
+  prefix?: string | null
+  taken: readonly string[]
+  nonce?: string | null
+}) {
+  const taken = new Set(
+    input.taken
+      .map((tag) => tag.trim().toUpperCase())
+      .filter((tag) => tag.length > 0)
+  )
+  const baseAttempt = input.attempt ?? 0
+  for (let extra = 0; extra < 64; extra += 1) {
+    const tag = suggestAssetTrackingTag({
+      deviceId: input.deviceId,
+      hostname: input.hostname,
+      serialNumber: input.serialNumber,
+      attempt: baseAttempt + extra,
+      prefix: input.prefix,
+    })
+    if (!taken.has(tag.toUpperCase())) return tag
+  }
+  const nonce = blankToNull(input.nonce) ?? "unique"
+  for (let extra = 0; extra < 64; extra += 1) {
+    const tag = suggestAssetTrackingTag({
+      deviceId: input.deviceId,
+      hostname: input.hostname,
+      serialNumber: [input.serialNumber ?? "", nonce, String(extra)].join("#"),
+      attempt: baseAttempt,
+      prefix: input.prefix,
+    })
+    if (!taken.has(tag.toUpperCase())) return tag
+  }
+  return null
+}
+
+export type AssetWriteMatch = {
+  id: string
+  tag: string
+  serial: string | null
+  isContainer: boolean
+}
+
+export type AssetWritePlan =
+  | { action: "insert"; tag: string }
+  | { action: "update"; assetId: string }
+  | { action: "reject"; message: string }
+
+/**
+ * Scan/save should update an asset that is already on file (and move it into
+ * the folder when that save is filed there) instead of failing a second insert.
+ * A new item that only reused a taken tag, such as the folder's tag, is inserted
+ * under a different tag — `tag` is empty so the caller assigns a free one.
+ */
+export function planAssetCreate(input: {
+  tag: string
+  serial?: string | null
+  isContainer?: boolean
+  matches: readonly AssetWriteMatch[]
+}): AssetWritePlan {
+  const serial = blankToNull(input.serial)
+  const tag = input.tag.trim()
+  const isContainer = Boolean(input.isContainer)
+  const serialMatch = serial
+    ? input.matches.find(
+        (row) => blankToNull(row.serial)?.toLowerCase() === serial.toLowerCase()
+      )
+    : undefined
+  if (serialMatch) {
+    if (Boolean(serialMatch.isContainer) !== isContainer) {
+      return {
+        action: "reject",
+        message: serialMatch.isContainer
+          ? "That serial belongs to a folder."
+          : "That serial is already on an asset.",
+      }
+    }
+    return { action: "update", assetId: serialMatch.id }
+  }
+  const tagMatch = input.matches.find(
+    (row) => row.tag.trim().toLowerCase() === tag.toLowerCase()
+  )
+  if (tagMatch) {
+    const existingSerial = blankToNull(tagMatch.serial)
+    const sameKind = Boolean(tagMatch.isContainer) === isContainer
+    const serialOk =
+      !serial ||
+      !existingSerial ||
+      existingSerial.toLowerCase() === serial.toLowerCase()
+    if (sameKind && serialOk) {
+      return { action: "update", assetId: tagMatch.id }
+    }
+    return { action: "insert", tag: "" }
+  }
+  return { action: "insert", tag }
+}
+
 export type AgentReportedAssetIdentity = {
   serialNumber: string | null
   hostname: string | null

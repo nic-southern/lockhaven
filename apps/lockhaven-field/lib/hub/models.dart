@@ -306,3 +306,24 @@ List<String> scanQueryCandidates(String raw) {
   if (lines.length == 1) return [lines.first];
   return [lines.first, lines[1], lines.join(" ")];
 }
+
+/// Exact serial, then exact tracking tag. Folders are not scan targets for a new item.
+AssetSummary? matchScannedAsset(String raw, Iterable<AssetSummary> rows) {
+  final candidates = scanQueryCandidates(raw);
+  if (candidates.isEmpty) return null;
+  final list = rows.where((row) => !row.isContainer).toList();
+  for (final candidate in candidates) {
+    final needle = candidate.toLowerCase();
+    for (final row in list) {
+      final serial = row.serial?.trim().toLowerCase() ?? "";
+      if (serial.isNotEmpty && serial == needle) return row;
+    }
+  }
+  for (final candidate in candidates) {
+    final needle = candidate.toLowerCase();
+    for (final row in list) {
+      if (row.tag.trim().toLowerCase() == needle) return row;
+    }
+  }
+  return null;
+}

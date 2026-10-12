@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import { TRPCError } from "@trpc/server"
 import {
   and,
@@ -33,9 +35,10 @@ import {
   deriveConnectivity,
   isContainerAsset,
   parseAssetBulkCsv,
+  pickUnusedTrackingTag,
+  planAssetCreate,
   resolveAssetLifecycle,
   retireAfterMonthsSchema,
-  suggestAssetTrackingTag,
   normalizeTrackingTagPrefix,
   warrantyState,
   type AssetStatus,
@@ -95,6 +98,33 @@ const parentAssets = alias(assets, "parent_assets")
 function emptyToNull(value: string | null | undefined) {
   const trimmed = value?.trim()
   return trimmed ? trimmed : null
+}
+
+function isUniqueViolation(error: unknown) {
+  const seen = new Set<unknown>()
+  let current: unknown = error
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current)
+    const record = current as { code?: unknown; cause?: unknown }
+    if (record.code === "23505") return true
+    current = record.cause
+  }
+  return false
+}
+
+function uniqueAssetMessage() {
+  return new TRPCError({
+    code: "CONFLICT",
+    message: "An asset with that tag or serial already exists.",
+  })
+}
+
+async function takenTrackingTags(ctx: ApiContext, organizationId: string) {
+  const rows = await ctx.db
+    .select({ tag: assets.tag })
+    .from(assets)
+    .where(eq(assets.organizationId, organizationId))
+  return rows.map((row) => row.tag)
 }
 
 async function resolveDeviceModel(
@@ -599,6 +629,105 @@ export const assetsRouter = createTRPCRouter({
         siteId = childSiteFromFolder(parent.siteId).siteId
       }
 
+      const serial = emptyToNull(input.serial)
+      const requestedTag = input.tag.trim()
+      const matches = await ctx.db
+        .select({
+          id: assets.id,
+          tag: assets.tag,
+          serial: assets.serial,
+          isContainer: assets.isContainer,
+        })
+        .from(assets)
+        .where(
+          and(
+            eq(assets.organizationId, input.organizationId),
+            serial
+              ? or(
+                  sql`lower(${assets.tag}) = ${requestedTag.toLowerCase()}`,
+                  sql`lower(${assets.serial}) = ${serial.toLowerCase()}`
+                )
+              : sql`lower(${assets.tag}) = ${requestedTag.toLowerCase()}`
+          )
+        )
+      const plan = planAssetCreate({
+        tag: requestedTag,
+        serial,
+        isContainer,
+        matches,
+      })
+      if (plan.action === "reject") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: plan.message })
+      }
+      if (plan.action === "update") {
+        const existing = await loadAsset(ctx, plan.assetId)
+        let current = existing
+        if (parentAssetId && parentAssetId !== existing.parentAssetId) {
+          const parent = await loadFolderOrThrow(ctx, parentAssetId)
+          current = await attachChildToFolder(ctx, parent, existing)
+        }
+        const patch: Partial<typeof assets.$inferInsert> = {
+          updatedAt: new Date(),
+        }
+        const hostname = emptyToNull(input.hostname)
+        if (hostname) patch.hostname = hostname
+        const notes = emptyToNull(input.notes)
+        if (notes) patch.notes = notes
+        if (serial && !emptyToNull(current.serial)) patch.serial = serial
+        if (catalog) {
+          patch.deviceModelId = catalog.id
+          patch.vendor = emptyToNull(catalog.manufacturer)
+          patch.model = catalog.model
+        }
+        if (input.purchaseDate) patch.purchaseDate = input.purchaseDate
+        if (input.purchaseCost) patch.purchaseCost = input.purchaseCost
+        if (input.warrantyExpiresOn) {
+          patch.warrantyExpiresOn = input.warrantyExpiresOn
+        }
+        if (input.retireAfterMonths != null) {
+          patch.retireAfterMonths = input.retireAfterMonths
+        }
+        if (input.retireOn) patch.retireOn = input.retireOn
+        const [record] = await ctx.db
+          .update(assets)
+          .set(patch)
+          .where(eq(assets.id, current.id))
+          .returning()
+        await writeAuditEvent(ctx, {
+          eventType: "asset_updated",
+          organizationId: record.organizationId,
+          siteId: record.siteId,
+          eventData: {
+            assetId: record.id,
+            tag: record.tag,
+            isContainer: record.isContainer,
+            parentAssetId: record.parentAssetId,
+            previousParentAssetId: existing.parentAssetId,
+            action: "scan_update",
+          },
+        })
+        return record
+      }
+
+      let tag = plan.tag
+      if (!tag) {
+        const [organization] = await ctx.db
+          .select({ trackingTagPrefix: organizations.trackingTagPrefix })
+          .from(organizations)
+          .where(eq(organizations.id, input.organizationId))
+        const taken = await takenTrackingTags(ctx, input.organizationId)
+        tag =
+          pickUnusedTrackingTag({
+            deviceId: input.siteId ?? input.organizationId,
+            hostname: emptyToNull(input.hostname),
+            serialNumber: serial,
+            prefix: organization?.trackingTagPrefix,
+            taken,
+            nonce: randomUUID(),
+          }) ?? ""
+        if (!tag) throw uniqueAssetMessage()
+      }
+
       try {
         const [record] = await ctx.db
           .insert(assets)
@@ -608,12 +737,12 @@ export const assetsRouter = createTRPCRouter({
             parentAssetId,
             isContainer,
             deviceModelId: catalog?.id ?? null,
-            tag: input.tag.trim(),
+            tag,
             vendor: catalog
               ? emptyToNull(catalog.manufacturer)
               : emptyToNull(input.vendor),
             model: catalog ? catalog.model : emptyToNull(input.model),
-            serial: emptyToNull(input.serial),
+            serial,
             hostname: emptyToNull(input.hostname),
             status: input.status ?? "stock",
             purchaseDate: input.purchaseDate ?? null,
@@ -639,17 +768,7 @@ export const assetsRouter = createTRPCRouter({
         })
         return record
       } catch (error) {
-        if (
-          error &&
-          typeof error === "object" &&
-          "code" in error &&
-          error.code === "23505"
-        ) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "An asset with that tag or serial already exists.",
-          })
-        }
+        if (isUniqueViolation(error)) throw uniqueAssetMessage()
         throw error
       }
     }),
@@ -708,17 +827,7 @@ export const assetsRouter = createTRPCRouter({
         })
         return record
       } catch (error) {
-        if (
-          error &&
-          typeof error === "object" &&
-          "code" in error &&
-          error.code === "23505"
-        ) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "An asset with that tag or serial already exists.",
-          })
-        }
+        if (isUniqueViolation(error)) throw uniqueAssetMessage()
         throw error
       }
     }),
@@ -1042,17 +1151,7 @@ export const assetsRouter = createTRPCRouter({
         })
         return record
       } catch (error) {
-        if (
-          error &&
-          typeof error === "object" &&
-          "code" in error &&
-          error.code === "23505"
-        ) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "An asset with that tag or serial already exists.",
-          })
-        }
+        if (isUniqueViolation(error)) throw uniqueAssetMessage()
         throw error
       }
     }),
@@ -1270,14 +1369,19 @@ export const assetsRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND" })
       }
       const seedId = input.siteId ?? input.organizationId
+      const taken = await takenTrackingTags(ctx, input.organizationId)
+      const tag = pickUnusedTrackingTag({
+        deviceId: seedId,
+        serialNumber: emptyToNull(input.serial),
+        hostname: emptyToNull(input.hostname),
+        attempt: input.attempt ?? 0,
+        prefix: organization.trackingTagPrefix,
+        taken,
+        nonce: randomUUID(),
+      })
+      if (!tag) throw uniqueAssetMessage()
       return {
-        tag: suggestAssetTrackingTag({
-          deviceId: seedId,
-          serialNumber: emptyToNull(input.serial),
-          hostname: emptyToNull(input.hostname),
-          attempt: input.attempt ?? 0,
-          prefix: organization.trackingTagPrefix,
-        }),
+        tag,
         prefix: normalizeTrackingTagPrefix(organization.trackingTagPrefix),
       }
     }),

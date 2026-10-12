@@ -1,3 +1,5 @@
+import "dart:async";
+
 import "package:flutter/material.dart";
 import "package:lockhaven_field/hub/hub_client.dart";
 import "package:lockhaven_field/hub/models.dart";
@@ -63,6 +65,9 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
   int savedCount = 0;
   List<DeviceModelSummary> deviceModels = const [];
   String? deviceModelId;
+  AssetSummary? matchedAsset;
+  Timer? identityTimer;
+  int identityGeneration = 0;
 
   bool get isContainer => widget.asContainer;
   bool get underFolder => widget.parentAsset != null && !isContainer;
@@ -113,6 +118,7 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
     notesController.dispose();
     serialFocus.dispose();
     nameFocus.dispose();
+    identityTimer?.cancel();
     super.dispose();
   }
 
@@ -136,17 +142,21 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
 
   Future<void> _suggestTag({bool force = false}) async {
     if (tagTouched && !force) return;
+    if (matchedAsset != null && !force) return;
+    final serialAtStart = serialController.text.trim();
     setState(() => suggesting = true);
     try {
       final remote = await widget.state.client.suggestTag(
         organizationId: widget.site.organizationId,
         siteId: widget.site.id,
-        serial: serialController.text.trim().isEmpty
-            ? null
-            : serialController.text.trim(),
+        serial: serialAtStart.isEmpty ? null : serialAtStart,
         attempt: attempt,
       );
       if (!mounted) return;
+      if (serialController.text.trim() != serialAtStart || matchedAsset != null) {
+        setState(() => suggesting = false);
+        return;
+      }
       if (remote.isNotEmpty) {
         setState(() {
           tagController.text = remote;
@@ -159,6 +169,10 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
       // Fall back to local suggestion matching Hub rules.
     }
     if (!mounted) return;
+    if (serialController.text.trim() != serialAtStart || matchedAsset != null) {
+      setState(() => suggesting = false);
+      return;
+    }
     setState(() {
       tagController.text = _localSuggestion();
       tagTouched = false;
@@ -167,12 +181,101 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
   }
 
   void _onSerialChanged() {
-    if (!tagTouched) {
-      _suggestTag();
+    final raw = serialController.text;
+    if (raw.contains("\n") || raw.contains("\r")) {
+      final parts = scanQueryCandidates(raw);
+      if (parts.isNotEmpty) {
+        final serial = parts.length > 1 ? parts[1] : parts.first;
+        serialController.removeListener(_onSerialChanged);
+        serialController.value = TextEditingValue(
+          text: serial,
+          selection: TextSelection.collapsed(offset: serial.length),
+        );
+        serialController.addListener(_onSerialChanged);
+      }
     }
+    _scheduleIdentityRefresh();
+  }
+
+  void _scheduleIdentityRefresh() {
+    identityTimer?.cancel();
+    identityTimer = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      _refreshIdentity();
+    });
+  }
+
+  Future<void> _refreshIdentity() async {
+    final generation = ++identityGeneration;
+    final raw = serialController.text;
+    if (raw.trim().isEmpty) {
+      if (!mounted || generation != identityGeneration) return;
+      if (matchedAsset != null) {
+        setState(() {
+          matchedAsset = null;
+          tagTouched = false;
+          statusMessage = null;
+        });
+      }
+      if (!tagTouched) await _suggestTag();
+      return;
+    }
+
+    AssetSummary? match;
+    try {
+      final found = <String, AssetSummary>{};
+      for (final candidate in scanQueryCandidates(raw)) {
+        final rows = await widget.state.client.searchAssets(candidate);
+        for (final row in rows) {
+          found[row.id] = row;
+        }
+      }
+      match = matchScannedAsset(raw, found.values);
+    } catch (_) {
+      match = null;
+    }
+    if (!mounted || generation != identityGeneration) return;
+
+    if (match != null) {
+      final found = match;
+      setState(() {
+        matchedAsset = found;
+        tagTouched = true;
+        tagController.text = found.tag;
+        final modelId = found.deviceModelId;
+        if (modelId != null && modelId.isNotEmpty) {
+          deviceModelId = modelId;
+        }
+        final hostname = found.hostname?.trim() ?? "";
+        if (hostname.isNotEmpty) hostnameController.text = hostname;
+        final notes = found.notes?.trim() ?? "";
+        if (notes.isNotEmpty) notesController.text = notes;
+        statusMessage = underFolder
+            ? "Already on file. Saving will move it into this folder."
+            : "Already on file. Saving will update it.";
+        suggesting = false;
+      });
+      return;
+    }
+
+    final hadMatch = matchedAsset != null;
+    if (hadMatch) {
+      setState(() {
+        matchedAsset = null;
+        tagTouched = false;
+        statusMessage = null;
+      });
+    }
+    if (!tagTouched) await _suggestTag();
   }
 
   Future<void> _regenerateTag() async {
+    if (matchedAsset != null) {
+      setState(() {
+        statusMessage = "This asset already has a tracking tag.";
+      });
+      return;
+    }
     setState(() {
       attempt += 1;
       tagTouched = false;
@@ -289,16 +392,26 @@ class _AddAssetScreenState extends State<AddAssetScreen> {
       }
 
       // Items: stay on this screen for the next serial (audit loop).
+      final updatedExisting = matchedAsset != null;
       setState(() {
         saving = false;
+        matchedAsset = null;
         if (printLabel && !printed) {
           error = printMessage;
-          statusMessage = "Saved ${created.tag}. Print failed — fix printer, then use Print on the asset.";
+          statusMessage = updatedExisting
+              ? "Updated ${created.tag}. Print failed — fix printer, then use Print on the asset."
+              : "Saved ${created.tag}. Print failed — fix printer, then use Print on the asset.";
         } else {
           error = null;
-          statusMessage = printLabel
-              ? "Saved ${created.tag} · ${printMessage ?? "printed"}. Scan the next serial."
-              : "Saved ${created.tag}. Scan the next serial.";
+          if (updatedExisting) {
+            statusMessage = underFolder
+                ? "Moved ${created.tag} into this folder. Scan the next serial."
+                : "Updated ${created.tag}. Scan the next serial.";
+          } else {
+            statusMessage = printLabel
+                ? "Saved ${created.tag} · ${printMessage ?? "printed"}. Scan the next serial."
+                : "Saved ${created.tag}. Scan the next serial.";
+          }
         }
       });
       _resetForNext();
