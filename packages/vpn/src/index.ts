@@ -70,6 +70,14 @@ function ensureHostRoute(value: string) {
   return value.includes("/") ? value.trim() : `${ip}/32`
 }
 
+function ensureInterfaceAddress(value: string) {
+  const trimmed = value.trim()
+  if (trimmed.includes("/")) {
+    return trimmed
+  }
+  return trimmed.includes(":") ? `${trimmed}/128` : `${trimmed}/32`
+}
+
 export function allocateVpnIpv4(
   existingIps: string[],
   osFamilyOrOptions: string | { pool: AllocationPool }
@@ -154,16 +162,20 @@ export function buildClientConfig({
       includeUpdates,
     })
 
+  // Phone WireGuard import accepts only Interface and Peer, and only the
+  // keys below. wg-quick script keys (PostUp, PostDown, PreUp, PreDown,
+  // SaveConfig, Table) and extra sections are rejected.
   return [
     "[Interface]",
-    `Address = ${vpnIp}`,
-    `PrivateKey = ${privateKey}`,
+    `Address = ${ensureInterfaceAddress(vpnIp)}`,
+    `PrivateKey = ${privateKey.trim()}`,
     "",
     "[Peer]",
-    `PublicKey = ${serverPublicKey}`,
-    `Endpoint = ${endpoint}`,
+    `PublicKey = ${serverPublicKey.trim()}`,
+    `Endpoint = ${endpoint.trim()}`,
     `AllowedIPs = ${peerAllowedIps.join(", ")}`,
     "PersistentKeepalive = 25",
+    "",
   ].join("\n")
 }
 

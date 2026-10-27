@@ -26,6 +26,7 @@ import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
 import { SelectField } from "@/components/dashboard/select-field"
 import { StatusIndicator } from "@/components/dashboard/status-indicator"
+import { AdminVpnConfigDialog } from "@/components/admin-vpn/config-ready-dialog"
 import { formatRelativeTime } from "@/lib/dashboard"
 import { downloadTextFile } from "@/lib/wireguard"
 import { trpc } from "@/lib/trpc"
@@ -76,6 +77,10 @@ export default function AdminVpnPage() {
   const [revokeId, setRevokeId] = React.useState<string | null>(null)
   const [reissueId, setReissueId] = React.useState<string | null>(null)
   const [deleteId, setDeleteId] = React.useState<string | null>(null)
+  const [issuedConfig, setIssuedConfig] = React.useState<{
+    filename: string
+    config: string
+  } | null>(null)
 
   const organizations = React.useMemo(
     () => organizationsQuery.data ?? [],
@@ -96,9 +101,10 @@ export default function AdminVpnPage() {
     async onSuccess(result) {
       await utils.adminVpn.list.invalidate()
       downloadTextFile(result.filename, result.config)
+      setIssuedConfig({ filename: result.filename, config: result.config })
       setLabel("")
       setCreateOpen(false)
-      toast.success("Admin VPN profile created. Config downloaded once.")
+      toast.success("Admin VPN profile created. The config is shown only once.")
     },
     onError(error) {
       toast.error(error.message || "We couldn't create the admin VPN profile.")
@@ -109,8 +115,11 @@ export default function AdminVpnPage() {
     async onSuccess(result) {
       await utils.adminVpn.list.invalidate()
       downloadTextFile(result.filename, result.config)
+      setIssuedConfig({ filename: result.filename, config: result.config })
       setReissueId(null)
-      toast.success("Admin VPN profile reissued. New config downloaded once.")
+      toast.success(
+        "Admin VPN profile reissued. The new config is shown only once."
+      )
     },
     onError(error) {
       toast.error(error.message || "We couldn't reissue the admin VPN profile.")
@@ -331,7 +340,7 @@ export default function AdminVpnPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Admin VPN"
-        description="Download a profile for each machine you connect from. Enable same-user access on a profile to let your other machines reach it."
+        description="Download a profile for each machine you connect from, or scan its QR code on a phone. Enable same-user access on a profile to let your other machines reach it."
         actions={
           <Button onClick={() => setCreateOpen(true)}>
             <PlusIcon />
@@ -381,8 +390,8 @@ export default function AdminVpnPage() {
           <DialogHeader>
             <DialogTitle>Create profile</DialogTitle>
             <DialogDescription>
-              Create one profile per machine you connect from. The private key
-              is shown only in the downloaded file.
+              Create one profile per machine you connect from. The config is
+              shown only once, as a download and a QR code.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4">
@@ -401,7 +410,7 @@ export default function AdminVpnPage() {
             <FormField
               label="Device name"
               htmlFor="admin-vpn-label"
-              description="Used to name the downloaded file so you can tell your machines apart."
+              description="Shown in the list so you can tell your machines apart."
             >
               <Input
                 id="admin-vpn-label"
@@ -444,7 +453,7 @@ export default function AdminVpnPage() {
           if (!open) setReissueId(null)
         }}
         title="Reissue admin VPN profile?"
-        description="This replaces the keys for this machine only. Download and import the new config. The previous config for this machine will stop working."
+        description="This replaces the keys for this machine only. Download the new config or scan its QR code. The previous config for this machine will stop working."
         confirmLabel="Reissue and download"
         pending={reissueProfile.isPending}
         onConfirm={() => {
@@ -466,6 +475,17 @@ export default function AdminVpnPage() {
         onConfirm={() => {
           if (revokeId) {
             revokeProfile.mutate({ id: revokeId })
+          }
+        }}
+      />
+
+      <AdminVpnConfigDialog
+        open={issuedConfig !== null}
+        filename={issuedConfig?.filename ?? ""}
+        config={issuedConfig?.config ?? ""}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIssuedConfig(null)
           }
         }}
       />

@@ -7,6 +7,7 @@ import {
   permissionForServiceType,
   serviceConnectionDefaults,
   siteBelongsToOrganization,
+  WIREGUARD_TUNNEL_NAME_PATTERN,
 } from "./helpers"
 
 test("normalizes route values before persistence", () => {
@@ -43,24 +44,56 @@ test("keeps site assignments within the same organization", () => {
   assert.equal(siteBelongsToOrganization("org-1", "org-2"), false)
 })
 
+function tunnelName(filename: string) {
+  assert.match(filename, /\.conf$/)
+  return filename.slice(0, -".conf".length)
+}
+
 test("names admin vpn configs after the machine label", () => {
   assert.equal(
     adminVpnConfigFilename("Acme Corp", "10.80.100.11/32", "Desktop"),
-    "lockhaven-admin-acme-corp-desktop.conf"
+    "desktop-100-11.conf"
   )
   assert.equal(
     adminVpnConfigFilename("Acme Corp", "10.80.100.12/32", "Laptop"),
-    "lockhaven-admin-acme-corp-laptop.conf"
+    "laptop-100-12.conf"
   )
 })
 
-test("falls back to the vpn address when a profile has no label", () => {
+test("falls back to the organization when a profile has no label", () => {
   assert.equal(
     adminVpnConfigFilename("Acme Corp", "10.80.100.11/32", null),
-    "lockhaven-admin-acme-corp-10-80-100-11.conf"
+    "acme-cor-100-11.conf"
   )
   assert.equal(
     adminVpnConfigFilename("!!!", "10.80.100.11", ""),
-    "lockhaven-admin-org-10-80-100-11.conf"
+    "lh-100-11.conf"
   )
+})
+
+test("admin vpn config names import in Android and desktop WireGuard", () => {
+  const names = [
+    adminVpnConfigFilename("Acme Corp", "10.80.100.11/32", "Desktop"),
+    adminVpnConfigFilename("Acme Corp", "10.80.100.12/32", "Laptop"),
+    adminVpnConfigFilename("Acme Corp", "10.80.100.11/32", null),
+    adminVpnConfigFilename("!!!", "10.80.100.11", ""),
+    adminVpnConfigFilename(
+      "A very long organization name",
+      "10.80.100.254/32",
+      "Field technician phone"
+    ),
+    adminVpnConfigFilename("Org", "10.80.100.11/32", "CON"),
+    adminVpnConfigFilename("Org", "10.80.100.8/32", "Desktop north"),
+    adminVpnConfigFilename("Org", "10.80.100.9/32", "Desktop south"),
+  ]
+
+  for (const filename of names) {
+    const stem = tunnelName(filename)
+    assert.match(stem, WIREGUARD_TUNNEL_NAME_PATTERN)
+    assert.ok(!stem.startsWith("."))
+    assert.ok(!stem.endsWith("."))
+  }
+
+  assert.notEqual(names[0], names[1])
+  assert.notEqual(names[6], names[7])
 })

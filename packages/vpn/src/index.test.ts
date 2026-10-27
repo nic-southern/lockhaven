@@ -62,12 +62,66 @@ test("adds route policy ranges to server peers", () => {
   )
 })
 
+function isCanonicalWireGuardKey(key: string) {
+  return (
+    /^[A-Za-z0-9+/]{43}=$/.test(key) &&
+    Buffer.from(key, "base64").byteLength === 32 &&
+    Buffer.from(key, "base64").toString("base64") === key
+  )
+}
+
 test("generates wireguard keypairs as base64 32-byte values", () => {
   const keyPair = generateWireGuardKeyPair()
-  assert.equal(Buffer.from(keyPair.privateKey, "base64").byteLength, 32)
-  assert.equal(Buffer.from(keyPair.publicKey, "base64").byteLength, 32)
+  assert.equal(isCanonicalWireGuardKey(keyPair.privateKey), true)
+  assert.equal(isCanonicalWireGuardKey(keyPair.publicKey), true)
   assert.notEqual(keyPair.privateKey, keyPair.publicKey)
 })
+
+const androidInterfaceKeys = new Set([
+  "address",
+  "dns",
+  "excludedapplications",
+  "includedapplications",
+  "listenport",
+  "mtu",
+  "privatekey",
+])
+
+const androidPeerKeys = new Set([
+  "allowedips",
+  "endpoint",
+  "persistentkeepalive",
+  "presharedkey",
+  "publickey",
+])
+
+function assertAndroidWireGuardConfig(config: string) {
+  assert.equal(config.endsWith("\n"), true)
+  assert.equal(config.includes("\r"), false)
+  assert.equal(config.includes("#"), false)
+
+  let section = ""
+  for (const line of config.split("\n")) {
+    if (line === "") {
+      continue
+    }
+    if (line.startsWith("[")) {
+      assert.ok(line === "[Interface]" || line === "[Peer]")
+      section = line
+      continue
+    }
+    const separator = line.indexOf("=")
+    assert.ok(separator > 0, line)
+    const key = line.slice(0, separator).trim().toLowerCase()
+    const allowed =
+      section === "[Interface]" ? androidInterfaceKeys : androidPeerKeys
+    assert.equal(allowed.has(key), true, line)
+    assert.equal(
+      /^(postup|postdown|preup|predown|saveconfig|table)$/.test(key),
+      false
+    )
+  }
+}
 
 test("builds admin client config with overlay allowed ips", () => {
   const config = buildAdminClientConfig({
@@ -81,6 +135,35 @@ test("builds admin client config with overlay allowed ips", () => {
   assert.match(config, /PrivateKey = A{43}=/)
   assert.match(config, /AllowedIPs = 10\.80\.0\.0\/16/)
   assert.match(config, /Endpoint = vpn\.example\.com:51820/)
+  assertAndroidWireGuardConfig(config)
+  assert.equal(
+    config,
+    [
+      "[Interface]",
+      "Address = 10.80.100.11/32",
+      "PrivateKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      "",
+      "[Peer]",
+      "PublicKey = BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+      "Endpoint = vpn.example.com:51820",
+      "AllowedIPs = 10.80.0.0/16",
+      "PersistentKeepalive = 25",
+      "",
+    ].join("\n")
+  )
+})
+
+test("admin client config adds a host prefix when the address has none", () => {
+  const config = buildAdminClientConfig({
+    privateKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    vpnIp: "10.80.100.11",
+    serverPublicKey: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+    endpoint: " vpn.example.com:51820 ",
+  })
+
+  assert.match(config, /Address = 10\.80\.100\.11\/32/)
+  assert.match(config, /Endpoint = vpn\.example\.com:51820\n/)
+  assertAndroidWireGuardConfig(config)
 })
 
 test("builds sync-firewall command with admin forwards and snat", () => {
