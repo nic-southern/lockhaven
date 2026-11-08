@@ -1,5 +1,5 @@
 import { hostnamesMatch } from "./domain"
-import { normalizeSerial } from "./assets"
+import { isTrustedAttachSerial, normalizeSerial } from "./assets"
 
 function serialsMatch(
   expected: string | null | undefined,
@@ -37,6 +37,7 @@ export type AttachMatchReason =
   | "device_id"
   | "wireguard"
   | "serial"
+  | "serial_and_hostname"
   | "hostname"
 
 export type AttachRefusalReason =
@@ -104,11 +105,26 @@ export function matchExistingDevice(
   const serialHits = scoped.filter((row) =>
     serialsMatch(row.serialNumber, identity.serialNumber)
   )
-  if (serialHits.length === 1) {
-    if (isRevoked(serialHits[0])) return { ok: false, reason: "revoked" }
-    return { ok: true, deviceId: serialHits[0].id, reason: "serial" }
+  if (isTrustedAttachSerial(identity.serialNumber)) {
+    if (serialHits.length === 1) {
+      if (isRevoked(serialHits[0])) return { ok: false, reason: "revoked" }
+      return { ok: true, deviceId: serialHits[0].id, reason: "serial" }
+    }
+    if (serialHits.length > 1) return { ok: false, reason: "ambiguous" }
+  } else {
+    const combinedHits = serialHits.filter((row) =>
+      hostnamesMatch(row.hostname, identity.hostname)
+    )
+    if (combinedHits.length === 1) {
+      if (isRevoked(combinedHits[0])) return { ok: false, reason: "revoked" }
+      return {
+        ok: true,
+        deviceId: combinedHits[0].id,
+        reason: "serial_and_hostname",
+      }
+    }
+    if (combinedHits.length > 1) return { ok: false, reason: "ambiguous" }
   }
-  if (serialHits.length > 1) return { ok: false, reason: "ambiguous" }
 
   const hostnameHits = scoped.filter((row) =>
     hostnamesMatch(row.hostname, identity.hostname)
@@ -128,4 +144,36 @@ export function matchExistingDevice(
   if (hostnameHits.length > 1) return { ok: false, reason: "ambiguous" }
 
   return { ok: false, reason: "not_found" }
+}
+
+export type EnrollmentIntent =
+  | { action: "create" }
+  | {
+      action: "reenroll"
+      deviceId: string
+      matchReason: AttachMatchReason
+    }
+  | {
+      action: "reject"
+      reason: Exclude<AttachRefusalReason, "not_found">
+    }
+
+/**
+ * Unique listed, non-revoked matches re-enroll in place. `not_found` creates a
+ * new device. Ambiguous, revoked, and hostname conflicts stay rejected.
+ */
+export function enrollmentIntentFromMatch(
+  match: AttachMatch
+): EnrollmentIntent {
+  if (match.ok) {
+    return {
+      action: "reenroll",
+      deviceId: match.deviceId,
+      matchReason: match.reason,
+    }
+  }
+  if (match.reason === "not_found") {
+    return { action: "create" }
+  }
+  return { action: "reject", reason: match.reason }
 }

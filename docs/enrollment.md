@@ -4,7 +4,13 @@
 2. The device generates its WireGuard keypair locally.
 3. The client submits metadata and its public key to `POST /api/enroll`.
 4. The API allocates a VPN `/32`, creates the device row, issues a device
-   check-in secret, and returns the client-side WireGuard settings.
+   check-in secret, and returns the client-side WireGuard settings. When the
+   request matches exactly one existing, non-revoked device in the token's
+   organization (and site, when the token is scoped to a site), Hub re-enrolls
+   that listing in place instead: it keeps the VPN address and device history,
+   replaces the tunnel public key, refreshes SSH/VNC (and similar) services,
+   and issues a new check-in secret. The success payload is the same as a
+   first-time enroll, so `enroll-linux.sh` does not need a separate path.
 5. When SSH is requested, the API also returns an SSH username and public key
    and stores the matching private key for Console remote access.
 6. The Linux installer writes that public key into `authorized_keys`.
@@ -54,11 +60,13 @@ curl -fsSL <hub>/install/install-lockhaven-agent.sh | sudo LOCKHAVEN_TOKEN=<toke
 $Token = "<token>"; $BaseUrl = "<hub>"; $Script = "$env:TEMP\install-lockhaven-agent.ps1"; Invoke-WebRequest -Uri "$BaseUrl/install/install-lockhaven-agent.ps1" -OutFile $Script; powershell.exe -ExecutionPolicy Bypass -File $Script -Token $Token -BaseUrl $BaseUrl
 ```
 
-On a listed device the installer binds to that record and leaves the existing
-tunnel in place. It only calls `POST /api/enroll` when Hub has no match.
-Local agent state (`/var/lib/lockhaven/agent.json` on Linux,
-`%ProgramData%\Lockhaven\agent.json` on Windows) is enough to start the service
-without calling Hub again.
+On a listed device the agent installer binds to that record and leaves the
+existing tunnel in place. It only calls `POST /api/enroll` when Hub has no
+match, so it will not rotate a tunnel key after a reflash. Use the tunnel-only
+`enroll-linux.sh` / `enroll-windows.ps1` commands (or `lockhaven-agent enroll`)
+when the unit has a new keypair. Local agent state
+(`/var/lib/lockhaven/agent.json` on Linux, `%ProgramData%\Lockhaven\agent.json`
+on Windows) is enough to start the service without calling Hub again.
 
 From a device page in Console, the Agent tab creates a Linux or Windows install
 command that includes the device id so attach binds that listing even when
@@ -74,8 +82,37 @@ for auth plus an encrypted copy of the secret so those commands can be copied
 later. Tokens created before that storage need a new secret issued once.
 
 `POST /api/agent/attach` issues a new check-in secret for the matched device.
-`POST /api/enroll` refuses with `device_exists` when the host already matches
-inventory.
+Attach never replaces an existing WireGuard tunnel. Use `POST /api/enroll` when
+the unit was reflashed and has a new keypair: a unique match re-enrolls in
+place.
+
+Matching uses the enrollment token's organization, and its site when the token
+has one. Hub binds in this order: explicit device id (agent attach only),
+tunnel public key, serial, then hostname.
+
+- A real, unique serial (or a unique DMI `product_uuid` that is not a known
+  colliding value) is enough to match even if the hostname changed.
+- Some boards share a generic DMI UUID
+  (`03000200-0400-0500-0006-000700080009` on FUZHOU TITA TIP600 and similar).
+  That value is never enough on its own; Hub also requires the hostname (MAC
+  derived on those cabinets) to match. Two listed cabinets with that UUID and
+  different hostnames re-enroll independently. A second cabinet must not take
+  over the first.
+- More than one candidate is `ambiguous` (409). Hub never picks one.
+- A hostname match whose stored serial disagrees with the request is
+  `hostname_conflict` (409).
+- Revoked devices stay rejected (`revoked`, 409). Revocation is not bypassed
+  by re-enroll.
+
+Re-enroll is allowed for any currently valid enrollment token. Imaging tokens
+are the usual path for reflashing a fleet; they already authorize new enrolls
+in the organization, and a unique identity match is a tighter bind than
+creating a row. There is no per-token or per-site toggle: an extra flag that
+defaults on would not change behavior, and defaulting off would still require
+operators to delete the listing. Revoke the token to stop both new enrolls and
+re-enrolls. Each re-enroll writes a `device_reenrolled` activity entry with
+the token id, the old and new tunnel key fingerprints, and the unchanged VPN
+address.
 
 Optional `titles` on check-in is separate from package inventory. Linux agents
 read a watch list from `LOCKHAVEN_TITLES_FILE`, or `/etc/lockhaven/titles.json`,

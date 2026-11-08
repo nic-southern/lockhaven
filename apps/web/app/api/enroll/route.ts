@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto"
 
+import { and, ne } from "drizzle-orm"
+
 import {
+  adminVpnProfiles,
   auditEvents,
   devices,
   enrollmentTokens,
@@ -25,9 +28,11 @@ import {
   type EncryptedSecret,
 } from "@nms/remote-access"
 import {
+  enrollmentIntentFromMatch,
   enrollmentRequestSchema,
   enrollmentResponseSchema,
   severityForEvent,
+  shouldAdoptHardwareSerial,
 } from "@nms/shared"
 import { allocateVpnIpv4 } from "@nms/vpn"
 
@@ -37,6 +42,12 @@ import {
   loadAttachCandidates,
   matchForToken,
 } from "@/lib/agent-attach"
+import {
+  enrollmentConflictResponse,
+  isEnrollmentConflictReason,
+  reenrollAuditEventData,
+  vpnIdentityReenrollPatch,
+} from "@/lib/device-reenroll"
 import {
   addressKey,
   enforceRateLimit,
@@ -170,10 +181,173 @@ type EnrollmentRejection = {
     | "token_exhausted"
     | "token_expired"
     | "organization_missing"
-    | "device_exists"
+    | "ambiguous"
+    | "hostname_conflict"
+    | "revoked"
+    | "out_of_scope"
+    | "wireguard_key_in_use"
   organizationId?: string | null
   siteId?: string | null
   tokenId?: string | null
+}
+
+type EnrollmentService = {
+  type: "vnc" | "rdp" | "ssh" | "winrm_https"
+  protocol: string
+  port: number
+  password?: string
+}
+
+type SshAccess = { username: string; publicKey: string }
+
+async function resolveEnrollmentSsh(
+  tx: TransactionClient,
+  token: { siteId: string | null },
+  organization: { id: string; name: string },
+  credentialSecret: string
+): Promise<{ sshAccess: SshAccess; sshPrivateKey: string } | null> {
+  if (token.siteId) {
+    const [siteCredential] = await tx
+      .select()
+      .from(siteSshCredentials)
+      .where(eq(siteSshCredentials.siteId, token.siteId))
+
+    if (siteCredential) {
+      const decoded = decodeStoredSshCredential(
+        siteCredential,
+        credentialSecret
+      )
+      return {
+        sshAccess: {
+          username: decoded.username,
+          publicKey: decoded.publicKey,
+        },
+        sshPrivateKey: decoded.privateKey,
+      }
+    }
+  }
+
+  const organizationCredential = await ensureOrganizationSshCredentialInTx(
+    tx,
+    organization,
+    credentialSecret
+  )
+  const decoded = decodeStoredSshCredential(
+    organizationCredential,
+    credentialSecret
+  )
+  return {
+    sshAccess: {
+      username: decoded.username,
+      publicKey: decoded.publicKey,
+    },
+    sshPrivateKey: decoded.privateKey,
+  }
+}
+
+async function upsertServiceCredentials(
+  tx: TransactionClient,
+  managementServiceId: string,
+  fields: {
+    passwordCiphertext: string
+    passwordIv: string
+    passwordAuthTag: string
+    usernameCiphertext?: string
+    usernameIv?: string
+    usernameAuthTag?: string
+  }
+) {
+  const [existing] = await tx
+    .select({ id: managementServiceCredentials.id })
+    .from(managementServiceCredentials)
+    .where(
+      eq(managementServiceCredentials.managementServiceId, managementServiceId)
+    )
+
+  if (existing) {
+    await tx
+      .update(managementServiceCredentials)
+      .set({ ...fields, updatedAt: new Date() })
+      .where(eq(managementServiceCredentials.id, existing.id))
+    return
+  }
+
+  await tx.insert(managementServiceCredentials).values({
+    managementServiceId,
+    ...fields,
+  })
+}
+
+async function syncEnrollmentServices(
+  tx: TransactionClient,
+  deviceId: string,
+  services: EnrollmentService[],
+  sshAccess: SshAccess | null,
+  sshPrivateKey: string | null,
+  credentialSecret: string | undefined
+) {
+  const existing = await tx
+    .select()
+    .from(managementServices)
+    .where(eq(managementServices.deviceId, deviceId))
+
+  for (const service of services) {
+    const current =
+      existing.find((row) => row.serviceType === service.type) ?? null
+    const record =
+      current ??
+      (
+        await tx
+          .insert(managementServices)
+          .values({
+            deviceId,
+            serviceType: service.type,
+            protocol: service.protocol,
+            port: service.port,
+          })
+          .returning()
+      )[0]
+
+    if (current) {
+      await tx
+        .update(managementServices)
+        .set({
+          protocol: service.protocol,
+          port: service.port,
+        })
+        .where(eq(managementServices.id, current.id))
+    }
+
+    if (
+      service.type === "ssh" &&
+      sshAccess &&
+      sshPrivateKey &&
+      credentialSecret
+    ) {
+      await upsertServiceCredentials(
+        tx,
+        record.id,
+        buildEncryptedSshCredentialFields(
+          sshAccess.username,
+          sshPrivateKey,
+          credentialSecret
+        )
+      )
+    }
+
+    if (
+      (service.type === "vnc" || service.type === "rdp") &&
+      service.password &&
+      credentialSecret
+    ) {
+      const encrypted = encryptRemoteSecret(service.password, credentialSecret)
+      await upsertServiceCredentials(tx, record.id, {
+        passwordCiphertext: encrypted.ciphertext,
+        passwordIv: encrypted.iv,
+        passwordAuthTag: encrypted.authTag,
+      })
+    }
+  }
 }
 
 async function recordEnrollmentFailure(
@@ -292,96 +466,195 @@ export async function POST(request: Request) {
       serialNumber: input.serial_number,
       wireguardPublicKey: input.wireguard_public_key,
     }
-    const existingMatch = matchForToken(
-      await loadAttachCandidates(
-        tx,
-        token.organizationId,
+    const intent = enrollmentIntentFromMatch(
+      matchForToken(
+        await loadAttachCandidates(
+          tx,
+          token.organizationId,
+          attachIdentity,
+          token.siteId
+        ),
         attachIdentity,
-        token.siteId
-      ),
-      attachIdentity,
-      token
+        token
+      )
     )
-    if (
-      existingMatch.ok ||
-      existingMatch.reason === "ambiguous" ||
-      existingMatch.reason === "hostname_conflict" ||
-      existingMatch.reason === "revoked"
-    ) {
-      rejection = { reason: "device_exists", ...tokenScope }
+    if (intent.action === "reject") {
+      rejection = { reason: intent.reason, ...tokenScope }
       return null
+    }
+
+    async function loadRoutePolicyRoutes(routePolicyId: string | null) {
+      if (!routePolicyId) return [] as string[]
+      return (
+        (
+          await tx
+            .select({ routes: routePolicies.routes })
+            .from(routePolicies)
+            .where(eq(routePolicies.id, routePolicyId))
+        )[0]?.routes ?? []
+      )
+    }
+
+    let sshAccess: SshAccess | null = null
+    let sshPrivateKey: string | null = null
+    if (requestsSsh && env.remoteCredentialsKey) {
+      const resolved = await resolveEnrollmentSsh(
+        tx,
+        token,
+        organization,
+        env.remoteCredentialsKey
+      )
+      if (resolved) {
+        sshAccess = resolved.sshAccess
+        sshPrivateKey = resolved.sshPrivateKey
+      }
+    }
+
+    const requestInfo = requestInfoFromHeaders(request.headers)
+
+    if (intent.action === "reenroll") {
+      const [device] = await tx
+        .select()
+        .from(devices)
+        .where(eq(devices.id, intent.deviceId))
+      if (!device) {
+        rejection = { reason: "token_not_found", ...tokenScope }
+        return null
+      }
+
+      const [vpnTaken] = await tx
+        .select({ deviceId: vpnIdentities.deviceId })
+        .from(vpnIdentities)
+        .where(
+          and(
+            eq(vpnIdentities.wireguardPublicKey, input.wireguard_public_key),
+            ne(vpnIdentities.deviceId, device.id)
+          )
+        )
+      const [adminTaken] = await tx
+        .select({ id: adminVpnProfiles.id })
+        .from(adminVpnProfiles)
+        .where(
+          eq(adminVpnProfiles.wireguardPublicKey, input.wireguard_public_key)
+        )
+      if (vpnTaken || adminTaken) {
+        rejection = { reason: "wireguard_key_in_use", ...tokenScope }
+        return null
+      }
+
+      const now = new Date()
+      const nextSerial = shouldAdoptHardwareSerial(
+        device.serialNumber,
+        input.serial_number
+      )
+        ? input.serial_number
+        : (device.serialNumber ?? input.serial_number)
+      const [updatedDevice] = await tx
+        .update(devices)
+        .set({
+          hostname: input.hostname,
+          osFamily: input.os_family,
+          osVersion: input.os_version,
+          architecture: input.architecture,
+          serialNumber: nextSerial,
+          checkInSecretHash,
+          status: "enrolled",
+          updatedAt: now,
+        })
+        .where(eq(devices.id, device.id))
+        .returning()
+
+      const [existingIdentity] = await tx
+        .select()
+        .from(vpnIdentities)
+        .where(eq(vpnIdentities.deviceId, device.id))
+
+      let identity = existingIdentity
+      if (existingIdentity) {
+        const patch = vpnIdentityReenrollPatch({
+          vpnIpv4: existingIdentity.vpnIpv4,
+          nextPublicKey: input.wireguard_public_key,
+        })
+        const [updatedIdentity] = await tx
+          .update(vpnIdentities)
+          .set(patch)
+          .where(eq(vpnIdentities.id, existingIdentity.id))
+          .returning()
+        identity = updatedIdentity ?? existingIdentity
+      } else {
+        const existingIps = (
+          await tx
+            .select({ vpnIpv4: vpnIdentities.vpnIpv4 })
+            .from(vpnIdentities)
+        ).map((row: { vpnIpv4: string }) => row.vpnIpv4)
+        const [createdIdentity] = await tx
+          .insert(vpnIdentities)
+          .values({
+            deviceId: device.id,
+            vpnIpv4: allocateVpnIpv4(existingIps, input.os_family),
+            wireguardPublicKey: input.wireguard_public_key,
+            routePolicyId: token.routePolicyId,
+          })
+          .returning()
+        identity = createdIdentity
+      }
+
+      await syncEnrollmentServices(
+        tx,
+        device.id,
+        input.services,
+        sshAccess,
+        sshPrivateKey,
+        env.remoteCredentialsKey
+      )
+
+      await tx
+        .update(enrollmentTokens)
+        .set({ uses: token.uses + 1 })
+        .where(eq(enrollmentTokens.id, token.id))
+
+      await tx.insert(auditEvents).values({
+        organizationId: token.organizationId,
+        siteId: token.siteId ?? null,
+        deviceId: device.id,
+        eventType: "device_reenrolled",
+        severity: severityForEvent("device_reenrolled"),
+        actorIp: requestInfo.ipAddress,
+        userAgent: requestInfo.userAgent,
+        eventData: reenrollAuditEventData({
+          tokenId: token.id,
+          matchReason: intent.matchReason,
+          vpnIpv4: identity.vpnIpv4,
+          oldPublicKey: existingIdentity?.wireguardPublicKey ?? "",
+          newPublicKey: input.wireguard_public_key,
+          organization: organization.name,
+        }),
+      })
+
+      const enrolled = updatedDevice ?? device
+      await upsertAssetFromDeviceReport(tx, {
+        id: enrolled.id,
+        organizationId: enrolled.organizationId,
+        siteId: enrolled.siteId,
+        assetId: enrolled.assetId,
+        serialNumber: enrolled.serialNumber,
+        hostname: enrolled.hostname,
+        manufacturer: input.manufacturer ?? null,
+        model: input.model ?? null,
+      })
+
+      return {
+        device: enrolled,
+        identity,
+        routePolicyRoutes: await loadRoutePolicyRoutes(identity.routePolicyId),
+        sshAccess,
+      }
     }
 
     const existingIps = (
       await tx.select({ vpnIpv4: vpnIdentities.vpnIpv4 }).from(vpnIdentities)
     ).map((row: { vpnIpv4: string }) => row.vpnIpv4)
-    const routePolicyRoutes = token.routePolicyId
-      ? ((
-          await tx
-            .select({ routes: routePolicies.routes })
-            .from(routePolicies)
-            .where(eq(routePolicies.id, token.routePolicyId))
-        )[0]?.routes ?? [])
-      : []
-
-    let sshAccess: { username: string; publicKey: string } | null = null
-    let sshPrivateKey: string | null = null
-
-    if (requestsSsh && env.remoteCredentialsKey) {
-      if (token.siteId) {
-        const [siteCredential] = await tx
-          .select()
-          .from(siteSshCredentials)
-          .where(eq(siteSshCredentials.siteId, token.siteId))
-
-        if (siteCredential) {
-          const decoded = decodeStoredSshCredential(
-            siteCredential,
-            env.remoteCredentialsKey
-          )
-          sshAccess = {
-            username: decoded.username,
-            publicKey: decoded.publicKey,
-          }
-          sshPrivateKey = decoded.privateKey
-        }
-      } else {
-        const organizationCredential =
-          await ensureOrganizationSshCredentialInTx(
-            tx,
-            organization,
-            env.remoteCredentialsKey
-          )
-        const decoded = decodeStoredSshCredential(
-          organizationCredential,
-          env.remoteCredentialsKey
-        )
-        sshAccess = {
-          username: decoded.username,
-          publicKey: decoded.publicKey,
-        }
-        sshPrivateKey = decoded.privateKey
-      }
-
-      if (!sshAccess || !sshPrivateKey) {
-        const organizationCredential =
-          await ensureOrganizationSshCredentialInTx(
-            tx,
-            organization,
-            env.remoteCredentialsKey
-          )
-        const decoded = decodeStoredSshCredential(
-          organizationCredential,
-          env.remoteCredentialsKey
-        )
-        sshAccess = {
-          username: decoded.username,
-          publicKey: decoded.publicKey,
-        }
-        sshPrivateKey = decoded.privateKey
-      }
-    }
-
+    const routePolicyRoutes = await loadRoutePolicyRoutes(token.routePolicyId)
     const vpnIpv4 = allocateVpnIpv4(existingIps, input.os_family)
     const [device] = await tx
       .insert(devices)
@@ -409,57 +682,20 @@ export async function POST(request: Request) {
       })
       .returning()
 
-    for (const service of input.services) {
-      const [createdService] = await tx
-        .insert(managementServices)
-        .values({
-          deviceId: device.id,
-          serviceType: service.type,
-          protocol: service.protocol,
-          port: service.port,
-        })
-        .returning()
-
-      if (
-        service.type === "ssh" &&
-        sshAccess &&
-        sshPrivateKey &&
-        env.remoteCredentialsKey
-      ) {
-        await tx.insert(managementServiceCredentials).values({
-          managementServiceId: createdService.id,
-          ...buildEncryptedSshCredentialFields(
-            sshAccess.username,
-            sshPrivateKey,
-            env.remoteCredentialsKey
-          ),
-        })
-      }
-
-      if (
-        (service.type === "vnc" || service.type === "rdp") &&
-        service.password &&
-        env.remoteCredentialsKey
-      ) {
-        const encrypted = encryptRemoteSecret(
-          service.password,
-          env.remoteCredentialsKey
-        )
-        await tx.insert(managementServiceCredentials).values({
-          managementServiceId: createdService.id,
-          passwordCiphertext: encrypted.ciphertext,
-          passwordIv: encrypted.iv,
-          passwordAuthTag: encrypted.authTag,
-        })
-      }
-    }
+    await syncEnrollmentServices(
+      tx,
+      device.id,
+      input.services,
+      sshAccess,
+      sshPrivateKey,
+      env.remoteCredentialsKey
+    )
 
     await tx
       .update(enrollmentTokens)
       .set({ uses: token.uses + 1 })
       .where(eq(enrollmentTokens.id, token.id))
 
-    const requestInfo = requestInfoFromHeaders(request.headers)
     await tx.insert(auditEvents).values({
       organizationId: token.organizationId,
       siteId: token.siteId ?? null,
@@ -499,15 +735,9 @@ export async function POST(request: Request) {
       hostname: input.hostname,
       osFamily: input.os_family,
     })
-    if (failed.reason === "device_exists") {
-      return Response.json(
-        {
-          error:
-            "This device is already listed. Install the agent to attach to it.",
-          code: "device_exists",
-        },
-        { status: 409 }
-      )
+    if (isEnrollmentConflictReason(failed.reason)) {
+      const conflict = enrollmentConflictResponse(failed.reason)
+      return Response.json(conflict.body, { status: conflict.status })
     }
     return Response.json(
       { error: "Enrollment token not found" },
