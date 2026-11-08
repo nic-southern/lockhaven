@@ -31,6 +31,7 @@ import {
 import { db } from "@nms/db/client"
 import {
   archivedDeviceIsPresent,
+  archivedDeviceReturnSignal,
   adminForwardDeviceIps,
   PEER_FLAP_THRESHOLD,
   PEER_FLAP_WINDOW_MS,
@@ -64,6 +65,7 @@ import {
   alertKeys,
   raiseAlert,
   resolveAlert,
+  returnArchivedDeviceToService,
   syncArchivedDeviceAlerts,
 } from "./alerts"
 import { recordEvent } from "./audit"
@@ -766,6 +768,12 @@ function ensureHostRoute(value: string) {
   return value.includes("/") ? value.trim() : `${ip}/32`
 }
 
+/**
+ * Archived devices stay archived until a live signal arrives after the
+ * archive. A VPN handshake inside the online window — the same signal that
+ * marks a peer up — or an agent check-in returns the device to service and
+ * raises an alert. A handshake or check-in from before the archive does not.
+ */
 async function evaluateArchivedDevices(now = new Date()) {
   const rows = await db
     .select({
@@ -776,14 +784,34 @@ async function evaluateArchivedDevices(now = new Date()) {
       hostname: devices.hostname,
       archivedAt: devices.archivedAt,
       lastSeenAt: devices.lastSeenAt,
+      agentLastCheckInAt: devices.agentLastCheckInAt,
       lastHandshakeAt: vpnIdentities.lastHandshakeAt,
       latestEndpoint: vpnIdentities.latestEndpoint,
+      revokedAt: vpnIdentities.revokedAt,
     })
     .from(devices)
     .leftJoin(vpnIdentities, eq(vpnIdentities.deviceId, devices.id))
     .where(isNotNull(devices.archivedAt))
 
   for (const row of rows) {
+    const source = archivedDeviceReturnSignal({
+      archivedAt: row.archivedAt,
+      lastHandshakeAt: row.lastHandshakeAt,
+      agentLastCheckInAt: row.agentLastCheckInAt,
+      revokedAt: row.revokedAt,
+      now,
+    })
+    if (source) {
+      await returnArchivedDeviceToService({
+        deviceId: row.id,
+        organizationId: row.organizationId,
+        siteId: row.siteId,
+        displayName: row.displayName || row.hostname || "Device",
+        source,
+      })
+      continue
+    }
+
     const present = archivedDeviceIsPresent({
       archivedAt: row.archivedAt,
       lastHandshakeAt: row.lastHandshakeAt,

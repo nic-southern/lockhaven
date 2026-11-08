@@ -455,8 +455,8 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
               {device.archivedAt
-                ? "This device is archived. Offline alerts are paused. Return it to service when it is in use again."
-                : "Archived devices stay in inventory. Offline alerts are paused. If this device comes back online, we will raise an alert."}
+                ? "This device is archived. Offline alerts are paused. It returns to service if it comes back online."
+                : "Archived devices stay in inventory. Offline alerts are paused. If this device comes back online, it returns to service and an alert is raised."}
             </p>
             <Button
               variant={device.archivedAt ? "default" : "outline"}
@@ -554,7 +554,7 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
         open={confirm === "archive"}
         onOpenChange={(open) => (!open ? setConfirm(null) : null)}
         title="Archive device"
-        description={`Archive ${device.displayName}? It stays in inventory. Offline alerts will stop. If it checks in or its tunnel comes up, we will raise an alert.`}
+        description={`Archive ${device.displayName}? It stays in inventory. Offline alerts will stop. If it checks in or its tunnel comes up, it returns to service and an alert is raised.`}
         confirmLabel="Archive device"
         pending={setArchived.isPending}
         onConfirm={() => setArchived.mutate({ id: device.id, archived: true })}

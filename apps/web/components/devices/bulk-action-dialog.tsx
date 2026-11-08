@@ -123,7 +123,7 @@ export function BulkActionDialog({
                         : action === "revoke_vpn"
                           ? `${label} will lose tunnel access right away. Re-enrollment is required to restore it.`
                           : action === "archive"
-                            ? `${label} will be marked not in service. Offline alerts will stop. If a device comes back online, we will raise an alert.`
+                            ? `${label} will be marked not in service. Offline alerts will stop. If a device comes back online, it returns to service and an alert is raised.`
                             : action === "unarchive"
                               ? `${label} will return to service. Offline alerts will resume.`
                               : `Remove ${label} from inventory. Related access entries are cleared. This cannot be undone.`}

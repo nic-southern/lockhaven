@@ -5,7 +5,10 @@ import { DEVICE_ONLINE_WINDOW_MS } from "./domain"
 import {
   archiveScopeShowsArchived,
   archivedDeviceIsPresent,
+  archivedDeviceReturnSignal,
+  archivedDeviceReturnedAlertTitle,
   archivedOnlineAlertTitle,
+  archivedOnlineViaLabel,
   isDeviceArchived,
   resolveDeviceArchiveScope,
   shouldSkipQuietAlert,
@@ -132,5 +135,218 @@ test("archive-online copy stays product language", () => {
   assert.equal(
     archivedOnlineAlertTitle("  "),
     "Device is archived and came online"
+  )
+  assert.equal(
+    archivedDeviceReturnedAlertTitle("Clinic spare"),
+    "Clinic spare was archived and is back"
+  )
+  assert.equal(
+    archivedDeviceReturnedAlertTitle("  "),
+    "Device was archived and is back"
+  )
+  assert.equal(archivedOnlineViaLabel("vpn_handshake"), "VPN")
+  assert.equal(archivedOnlineViaLabel("agent_check_in"), "Agent")
+  const copy = [
+    archivedDeviceReturnedAlertTitle("Clinic spare"),
+    archivedOnlineViaLabel("vpn_handshake"),
+    archivedOnlineViaLabel("agent_check_in"),
+  ].join(" ")
+  assert.doesNotMatch(copy, /wireguard|handshake|database|json|api/i)
+})
+
+test("a live vpn handshake after archive returns the device", () => {
+  const archivedAt = new Date("2026-09-17T12:00:00Z")
+  const now = new Date("2026-09-17T12:05:00Z")
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      lastHandshakeAt: new Date("2026-09-17T12:04:00Z"),
+      now,
+    }),
+    "vpn_handshake",
+    "peer came up"
+  )
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt: archivedAt.toISOString(),
+      lastHandshakeAt: "2026-09-17T12:04:30Z",
+      now,
+    }),
+    "vpn_handshake",
+    "string timestamps"
+  )
+})
+
+test("a handshake from before the archive does not return the device", () => {
+  const archivedAt = new Date("2026-09-17T12:00:00Z")
+  const now = new Date("2026-09-17T12:02:00Z")
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      lastHandshakeAt: new Date("2026-09-17T11:59:00Z"),
+      now,
+    }),
+    null,
+    "still inside the online window, but it predates the archive"
+  )
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      lastHandshakeAt: archivedAt,
+      now,
+    }),
+    null,
+    "the handshake known at archive time is not a new signal"
+  )
+})
+
+test("a stale handshake after archive is not online", () => {
+  const now = new Date("2026-09-17T12:00:00Z")
+  const archivedAt = new Date(now.getTime() - DEVICE_ONLINE_WINDOW_MS - 60_000)
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      lastHandshakeAt: new Date(now.getTime() - DEVICE_ONLINE_WINDOW_MS),
+      now,
+    }),
+    null,
+    "exactly at the window edge counts as offline"
+  )
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      lastHandshakeAt: new Date(now.getTime() - DEVICE_ONLINE_WINDOW_MS + 1),
+      now,
+    }),
+    "vpn_handshake",
+    "just inside the same window the peer-up signal uses"
+  )
+})
+
+test("an agent check-in after archive returns the device without a tunnel", () => {
+  const archivedAt = new Date("2026-09-17T12:00:00Z")
+  const now = new Date("2026-09-17T18:00:00Z")
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      agentLastCheckInAt: new Date("2026-09-17T12:00:01Z"),
+      lastHandshakeAt: new Date("2026-09-01T00:00:00Z"),
+      now,
+    }),
+    "agent_check_in"
+  )
+})
+
+test("a check-in from before the archive does not return the device", () => {
+  const archivedAt = new Date("2026-09-17T12:00:00Z")
+  const now = new Date("2026-09-17T12:05:00Z")
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      agentLastCheckInAt: new Date("2026-09-17T11:00:00Z"),
+      now,
+    }),
+    null
+  )
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      agentLastCheckInAt: archivedAt,
+      now,
+    }),
+    null,
+    "a check-in at the archive instant is not later"
+  )
+})
+
+test("revoked tunnel access is not a vpn signal", () => {
+  const archivedAt = new Date("2026-09-17T12:00:00Z")
+  const now = new Date("2026-09-17T12:05:00Z")
+  const lastHandshakeAt = new Date("2026-09-17T12:04:00Z")
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      revokedAt: new Date("2026-09-17T11:00:00Z"),
+      lastHandshakeAt,
+      now,
+    }),
+    null
+  )
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      revokedAt: new Date("2026-09-17T11:00:00Z"),
+      lastHandshakeAt,
+      agentLastCheckInAt: now,
+      now,
+    }),
+    "agent_check_in",
+    "a later check-in still counts"
+  )
+})
+
+test("the later online signal is the one that returns the device", () => {
+  const archivedAt = new Date("2026-09-17T12:00:00Z")
+  const now = new Date("2026-09-17T12:10:00Z")
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      lastHandshakeAt: new Date("2026-09-17T12:08:00Z"),
+      agentLastCheckInAt: new Date("2026-09-17T12:04:00Z"),
+      now,
+    }),
+    "vpn_handshake"
+  )
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      lastHandshakeAt: new Date("2026-09-17T12:04:00Z"),
+      agentLastCheckInAt: new Date("2026-09-17T12:08:00Z"),
+      now,
+    }),
+    "agent_check_in"
+  )
+  const sameTime = new Date("2026-09-17T12:06:00Z")
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      lastHandshakeAt: sameTime,
+      agentLastCheckInAt: sameTime,
+      now,
+    }),
+    "agent_check_in",
+    "a tie prefers check-in"
+  )
+})
+
+test("in-service devices and edits without an online signal stay archived", () => {
+  const now = new Date("2026-09-17T12:00:00Z")
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt: null,
+      lastHandshakeAt: now,
+      agentLastCheckInAt: now,
+      now,
+    }),
+    null,
+    "already in service"
+  )
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      now,
+    }),
+    null,
+    "no handshake or check-in"
+  )
+  assert.equal(
+    archivedDeviceReturnSignal({
+      archivedAt,
+      lastHandshakeAt: null,
+      agentLastCheckInAt: null,
+      now,
+    }),
+    null,
+    "clearing unrelated fields is not a signal"
   )
 })

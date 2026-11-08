@@ -20,6 +20,7 @@ export {
   alertKeys,
   raiseAlert,
   resolveAlert,
+  returnArchivedDeviceToService,
   syncArchivedDeviceAlerts,
 } from "./alerts"
 export { enqueueAlertNotifications } from "./alert-deliveries"

@@ -1,13 +1,18 @@
-import { alerts, and, auditEvents, eq, sql } from "@nms/db"
+import { isNotNull } from "drizzle-orm"
+
+import { alerts, and, auditEvents, devices, eq, sql } from "@nms/db"
 import { db } from "@nms/db/client"
 import {
   alertKindDefaultSeverity,
   alertKindLabels,
+  archivedDeviceReturnedAlertTitle,
   archivedOnlineAlertTitle,
+  archivedOnlineViaLabel,
   severityForEvent,
   shouldSkipRaisingAlertForClosedHours,
   type AlertKind,
   type AlertStatus,
+  type ArchivedOnlineSource,
   type AuditEventType,
   type AuditSeverity,
 } from "@nms/shared"
@@ -179,6 +184,7 @@ export async function raiseAlert(input: RaiseAlertInput) {
         updatedAt: now,
         severity,
         detail,
+        ...(input.title ? { title } : {}),
       })
       .where(eq(alerts.id, existing.id))
     return { id: existing.id, created: false as const }
@@ -368,4 +374,62 @@ export async function syncArchivedDeviceAlerts(input: {
   await resolveAlert(alertKeys.archivedDeviceOnline(input.deviceId), {
     resolvedReason: "archived_quiet",
   })
+}
+
+/**
+ * Returns an archived device to service because a VPN handshake or agent
+ * check-in showed it is back, then opens an alert for operators.
+ * A second caller finds the device already in service and does not alert again.
+ */
+export async function returnArchivedDeviceToService(input: {
+  deviceId: string
+  organizationId: string
+  siteId: string | null
+  displayName: string
+  source: ArchivedOnlineSource
+}) {
+  const now = new Date()
+  const [updated] = await db
+    .update(devices)
+    .set({
+      archivedAt: null,
+      archivedByUserId: null,
+      updatedAt: now,
+    })
+    .where(and(eq(devices.id, input.deviceId), isNotNull(devices.archivedAt)))
+    .returning({ id: devices.id })
+
+  if (!updated) {
+    return { returned: false as const }
+  }
+
+  const via = archivedOnlineViaLabel(input.source)
+  await recordSystemEvent({
+    eventType: "device_unarchived",
+    organizationId: input.organizationId,
+    siteId: input.siteId,
+    deviceId: input.deviceId,
+    eventData: {
+      deviceId: input.deviceId,
+      archived: false,
+      reason: "Came back online",
+      via,
+    },
+  })
+
+  const alert = await raiseAlert({
+    kind: "archived_device_online",
+    mode: "event",
+    dedupeKey: alertKeys.archivedDeviceOnline(input.deviceId),
+    organizationId: input.organizationId,
+    siteId: input.siteId,
+    deviceId: input.deviceId,
+    title: archivedDeviceReturnedAlertTitle(input.displayName),
+    detail: {
+      device: input.displayName,
+      via,
+    },
+  })
+
+  return { returned: true as const, alertId: alert.id }
 }

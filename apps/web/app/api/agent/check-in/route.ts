@@ -1,6 +1,7 @@
 import {
   requestInfoFromHeaders,
   loadAssignedServices,
+  returnArchivedDeviceToService,
   syncArchivedDeviceAlerts,
   upsertAssetFromDeviceReport,
 } from "@nms/api-contract"
@@ -18,6 +19,7 @@ import {
 import { db } from "@nms/db/client"
 import {
   CHECK_IN_MAX_BODY_BYTES,
+  archivedDeviceReturnSignal,
   checkInIssuePaths,
   checkInSchema,
   hasPoisonedKeys,
@@ -442,15 +444,31 @@ export async function POST(request: Request) {
   })
 
   if (device.archivedAt) {
-    await syncArchivedDeviceAlerts({
-      deviceId: device.id,
-      organizationId: device.organizationId,
-      siteId: device.siteId,
-      displayName: device.displayName || input.hostname || "Device",
-      archived: true,
-      present: true,
-      source: "agent_check_in",
+    const displayName = device.displayName || input.hostname || "Device"
+    const source = archivedDeviceReturnSignal({
+      archivedAt: device.archivedAt,
+      agentLastCheckInAt: now,
+      now,
     })
+    if (source) {
+      await returnArchivedDeviceToService({
+        deviceId: device.id,
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+        displayName,
+        source,
+      })
+    } else {
+      await syncArchivedDeviceAlerts({
+        deviceId: device.id,
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+        displayName,
+        archived: true,
+        present: true,
+        source: "agent_check_in",
+      })
+    }
   }
 
   return Response.json(
