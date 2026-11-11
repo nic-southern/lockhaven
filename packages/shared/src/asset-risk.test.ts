@@ -260,7 +260,7 @@ test("summarizeInstalledValue scopes to one site and excludes no-cost", () => {
   const siteA = summarizeInstalledValue(installedValueFixture, {
     siteId: "s1",
   })
-  assert.equal(siteA.inServiceLinkedCount, 2)
+  assert.equal(siteA.inServiceCount, 2)
   assert.equal(siteA.withCostCount, 1)
   assert.equal(siteA.noCostCount, 1)
   assert.equal(siteA.totalInstalledValue, "1000.00")
@@ -272,20 +272,21 @@ test("summarizeInstalledValue scopes to one site and excludes no-cost", () => {
   assert.equal(siteA.lines[0]?.installedValueSource, "model_replacement")
 })
 
-test("summarizeInstalledValue org rollup sums sites and ignores stock/unlinked", () => {
+test("summarizeInstalledValue org rollup sums sites and ignores stock only", () => {
   const org = summarizeInstalledValue(installedValueFixture)
-  assert.equal(org.inServiceLinkedCount, 3)
-  assert.equal(org.withCostCount, 2)
+  // Includes site-assigned in-service assets whether or not linked to a device.
+  assert.equal(org.inServiceCount, 4)
+  assert.equal(org.withCostCount, 3)
   assert.equal(org.noCostCount, 1)
-  assert.equal(org.totalInstalledValue, "1500.00")
-  // Site B has replacement only via model; purchase falls back to asset purchase.
-  assert.equal(org.totalPurchaseValue, "1250.00")
+  assert.equal(org.totalInstalledValue, "2200.00")
+  // Site B: model purchase on unlinked asset + asset purchase fallback on linked.
+  assert.equal(org.totalPurchaseValue, "1850.00")
   assert.equal(org.sites.length, 2)
   const floorA = org.sites.find((site) => site.siteId === "s1")
   const floorB = org.sites.find((site) => site.siteId === "s2")
   assert.equal(floorA?.totalInstalledValue, "1000.00")
   assert.equal(floorA?.noCostCount, 1)
-  assert.equal(floorB?.totalInstalledValue, "500.00")
-  assert.equal(floorB?.totalPurchaseValue, "450.00")
-  assert.equal(floorB?.inServiceLinkedCount, 1)
+  assert.equal(floorB?.totalInstalledValue, "1200.00")
+  assert.equal(floorB?.totalPurchaseValue, "1050.00")
+  assert.equal(floorB?.inServiceCount, 2)
 })

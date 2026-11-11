@@ -342,8 +342,9 @@ export const reportsRouter = createTRPCRouter({
     }),
 
   /**
-   * Installed / replacement value for linked in-service assets at a site or
-   * organization. Same cost resolution as expected loss; no likelihood math.
+   * Installed / replacement value for in-service assets assigned to a site
+   * (or organization). Device link is not required. Same cost resolution as
+   * expected loss; no likelihood math.
    */
   installedValue: permissionProcedure("audit:view")
     .input(installedValueInput.optional())
