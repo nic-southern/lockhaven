@@ -571,7 +571,7 @@ function SiteDetail() {
       {canViewValue ? (
         <SectionCard
           title="Installed value"
-          description="Replacement value of linked in-service assets at this site. Assets with no cost set are left out of the totals."
+          description="Replacement value of in-service assets at this site. Assets with no cost set are left out of the totals."
           contentClassName="gap-4"
           actions={
             <Button variant="outline" size="sm" asChild>
@@ -590,8 +590,8 @@ function SiteDetail() {
               <StatStrip
                 items={[
                   {
-                    label: "In service (linked)",
-                    value: installedValueQuery.data?.inServiceLinkedCount ?? 0,
+                    label: "In service",
+                    value: installedValueQuery.data?.inServiceCount ?? 0,
                   },
                   {
                     label: "Replacement value",
@@ -650,7 +650,7 @@ function SiteDetail() {
       {canViewDevices ? (
         <SectionCard
           title="Assets"
-          description="Assets linked to this location, including tracking tags from the agent."
+          description="Assets assigned to this location, including tracking tags from the agent."
           contentClassName="gap-4"
           actions={
             <div className="flex flex-wrap gap-2">
@@ -727,7 +727,7 @@ function SiteDetail() {
                 initialSorting={[{ id: "tag", desc: false }]}
                 onRowClick={(row) => router.push(`/assets/${row.id}`)}
                 emptyTitle="No assets at this site"
-                emptyDescription="Assets show up here when they are linked to this location."
+                emptyDescription="Assets show up here when they are assigned to this location."
                 enableRowSelection
                 rowSelection={assetRowSelection}
                 onRowSelectionChange={setAssetRowSelection}

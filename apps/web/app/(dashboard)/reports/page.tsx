@@ -738,8 +738,8 @@ function ReportsContent() {
               <StatStrip
                 items={[
                   {
-                    label: "In service (linked)",
-                    value: installedValueQuery.data?.inServiceLinkedCount ?? 0,
+                    label: "In service",
+                    value: installedValueQuery.data?.inServiceCount ?? 0,
                   },
                   {
                     label: "Replacement value",
@@ -765,8 +765,7 @@ function ReportsContent() {
               />
               {(installedValueQuery.data?.noCostCount ?? 0) > 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  {installedValueQuery.data?.noCostCount} linked in-service
-                  asset
+                  {installedValueQuery.data?.noCostCount} in-service asset
                   {installedValueQuery.data?.noCostCount === 1 ? "" : "s"}{" "}
                   excluded — no cost set on the device model (or asset purchase
                   cost).
@@ -775,12 +774,12 @@ function ReportsContent() {
               {!siteId && (installedValueQuery.data?.sites.length ?? 0) > 1 ? (
                 <SectionCard
                   title="By site"
-                  description="Installed value of linked in-service assets at each site."
+                  description="Installed value of in-service assets at each site."
                 >
                   <ReportTable
                     rows={installedValueQuery.data?.sites ?? []}
                     emptyTitle="No sites yet"
-                    emptyDescription="Site totals appear when linked in-service assets have a location."
+                    emptyDescription="Site totals appear when in-service assets have a location."
                     columns={[
                       {
                         header: "Site",
@@ -793,7 +792,7 @@ function ReportsContent() {
                         className: "text-right",
                         cell: (index) =>
                           installedValueQuery.data?.sites[index]
-                            ?.inServiceLinkedCount,
+                            ?.inServiceCount,
                       },
                       {
                         header: "Replacement value",
@@ -824,13 +823,13 @@ function ReportsContent() {
                 </SectionCard>
               ) : null}
               <SectionCard
-                title="Linked in-service assets"
+                title="In-service assets"
                 description="Replacement value prefers catalog replacement cost, then purchase cost. Set costs under Settings → Device models."
               >
                 <ReportTable
                   rows={installedValueQuery.data?.lines ?? []}
                   emptyTitle="No valued assets yet"
-                  emptyDescription="Link in-service assets to devices and set replacement or purchase cost on their device model."
+                  emptyDescription="Assign in-service assets to a site and set replacement or purchase cost on their device model."
                   columns={[
                     {
                       header: "Tracking tag",

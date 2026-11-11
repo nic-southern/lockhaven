@@ -241,7 +241,7 @@ export type InstalledValueLine = {
 export type InstalledValueSiteRollup = {
   siteId: string | null
   siteName: string | null
-  inServiceLinkedCount: number
+  inServiceCount: number
   withCostCount: number
   noCostCount: number
   totalInstalledValue: string
@@ -249,7 +249,7 @@ export type InstalledValueSiteRollup = {
 }
 
 export type InstalledValueSummary = {
-  inServiceLinkedCount: number
+  inServiceCount: number
   withCostCount: number
   noCostCount: number
   /** Sum of resolveAssetValue (replacement preferred). */
@@ -268,7 +268,7 @@ export type SummarizeInstalledValueOptions = {
 type SiteAccumulator = {
   siteId: string | null
   siteName: string | null
-  inServiceLinkedCount: number
+  inServiceCount: number
   withCostCount: number
   noCostCount: number
   installedCents: number
@@ -276,9 +276,10 @@ type SiteAccumulator = {
 }
 
 /**
- * Site / org installed-value rollup for linked in-service assets. Uses the same
- * cost resolution as expected loss. Missing cost is fail-closed — excluded from
- * dollar totals and counted as “no cost set.”
+ * Site / org installed-value rollup for in-service assets assigned to a site
+ * (device link not required). Uses the same cost resolution as expected loss.
+ * Missing cost is fail-closed — excluded from dollar totals and counted as
+ * “no cost set.”
  */
 export function summarizeInstalledValue(
   rows: AssetRiskRowInput[],
@@ -286,7 +287,7 @@ export function summarizeInstalledValue(
 ): InstalledValueSummary {
   const siteFilter = options?.siteId
   const eligible = rows.filter((row) => {
-    if (row.status !== "in_service" || !row.linked) return false
+    if (row.status !== "in_service") return false
     if (siteFilter) return row.siteId === siteFilter
     return true
   })
@@ -308,7 +309,7 @@ export function summarizeInstalledValue(
     const created: SiteAccumulator = {
       siteId: row.siteId,
       siteName: row.siteName,
-      inServiceLinkedCount: 0,
+      inServiceCount: 0,
       withCostCount: 0,
       noCostCount: 0,
       installedCents: 0,
@@ -320,7 +321,7 @@ export function summarizeInstalledValue(
 
   for (const row of eligible) {
     const site = ensureSite(row)
-    site.inServiceLinkedCount += 1
+    site.inServiceCount += 1
 
     const resolved = resolveAssetValue({
       modelReplacementCost: row.modelReplacementCost,
@@ -379,7 +380,7 @@ export function summarizeInstalledValue(
     .map((entry) => ({
       siteId: entry.siteId,
       siteName: entry.siteName,
-      inServiceLinkedCount: entry.inServiceLinkedCount,
+      inServiceCount: entry.inServiceCount,
       withCostCount: entry.withCostCount,
       noCostCount: entry.noCostCount,
       totalInstalledValue: centsToMoney(entry.installedCents),
@@ -390,7 +391,7 @@ export function summarizeInstalledValue(
     )
 
   return {
-    inServiceLinkedCount: eligible.length,
+    inServiceCount: eligible.length,
     withCostCount: lines.length,
     noCostCount,
     totalInstalledValue: centsToMoney(totalInstalledCents),
