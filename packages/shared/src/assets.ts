@@ -375,6 +375,37 @@ function serialDenylistKey(value: string) {
     .toLowerCase()
 }
 
+/**
+ * DMI `product_uuid` values that many boards share. Not unique per chassis —
+ * serial-only attach/enroll matching must not trust them.
+ * FUZHOU TITA TIP600 (and similar) boards report this AMI/Insyde default.
+ */
+const GENERIC_HARDWARE_SERIALS = new Set(
+  ["03000200-0400-0500-0006-000700080009"].map(serialDenylistKey)
+)
+
+/** True when the value is a known colliding DMI/product UUID. */
+export function isGenericHardwareSerial(
+  value: string | null | undefined
+): boolean {
+  if (value == null) return false
+  const key = serialDenylistKey(value)
+  return key.length > 0 && GENERIC_HARDWARE_SERIALS.has(key)
+}
+
+/**
+ * Serials that are unique enough to bind a listed device by serial alone.
+ * Placeholders and known-generic DMI UUIDs require a hostname match too.
+ */
+export function isTrustedAttachSerial(
+  value: string | null | undefined
+): boolean {
+  if (!normalizeSerial(value)) return false
+  if (isPlaceholderHardwareSerial(value)) return false
+  if (isGenericHardwareSerial(value)) return false
+  return true
+}
+
 /** True when the value is empty or a known BIOS/DMI placeholder. */
 export function isPlaceholderHardwareSerial(
   value: string | null | undefined

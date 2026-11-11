@@ -14,9 +14,11 @@ import {
   initialAssetIdentityFromAgent,
   isContainerAsset,
   isFolderAsset,
+  isGenericHardwareSerial,
   isPlaceholderHardwareSerial,
   isReplaceableHardwareSerial,
   isSyntheticHardwareSerial,
+  isTrustedAttachSerial,
   matchAssetToDevice,
   matchDeviceModel,
   normalizeSerial,
@@ -65,6 +67,38 @@ test("sanitizeHardwareSerial drops DMI placeholders", () => {
   }
   assert.equal(sanitizeHardwareSerial(" PF1A2B3C "), "PF1A2B3C")
   assert.equal(isPlaceholderHardwareSerial("PF1A2B3C"), false)
+})
+
+test("isGenericHardwareSerial flags colliding DMI product_uuid values", () => {
+  assert.equal(
+    isGenericHardwareSerial("03000200-0400-0500-0006-000700080009"),
+    true
+  )
+  assert.equal(
+    isGenericHardwareSerial("03000200040005000006000700080009"),
+    true
+  )
+  assert.equal(
+    isGenericHardwareSerial(
+      "03000200-0400-0500-0006-000700080009".toUpperCase()
+    ),
+    true
+  )
+  assert.equal(
+    isGenericHardwareSerial("a1b2c3d4-e5f6-4789-abcd-ef1234567890"),
+    false
+  )
+  assert.equal(isGenericHardwareSerial("PF1A2B3C"), false)
+  assert.equal(isTrustedAttachSerial("PF1A2B3C"), true)
+  assert.equal(
+    isTrustedAttachSerial("03000200-0400-0500-0006-000700080009"),
+    false
+  )
+  assert.equal(
+    isTrustedAttachSerial("a1b2c3d4-e5f6-4789-abcd-ef1234567890"),
+    true
+  )
+  assert.equal(isTrustedAttachSerial("To be filled by O.E.M."), false)
 })
 
 test("isSyntheticHardwareSerial matches product_uuid and machine-id", () => {
