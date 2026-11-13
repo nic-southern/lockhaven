@@ -1,4 +1,4 @@
-import "package:flutter/material.dart";
+import "package:material_ui/material_ui.dart";
 import "package:lockhaven_field/hub/models.dart";
 
 /// Searchable device-model picker backed by Hub `deviceModels.list`.
