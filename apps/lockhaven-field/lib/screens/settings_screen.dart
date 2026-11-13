@@ -1,4 +1,4 @@
-import "package:flutter/material.dart";
+import "package:material_ui/material_ui.dart";
 import "package:lockhaven_field/config.dart";
 import "package:lockhaven_field/labels/printer_store.dart";
 import "package:lockhaven_field/labels/usb_printer_catalog.dart";
