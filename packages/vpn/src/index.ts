@@ -146,6 +146,7 @@ export function buildClientConfig({
   endpoint,
   includeUpdates = false,
   allowedIps,
+  dns,
 }: {
   privateKey: string
   vpnIp: string
@@ -154,6 +155,8 @@ export function buildClientConfig({
   endpoint: string
   includeUpdates?: boolean
   allowedIps?: string[]
+  /** UniFi VPN Client import requires a single Interface DNS IP. */
+  dns?: string
 }) {
   const peerAllowedIps =
     allowedIps ??
@@ -162,6 +165,8 @@ export function buildClientConfig({
       includeUpdates,
     })
 
+  const interfaceDns = dns?.trim() ?? ""
+
   // Phone WireGuard import accepts only Interface and Peer, and only the
   // keys below. wg-quick script keys (PostUp, PostDown, PreUp, PreDown,
   // SaveConfig, Table) and extra sections are rejected.
@@ -169,6 +174,7 @@ export function buildClientConfig({
     "[Interface]",
     `Address = ${ensureInterfaceAddress(vpnIp)}`,
     `PrivateKey = ${privateKey.trim()}`,
+    ...(interfaceDns ? [`DNS = ${interfaceDns}`] : []),
     "",
     "[Peer]",
     `PublicKey = ${serverPublicKey.trim()}`,

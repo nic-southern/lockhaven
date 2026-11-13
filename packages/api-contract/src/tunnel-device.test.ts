@@ -65,6 +65,7 @@ test("client config uses device routes and keepalive 25, not the admin overlay",
 
   assert.match(result.config, /Address = 10\.80\.10\.11\/32/)
   assert.match(result.config, /PersistentKeepalive = 25/)
+  assert.match(result.config, /^DNS = 1\.1\.1\.1$/m)
   assert.match(result.config, /AllowedIPs = 192\.0\.2\.1\/32, 10\.1\.0\.0\/24/)
   assert.equal(result.config.includes("10.80.0.0/16"), false)
   assert.equal(result.config.includes("10.80.100."), false)

@@ -97,7 +97,7 @@ EOF
 
     tcp dport 80 accept
     tcp dport 443 accept
-    udp dport 51820 accept
+    udp dport { 8443, 51820 } accept
     tcp dport 22 accept
     iifname "docker0" tcp dport 4822 accept
     iifname "br-*" tcp dport 4822 accept
@@ -138,21 +138,29 @@ EOF
 
     nft -f "$tmp_file"
 
-    if [ -n "$snat_to" ]; then
-      {
-        cat <<EOF
+    # WireGuard listens on 51820 only. Redirect UDP 8443 so sites whose ISP
+    # blocks 51820 can still reach Hub. TCP 443 stays Console HTTPS.
+    {
+      cat <<EOF
 table ip lockhaven_nat {
+  chain prerouting {
+    type nat hook prerouting priority dstnat;
+    udp dport 8443 redirect to :51820
+  }
+EOF
+      if [ -n "$snat_to" ]; then
+        cat <<EOF
   chain postrouting {
     type nat hook postrouting priority 100;
     policy accept;
 
     oifname "wg0" ip saddr 10.80.100.0/24 snat to ${snat_to}
   }
-}
 EOF
-      } >"$tmp_file"
-      nft -f "$tmp_file"
-    fi
+      fi
+      printf '}\n'
+    } >"$tmp_file"
+    nft -f "$tmp_file"
 
     # Docker sets iptables FORWARD policy to DROP. Accept WireGuard
     # hairpin traffic so admin→device forwards (and SNAT) can work.
