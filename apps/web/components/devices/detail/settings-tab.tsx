@@ -15,11 +15,14 @@ import { ConfirmDialog } from "@/components/dashboard/confirm-dialog"
 import { FormField } from "@/components/dashboard/form-field"
 import { SectionCard } from "@/components/dashboard/section-card"
 import { SelectField } from "@/components/dashboard/select-field"
+import { WireGuardConfigDialog } from "@/components/vpn/wireguard-config-dialog"
 import {
   buildLinuxUninstallCommand,
   buildWindowsUninstallCommand,
 } from "@/lib/enrollment-commands"
 import { getClientVpnBaseUrl } from "@/lib/product-name"
+import { isTunnelOnlyDevice } from "@/lib/tunnel-device"
+import { downloadTextFile } from "@/lib/wireguard"
 import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
 
@@ -39,6 +42,8 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
   const canUpdate = can("device:update")
   const canRevoke = can("device:revoke_vpn")
   const canDelete = can("device:delete")
+  const canEnroll = can("device:enroll")
+  const tunnelOnly = isTunnelOnlyDevice(device)
   const invalidate = useInvalidateDevice(device.id)
 
   const sitesQuery = trpc.sites.list.useQuery(undefined, { enabled: canUpdate })
@@ -78,8 +83,13 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
     | "unarchive"
     | "infrastructure-on"
     | "infrastructure-off"
+    | "reissue"
     | null
   >(null)
+  const [issuedConfig, setIssuedConfig] = React.useState<{
+    filename: string
+    config: string
+  } | null>(null)
 
   // Reset the form when the server record changes underneath it.
   const [baseline, setBaseline] = React.useState(device)
@@ -181,6 +191,20 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
     },
     onError() {
       toast.error("We couldn't remove the device.")
+    },
+  })
+  const reissueTunnel = trpc.devices.reissueTunnel.useMutation({
+    async onSuccess(result) {
+      await invalidate()
+      setConfirm(null)
+      downloadTextFile(result.filename, result.config)
+      setIssuedConfig({ filename: result.filename, config: result.config })
+      toast.success(
+        "WireGuard config reissued. The new config is shown only once."
+      )
+    },
+    onError(error) {
+      toast.error(error.message || "We couldn't reissue the WireGuard config.")
     },
   })
   const allowHostnameChange = trpc.devices.allowHostnameChange.useMutation({
@@ -413,6 +437,27 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
         </SectionCard>
       ) : null}
 
+      {canEnroll && tunnelOnly && device.vpnIdentity ? (
+        <SectionCard
+          title="WireGuard config"
+          description="This device has no agent. Reissue when you need a new config — the previous keys stop working."
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Download a new config or scan its QR code. Import it on the
+              gateway to replace the current tunnel.
+            </p>
+            <Button
+              variant="outline"
+              disabled={reissueTunnel.isPending}
+              onClick={() => setConfirm("reissue")}
+            >
+              Reissue config
+            </Button>
+          </div>
+        </SectionCard>
+      ) : null}
+
       {isPlatformAdmin || device.infrastructure ? (
         <SectionCard
           title="Infrastructure"
@@ -471,15 +516,17 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
         </SectionCard>
       ) : null}
 
-      <SectionCard
-        title="Uninstall"
-        description="Run this on the device to remove the tunnel and local files, then revoke access or remove the device below."
-      >
-        <div className="flex flex-col gap-4">
-          <CodeBlock label="Linux" value={linuxUninstall} />
-          <CodeBlock label="Windows" value={windowsUninstall} />
-        </div>
-      </SectionCard>
+      {tunnelOnly ? null : (
+        <SectionCard
+          title="Uninstall"
+          description="Run this on the device to remove the tunnel and local files, then revoke access or remove the device below."
+        >
+          <div className="flex flex-col gap-4">
+            <CodeBlock label="Linux" value={linuxUninstall} />
+            <CodeBlock label="Windows" value={windowsUninstall} />
+          </div>
+        </SectionCard>
+      )}
 
       {canRevoke || canDelete ? (
         <SectionCard
@@ -494,7 +541,9 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
                   <p className="text-sm font-medium">Revoke tunnel access</p>
                   <p className="text-xs text-muted-foreground">
                     Disables the peer immediately. The device stays in inventory
-                    and must re-enroll to reconnect.
+                    {tunnelOnly
+                      ? " and needs a reissued config to reconnect."
+                      : " and must re-enroll to reconnect."}
                   </p>
                 </div>
                 <Button
@@ -567,6 +616,25 @@ export function SettingsTab({ device }: { device: DeviceDetail }) {
         confirmLabel="Return to service"
         pending={setArchived.isPending}
         onConfirm={() => setArchived.mutate({ id: device.id, archived: false })}
+      />
+      <ConfirmDialog
+        open={confirm === "reissue"}
+        onOpenChange={(open) => (!open ? setConfirm(null) : null)}
+        title="Reissue WireGuard config?"
+        description={`This replaces the tunnel keys for ${device.displayName}. Download the new config or scan its QR code. The previous config will stop working.`}
+        confirmLabel="Reissue and download"
+        pending={reissueTunnel.isPending}
+        onConfirm={() => reissueTunnel.mutate({ id: device.id })}
+      />
+      <WireGuardConfigDialog
+        open={issuedConfig !== null}
+        filename={issuedConfig?.filename ?? ""}
+        config={issuedConfig?.config ?? ""}
+        onOpenChange={(next) => {
+          if (!next) setIssuedConfig(null)
+        }}
+        title="Config ready"
+        description="Scan this QR code with WireGuard, or download the config. Import it on the gateway, then activate the tunnel. It is shown only once."
       />
       <ConfirmDialog
         open={confirm === "revoke"}

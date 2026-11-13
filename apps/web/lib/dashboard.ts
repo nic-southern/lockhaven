@@ -38,6 +38,8 @@ const statusLabels: Record<string, string> = {
   pending: "Pending",
   revoked: "Revoked",
   archived: "Archived",
+  device_created: "Device created",
+  device_tunnel_reissued: "WireGuard config reissued",
   device_deleted: "Device removed",
   device_archived: "Device archived",
   device_unarchived: "Returned to service",

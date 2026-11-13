@@ -1,3 +1,5 @@
+import { TRPCError } from "@trpc/server"
+
 import { serviceDefaults, type Permission } from "@nms/shared"
 import { normalizeVpnIpv4 } from "@nms/vpn"
 
@@ -86,4 +88,24 @@ export function adminVpnConfigFilename(
   const safeOrg = slugifyForFilename(organizationName)
   const head = safeLabel || safeOrg || "lh"
   return `${fitWireGuardTunnelName(head, ipv4TunnelSuffix(vpnIpv4))}.conf`
+}
+
+export function requireVpnServerConfig() {
+  const serverPublicKey = process.env.VPN_SERVER_PUBLIC_KEY
+  const hostname = process.env.VPN_PUBLIC_HOSTNAME ?? "vpn.example.com"
+  const port = Number(process.env.VPN_PUBLIC_PORT ?? 51820)
+  const serverIp = process.env.VPN_SERVER_IP
+
+  if (!serverPublicKey || !serverIp) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "VPN server is not configured",
+    })
+  }
+
+  return {
+    serverPublicKey,
+    endpoint: `${hostname}:${port}`,
+    serverIp,
+  }
 }

@@ -7,6 +7,7 @@ import { PlusIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { CreateTunnelDeviceDialog } from "@/components/devices/create-tunnel-device-dialog"
 import {
   DEVICES_DEFAULT_VIEW,
   DevicesTable,
@@ -22,6 +23,7 @@ function DevicesContent() {
 export default function DevicesPage() {
   const meQuery = trpc.access.me.useQuery()
   const canEnroll = meQuery.data?.permissions.includes("device:enroll") ?? false
+  const [tunnelOpen, setTunnelOpen] = React.useState(false)
 
   return (
     <div className="flex flex-col gap-6">
@@ -31,12 +33,25 @@ export default function DevicesPage() {
         description="Every enrolled endpoint, its tunnel state, and what it exposes. Filter, tag, and act on many at once."
         actions={
           canEnroll ? (
-            <Button asChild size="sm">
-              <Link href="/?enroll=1">
-                <PlusIcon />
-                Add device
-              </Link>
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setTunnelOpen(true)}
+              >
+                Create WireGuard config
+              </Button>
+              <Button asChild size="sm">
+                <Link href="/?enroll=1">
+                  <PlusIcon />
+                  Add device
+                </Link>
+              </Button>
+              <CreateTunnelDeviceDialog
+                open={tunnelOpen}
+                onOpenChange={setTunnelOpen}
+              />
+            </>
           ) : null
         }
       />

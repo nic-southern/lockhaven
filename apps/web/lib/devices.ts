@@ -27,6 +27,8 @@ export const osFamilyLabel = (value: string | null | undefined) => {
       return "macOS"
     case "android":
       return "Android"
+    case "network":
+      return "Network"
     case "":
       return "Unknown"
     default:

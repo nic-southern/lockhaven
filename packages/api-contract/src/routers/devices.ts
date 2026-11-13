@@ -47,7 +47,11 @@ import {
   type DeviceConnectivity,
   type DeviceStatus,
 } from "@nms/shared"
-import { buildClientAllowedIps, normalizeVpnIpv4 } from "@nms/vpn"
+import {
+  allocateVpnIpv4,
+  buildClientAllowedIps,
+  normalizeVpnIpv4,
+} from "@nms/vpn"
 
 import { assertAuthorized } from "../access"
 import { syncLinkedAssetSite, syncLinkedAssetSites } from "../asset-link"
@@ -64,7 +68,19 @@ import {
   enabledServiceTypes,
   onlineServiceCount,
 } from "../device-sql"
-import { siteBelongsToOrganization } from "../helpers"
+import { requireVpnServerConfig, siteBelongsToOrganization } from "../helpers"
+import {
+  TUNNEL_DEVICE_OS_FAMILY,
+  TUNNEL_DEVICE_PERMISSION,
+  buildIssuedTunnelDevice,
+  findTunnelDeviceNameConflict,
+  issueTunnelDeviceKeyPair,
+  tunnelDeviceAgentBoundMessage,
+  tunnelDeviceCreatedAuditData,
+  tunnelDeviceNameConflictCopy,
+  tunnelDeviceReissuedAuditData,
+  tunnelIdentityReissuePatch,
+} from "../tunnel-device"
 import { deviceBehindSql } from "../fleet-sql"
 import {
   buildOrderBy,
@@ -124,6 +140,8 @@ function deviceRowSelection() {
     archivedAt: devices.archivedAt,
     archivedByUserId: devices.archivedByUserId,
     infrastructure: devices.infrastructure,
+    hasCheckInSecret:
+      sql<boolean>`(${devices.checkInSecretHash} is not null)`.mapWith(Boolean),
     vpnIpv4: vpnIdentities.vpnIpv4,
     vpnRoutePolicyId: vpnIdentities.routePolicyId,
     vpnRoutePolicyName: routePolicies.name,
@@ -344,6 +362,50 @@ async function assertRoutePolicyUsable(
     })
   }
   return policy
+}
+
+async function resolveTunnelRoutePolicyId(
+  ctx: ApiContext,
+  organizationId: string,
+  requestedId: string | null | undefined
+) {
+  if (requestedId) {
+    await assertRoutePolicyUsable(ctx, requestedId, organizationId)
+    return requestedId
+  }
+
+  const defaults = await ctx.db
+    .select({
+      id: routePolicies.id,
+      organizationId: routePolicies.organizationId,
+    })
+    .from(routePolicies)
+    .where(
+      and(
+        eq(routePolicies.isDefault, true),
+        or(
+          eq(routePolicies.organizationId, organizationId),
+          isNull(routePolicies.organizationId)
+        )
+      )
+    )
+
+  const orgDefault = defaults.find(
+    (row) => row.organizationId === organizationId
+  )
+  return orgDefault?.id ?? defaults[0]?.id ?? null
+}
+
+async function loadRoutePolicyRoutes(
+  ctx: { db: ApiContext["db"] },
+  routePolicyId: string | null
+) {
+  if (!routePolicyId) return [] as string[]
+  const [policy] = await ctx.db
+    .select({ routes: routePolicies.routes })
+    .from(routePolicies)
+    .where(eq(routePolicies.id, routePolicyId))
+  return policy?.routes ?? []
 }
 
 function canActOn(
@@ -695,7 +757,10 @@ export const devicesRouter = createTRPCRouter({
             .where(
               and(
                 eq(auditEvents.deviceId, record.id),
-                eq(auditEvents.eventType, "device_enrolled")
+                inArray(auditEvents.eventType, [
+                  "device_enrolled",
+                  "device_created",
+                ])
               )
             )
             .orderBy(desc(auditEvents.createdAt))
@@ -808,6 +873,280 @@ export const devicesRouter = createTRPCRouter({
         allowedIps: serverIp
           ? buildClientAllowedIps({ serverIp, routePolicyRoutes: policyRoutes })
           : policyRoutes,
+      }
+    }),
+  /**
+   * Creates a real inventory device whose tunnel key is generated on Hub.
+   * The private key is returned once in the WireGuard config and never stored.
+   * Gateways that cannot run enroll scripts import that config (or its QR).
+   */
+  createTunnel: permissionProcedure(TUNNEL_DEVICE_PERMISSION)
+    .input(
+      z.object({
+        organizationId: z.string().uuid(),
+        name: z.string().trim().min(1).max(120),
+        siteId: z.string().uuid().optional().nullable(),
+        routePolicyId: z.string().uuid().optional().nullable(),
+        ssh: z
+          .object({
+            enabled: z.boolean(),
+            port: z.number().int().min(1).max(65535).default(22),
+          })
+          .optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const actor = ctx.actor
+      assertAuthorized(actor, TUNNEL_DEVICE_PERMISSION, {
+        kind: "device",
+        organizationId: input.organizationId,
+        siteId: input.siteId ?? null,
+      })
+
+      const [organization] = await ctx.db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.id, input.organizationId))
+      if (!organization) {
+        throw new TRPCError({ code: "NOT_FOUND" })
+      }
+
+      if (input.siteId) {
+        await assertSiteInOrganization(ctx, input.siteId, input.organizationId)
+      }
+
+      const nameRows = await ctx.db
+        .select({
+          id: devices.id,
+          hostname: devices.hostname,
+          displayName: devices.displayName,
+        })
+        .from(devices)
+        .where(eq(devices.organizationId, input.organizationId))
+      const conflict = findTunnelDeviceNameConflict(nameRows, input.name)
+      if (conflict) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: tunnelDeviceNameConflictCopy(conflict.reason),
+        })
+      }
+
+      const routePolicyId = await resolveTunnelRoutePolicyId(
+        ctx,
+        input.organizationId,
+        input.routePolicyId
+      )
+      const routePolicyRoutes = await loadRoutePolicyRoutes(ctx, routePolicyId)
+      const vpnConfig = requireVpnServerConfig()
+      const keyPair = issueTunnelDeviceKeyPair()
+      const sshPort =
+        input.ssh?.enabled === true ? (input.ssh.port ?? 22) : null
+
+      const result = await ctx.db.transaction(async (tx) => {
+        const existingIps = (
+          await tx
+            .select({ vpnIpv4: vpnIdentities.vpnIpv4 })
+            .from(vpnIdentities)
+        ).map((row) => String(row.vpnIpv4))
+        const vpnIpv4 = allocateVpnIpv4(existingIps, TUNNEL_DEVICE_OS_FAMILY)
+        const now = new Date()
+
+        const [device] = await tx
+          .insert(devices)
+          .values({
+            organizationId: input.organizationId,
+            siteId: input.siteId ?? null,
+            hostname: input.name,
+            displayName: input.name,
+            osFamily: TUNNEL_DEVICE_OS_FAMILY,
+            status: "enrolled",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+
+        const [identity] = await tx
+          .insert(vpnIdentities)
+          .values({
+            deviceId: device.id,
+            vpnIpv4,
+            wireguardPublicKey: keyPair.publicKey,
+            routePolicyId,
+            serverPeerEnabled: true,
+          })
+          .returning()
+
+        if (sshPort !== null) {
+          await tx.insert(managementServices).values({
+            deviceId: device.id,
+            serviceType: "ssh",
+            protocol: "tcp",
+            port: sshPort,
+            enabled: true,
+          })
+        }
+
+        const scoped = { db: tx, actor: ctx.actor, request: ctx.request }
+        await writeAuditEvent(scoped, {
+          eventType: "device_created",
+          organizationId: input.organizationId,
+          siteId: input.siteId ?? null,
+          deviceId: device.id,
+          eventData: tunnelDeviceCreatedAuditData({
+            vpnIpv4,
+            publicKey: keyPair.publicKey,
+            routePolicyId,
+            sshPort,
+            organization: organization.name,
+          }),
+        })
+        if (sshPort !== null) {
+          await writeAuditEvent(scoped, {
+            eventType: "management_service_created",
+            organizationId: input.organizationId,
+            siteId: input.siteId ?? null,
+            deviceId: device.id,
+            eventData: {
+              serviceType: "ssh",
+              port: sshPort,
+            },
+          })
+        }
+
+        return { device, identity }
+      })
+
+      const issued = buildIssuedTunnelDevice({
+        privateKey: keyPair.privateKey,
+        publicKey: keyPair.publicKey,
+        vpnIp: String(result.identity.vpnIpv4),
+        serverPublicKey: vpnConfig.serverPublicKey,
+        serverIp: vpnConfig.serverIp,
+        endpoint: vpnConfig.endpoint,
+        routePolicyRoutes,
+        organizationName: organization.name,
+        deviceName: input.name,
+      })
+
+      return {
+        deviceId: result.device.id,
+        displayName: result.device.displayName,
+        hostname: result.device.hostname,
+        vpnIpv4: normalizeVpnIpv4(String(result.identity.vpnIpv4)),
+        config: issued.config,
+        filename: issued.filename,
+      }
+    }),
+  /**
+   * Rotates the tunnel keypair for a Console-created tunnel-only device.
+   * The previous public key is dropped; the new private key is returned once.
+   */
+  reissueTunnel: permissionProcedure(TUNNEL_DEVICE_PERMISSION)
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const device = await loadDevice(ctx, input.id)
+      assertAuthorized(ctx.actor, TUNNEL_DEVICE_PERMISSION, {
+        kind: "device",
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+      })
+
+      if (device.checkInSecretHash) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: tunnelDeviceAgentBoundMessage,
+        })
+      }
+
+      const [organization] = await ctx.db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.id, device.organizationId))
+      if (!organization) {
+        throw new TRPCError({ code: "NOT_FOUND" })
+      }
+
+      const [identity] = await ctx.db
+        .select()
+        .from(vpnIdentities)
+        .where(eq(vpnIdentities.deviceId, device.id))
+      if (!identity) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This device has no tunnel identity yet.",
+        })
+      }
+
+      const vpnConfig = requireVpnServerConfig()
+      const keyPair = issueTunnelDeviceKeyPair()
+      const routePolicyRoutes = await loadRoutePolicyRoutes(
+        ctx,
+        identity.routePolicyId
+      )
+      const now = new Date()
+
+      const [updated] = await ctx.db
+        .update(vpnIdentities)
+        .set(
+          tunnelIdentityReissuePatch({
+            vpnIpv4: String(identity.vpnIpv4),
+            nextPublicKey: keyPair.publicKey,
+          })
+        )
+        .where(eq(vpnIdentities.id, identity.id))
+        .returning()
+
+      if (!updated) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This device has no tunnel identity yet.",
+        })
+      }
+
+      if (device.status === "revoked") {
+        await ctx.db
+          .update(devices)
+          .set({ status: "enrolled", updatedAt: now })
+          .where(eq(devices.id, device.id))
+      } else {
+        await ctx.db
+          .update(devices)
+          .set({ updatedAt: now })
+          .where(eq(devices.id, device.id))
+      }
+
+      await writeAuditEvent(ctx, {
+        eventType: "device_tunnel_reissued",
+        organizationId: device.organizationId,
+        siteId: device.siteId,
+        deviceId: device.id,
+        eventData: tunnelDeviceReissuedAuditData({
+          vpnIpv4: String(identity.vpnIpv4),
+          oldPublicKey: identity.wireguardPublicKey,
+          newPublicKey: keyPair.publicKey,
+          organization: organization.name,
+        }),
+      })
+
+      const issued = buildIssuedTunnelDevice({
+        privateKey: keyPair.privateKey,
+        publicKey: keyPair.publicKey,
+        vpnIp: String(updated.vpnIpv4),
+        serverPublicKey: vpnConfig.serverPublicKey,
+        serverIp: vpnConfig.serverIp,
+        endpoint: vpnConfig.endpoint,
+        routePolicyRoutes,
+        organizationName: organization.name,
+        deviceName: device.displayName || device.hostname || "device",
+      })
+
+      return {
+        deviceId: device.id,
+        displayName: device.displayName,
+        hostname: device.hostname,
+        vpnIpv4: normalizeVpnIpv4(String(updated.vpnIpv4)),
+        config: issued.config,
+        filename: issued.filename,
       }
     }),
   update: permissionProcedure("device:update")

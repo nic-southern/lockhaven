@@ -1,5 +1,9 @@
 # Enrollment
 
+Hosts that can run an installer still enroll with a token (`POST /api/enroll`).
+Gateways that cannot run those scripts can be created from Console with
+**Create WireGuard config** — see [Tunnel-only devices from Console](#tunnel-only-devices-from-console).
+
 1. Admin creates an enrollment token.
 2. The device generates its WireGuard keypair locally.
 3. The client submits metadata and its public key to `POST /api/enroll`.
@@ -145,6 +149,36 @@ the Windows installer installs WireGuard when missing. Hub commands stay
 For tunnel-only Windows enrollment (no agent), the enrollment script can
 generate the keypair, call the API over your app hostname, install WireGuard if
 needed, import the tunnel, and start it.
+
+## Tunnel-only devices from Console
+
+Some hosts cannot run the enroll scripts or the agent — a UniFi gateway is
+the usual example. From **Devices** or **Enrollment tokens**, use
+**Create WireGuard config**:
+
+1. Choose the organization, a unique device name, an optional site, and an
+   optional route policy.
+2. Optionally add an SSH service (port 22 by default). Console reaches that
+   service at the device's VPN address. There is no agent on the host; add
+   SSH credentials on the device page if you need Console sessions.
+3. Hub generates the WireGuard keypair, stores only the public key, and
+   shows the `.conf` once (download and QR). The private key is never stored
+   or logged. The config includes `PersistentKeepalive = 25` so the peer can
+   stay reachable behind CGNAT.
+4. Import the config on the gateway and activate the tunnel. The listing
+   appears in Devices like any other enrolled device. After the worker
+   reconciles the peer, SSH and access grants work against the VPN `/32`.
+
+A name that already exists in the organization is refused. That matches the
+spirit of re-enroll from `POST /api/enroll`: Hub will not silently create a
+second listing. Open the existing device and **Reissue config** (Settings)
+to rotate keys. Reissue invalidates the previous public key, keeps the VPN
+address, and shows a new one-time config. Agent-enrolled devices cannot use
+this path — re-enroll from the host instead.
+
+This does not advertise LAN routes behind the gateway. Route policies still
+control what the _device_ may reach through the tunnel, not what sits on
+its LAN. Site-to-site routing is a possible follow-up.
 
 ## Android
 
