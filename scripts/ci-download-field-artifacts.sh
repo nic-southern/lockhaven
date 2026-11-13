@@ -22,7 +22,9 @@ for name in lockhaven-field-linux lockhaven-field-macos lockhaven-field-windows;
 
   zip_path="$(mktemp "${TMPDIR:-/tmp}/${name}.XXXXXX.zip")"
   extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/${name}.XXXXXX")"
-  gh api "repos/${repo}/actions/artifacts/${id}/zip" --output "$zip_path"
+  # Runner gh is older than the flag that writes the body to a file.
+  # Stream the zip on stdout instead.
+  gh api "repos/${repo}/actions/artifacts/${id}/zip" >"$zip_path"
   unzip -qo "$zip_path" -d "$extract_dir"
   while IFS= read -r -d '' file; do
     cp -f "$file" "$dest/"
