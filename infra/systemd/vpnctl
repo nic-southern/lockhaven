@@ -139,7 +139,12 @@ EOF
     nft -f "$tmp_file"
 
     # WireGuard listens on 51820 only. Redirect UDP 8443 so sites whose ISP
-    # blocks 51820 can still reach Hub. TCP 443 stays Console HTTPS.
+    # blocks 51820 can still reach Hub.
+    #
+    # Never steal 80 or 443 for WireGuard. Console HTTPS owns those ports.
+    # HTTP/3 / QUIC is UDP 443; Caddy enables it by default. An nft redirect
+    # of UDP 443 would take Console (and ACME) traffic away from the edge
+    # proxy. TCP vs UDP sharing a number is not a free pass.
     {
       cat <<EOF
 table ip lockhaven_nat {

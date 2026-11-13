@@ -73,6 +73,8 @@ resource "digitalocean_firewall" "vpn" {
     source_addresses = ["0.0.0.0/0", "::/0"]
   }
 
+  # UDP 8443 is the WireGuard backup. Do not open UDP 443: Console HTTPS
+  # and HTTP/3 (QUIC) own 443.
   inbound_rule {
     protocol         = "udp"
     port_range       = "8443"

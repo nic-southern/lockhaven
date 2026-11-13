@@ -194,9 +194,11 @@ See [Single sign-on](sso.md).
   standalone `nftables` ruleset.
 - WireGuard listens on UDP `51820`. `vpnctl sync-firewall` also redirects
   UDP `8443` to that port so a gateway whose ISP blocks `51820` can still
-  connect. TCP `443` (Console HTTPS) is unchanged. Allow **UDP 8443** on
-  the DigitalOcean cloud firewall. Existing agents keep using `51820`;
-  set the UniFi VPN Client port to `8443` when `51820` is blocked.
+  connect. Do **not** put WireGuard on 80 or 443. Console HTTPS owns
+  those ports, and HTTP/3 / QUIC is UDP 443 (Caddy enables it by default).
+  Allow **UDP 8443** on the DigitalOcean cloud firewall. Existing agents
+  keep using `51820`; set the UniFi VPN Client port to `8443` when
+  `51820` is blocked.
 
 ### Backups
 

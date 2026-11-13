@@ -172,7 +172,8 @@ the usual example. From **Devices** or **Enrollment tokens**, use
    reconciles the peer, SSH and access grants work against the VPN `/32`.
    If the site ISP blocks UDP `51820`, set the UniFi VPN Client server port
    to `8443` (Hub redirects that to WireGuard; existing agents stay on
-   `51820`). Use the Hub public IPv4 as the server address if the hostname
+   `51820`). Do not use port `443`; that is Console HTTPS, including
+   HTTP/3. Use the Hub public IPv4 as the server address if the hostname
    does not resolve on the gateway.
 
 A name that already exists in the organization is refused. That matches the

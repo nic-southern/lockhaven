@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
+import path from "node:path"
 import test from "node:test"
+import { fileURLToPath } from "node:url"
 
 import {
   allocateVpnIpv4,
@@ -268,4 +271,21 @@ test("same-user peer destinations only include opted-in sibling profiles", () =>
     "10.80.100.13",
   ])
   assert.deepEqual(sameUserPeerDestinationIps(otherUser, profiles), [])
+})
+
+test("vpnctl never redirects Console 80/443 onto WireGuard", () => {
+  const vpnctl = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../../infra/systemd/vpnctl"
+    ),
+    "utf8"
+  )
+
+  assert.match(vpnctl, /tcp dport 80 accept/)
+  assert.match(vpnctl, /tcp dport 443 accept/)
+  assert.match(vpnctl, /udp dport 8443 redirect to :51820/)
+  assert.equal(/\budp dport 443\b/.test(vpnctl), false)
+  assert.equal(/\budp dport \{[^}]*\b443\b/.test(vpnctl), false)
+  assert.equal(/\budp dport 80\b/.test(vpnctl), false)
 })
