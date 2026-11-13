@@ -164,10 +164,16 @@ the usual example. From **Devices** or **Enrollment tokens**, use
 3. Hub generates the WireGuard keypair, stores only the public key, and
    shows the `.conf` once (download and QR). The private key is never stored
    or logged. The config includes `PersistentKeepalive = 25` so the peer can
-   stay reachable behind CGNAT.
+   stay reachable behind CGNAT, and `DNS = 1.1.1.1` so UniFi VPN Client will
+   import the file (it rejects a missing or hostname DNS line). That resolver
+   is not Hub DNS; split-tunnel traffic still uses the gateway's WAN for it.
 4. Import the config on the gateway and activate the tunnel. The listing
    appears in Devices like any other enrolled device. After the worker
    reconciles the peer, SSH and access grants work against the VPN `/32`.
+   If the site ISP blocks UDP `51820`, set the UniFi VPN Client server port
+   to `8443` (Hub redirects that to WireGuard; existing agents stay on
+   `51820`). Use the Hub public IPv4 as the server address if the hostname
+   does not resolve on the gateway.
 
 A name that already exists in the organization is refused. That matches the
 spirit of re-enroll from `POST /api/enroll`: Hub will not silently create a

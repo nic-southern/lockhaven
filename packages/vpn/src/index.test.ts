@@ -6,6 +6,7 @@ import {
   buildAdminClientAllowedIps,
   buildAdminClientConfig,
   buildClientAllowedIps,
+  buildClientConfig,
   buildServerPeerAllowedIps,
   buildSyncFirewallCommand,
   generateWireGuardKeyPair,
@@ -156,6 +157,21 @@ test("builds admin client config with overlay allowed ips", () => {
       "",
     ].join("\n")
   )
+})
+
+test("optional interface DNS is a single IP and stays Android-importable", () => {
+  const config = buildClientConfig({
+    privateKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    vpnIp: "10.80.10.11/32",
+    serverIp: "192.0.2.1",
+    serverPublicKey: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+    endpoint: "vpn.example.com:51820",
+    dns: "1.1.1.1",
+  })
+
+  assert.match(config, /^DNS = 1\.1\.1\.1$/m)
+  assert.equal(config.includes("DNS = 1.1.1.1, "), false)
+  assertAndroidWireGuardConfig(config)
 })
 
 test("admin client config adds a host prefix when the address has none", () => {

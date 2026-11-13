@@ -19,6 +19,12 @@ export const TUNNEL_DEVICE_PERMISSION = "device:enroll" as const
  */
 export const TUNNEL_DEVICE_OS_FAMILY = "network"
 
+/**
+ * UniFi VPN Client refuses a .conf with no Interface DNS, or with a hostname.
+ * Split-tunnel traffic still uses the gateway's WAN for this resolver.
+ */
+export const TUNNEL_DEVICE_INTERFACE_DNS = "1.1.1.1"
+
 export const tunnelDeviceNameConflictMessage =
   "A device with this name already exists in the organization. Open that listing and reissue its WireGuard config, or pick a different name."
 
@@ -121,6 +127,7 @@ export function buildIssuedTunnelDevice(args: {
     serverPublicKey: args.serverPublicKey,
     endpoint: args.endpoint,
     allowedIps,
+    dns: TUNNEL_DEVICE_INTERFACE_DNS,
   })
 
   return {
