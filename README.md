@@ -107,9 +107,10 @@ Installers are served from the deployed Hub under `/install`. See
 `apps/lockhaven-field` is a Flutter desktop app for site visits: browser
 sign-in handoff, site and asset browse, find-by-scan, add asset, folder
 reassign, and label print via the local helper. Operators download Field
-from Console **Settings → Labels** (`/install/lockhaven-field-*`) after a
-`main` deploy. Mac/Linux zips include a private Python venv for label
-layout. See [apps/lockhaven-field/README.md](apps/lockhaven-field/README.md).
+from Console **Settings → Labels** (`/install/lockhaven-field-*`) after
+**Actions → Field desktop** on `main` and a Deploy. Mac/Linux zips include
+a private Python venv for label layout. See
+[apps/lockhaven-field/README.md](apps/lockhaven-field/README.md).
 
 ```bash
 cd apps/lockhaven-field

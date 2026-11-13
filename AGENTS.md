@@ -28,6 +28,8 @@ The current public repository is
 - Run the worker with `pnpm dev:worker`.
 - Run the field desktop app with
   `cd apps/lockhaven-field && flutter run -d linux`.
+- Field desktop CI is **Actions → Field desktop** (manual). It is not
+  part of PR / Hub CI.
 - Run tests with `pnpm test`.
 - Check formatting with `pnpm format:check`.
 - Build everything with `pnpm build`.
@@ -110,4 +112,5 @@ Standard install/lint/test/build/dev commands are listed under
 - Guacamole remote-session E2E needs the production Guacamole stack; console
   inventory/auth/enrollment UI does not.
 - Pre-commit runs `pnpm format:check`. Pre-push also runs `pnpm lint`,
-  `pnpm typecheck`, and `pnpm test`.
+  `pnpm typecheck`, and `pnpm test`. Flutter Field is not in those hooks;
+  trigger **Actions → Field desktop** when that app changes.
