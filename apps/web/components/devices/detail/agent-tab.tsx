@@ -25,6 +25,7 @@ import {
   buildWindowsInstallCommand,
 } from "@/lib/enrollment-commands"
 import { getClientVpnBaseUrl } from "@/lib/product-name"
+import { isTunnelOnlyDevice } from "@/lib/tunnel-device"
 import { trpc } from "@/lib/trpc"
 import { usePermissions } from "@/lib/use-permissions"
 
@@ -191,8 +192,21 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
     }
   }
 
+  const tunnelOnly = isTunnelOnlyDevice(device)
+
   return (
     <div className="flex flex-col gap-6">
+      {tunnelOnly ? (
+        <SectionCard
+          title="No agent on this device"
+          description="This listing was created from a WireGuard config."
+        >
+          <p className="text-sm text-muted-foreground">
+            There is no agent to check in or update. Reissue the config from
+            Settings if you need new keys.
+          </p>
+        </SectionCard>
+      ) : null}
       <SectionCard
         title="Status"
         description="Whether this device is checking in with an agent."
@@ -258,7 +272,7 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
         />
       </SectionCard>
 
-      {canUpdate ? (
+      {canUpdate && !tunnelOnly ? (
         <SectionCard
           title="Actions"
           description="Send an allowed action to this device. It runs on the next check-in."
@@ -339,111 +353,117 @@ export function AgentTab({ device }: { device: DeviceDetail }) {
         )}
       </SectionCard>
 
-      <SectionCard
-        title="Install on this device"
-        description={
-          reporting
-            ? "Use this if you need to reinstall the agent. It stays on this device."
-            : "Install the agent on this machine. It attaches to this device instead of creating a new one."
-        }
-      >
-        {canEnroll ? (
-          <div className="flex flex-col gap-4">
-            {!agentSupported ? (
-              <p className="text-sm text-muted-foreground">
-                This device is recorded as {osFamilyLabel(device.osFamily)}. The
-                agent installer currently supports Linux and Windows.
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Create a command, then run it on the device. It stays on this
-                device even if another machine shares the same name.
-              </p>
-            )}
-            <Button
-              className="w-full sm:w-fit"
-              onClick={() => void handleCreate()}
-              disabled={createToken.isPending}
-            >
-              {createToken.isPending
-                ? "Creating…"
-                : token
-                  ? "Create a new command"
-                  : "Create install command"}
-            </Button>
-            {token ? (
-              <div className="flex flex-col gap-3">
-                {windowsDevice ? (
-                  <CodeBlock label="Windows" value={windowsCommand} />
-                ) : linuxDevice ? (
-                  <CodeBlock label="Linux" value={linuxCommand} />
+      {tunnelOnly ? null : (
+        <>
+          <SectionCard
+            title="Install on this device"
+            description={
+              reporting
+                ? "Use this if you need to reinstall the agent. It stays on this device."
+                : "Install the agent on this machine. It attaches to this device instead of creating a new one."
+            }
+          >
+            {canEnroll ? (
+              <div className="flex flex-col gap-4">
+                {!agentSupported ? (
+                  <p className="text-sm text-muted-foreground">
+                    This device is recorded as {osFamilyLabel(device.osFamily)}.
+                    The agent installer currently supports Linux and Windows.
+                  </p>
                 ) : (
-                  <>
-                    <CodeBlock label="Linux" value={linuxCommand} />
-                    <CodeBlock label="Windows" value={windowsCommand} />
-                  </>
+                  <p className="text-sm text-muted-foreground">
+                    Create a command, then run it on the device. It stays on
+                    this device even if another machine shares the same name.
+                  </p>
                 )}
+                <Button
+                  className="w-full sm:w-fit"
+                  onClick={() => void handleCreate()}
+                  disabled={createToken.isPending}
+                >
+                  {createToken.isPending
+                    ? "Creating…"
+                    : token
+                      ? "Create a new command"
+                      : "Create install command"}
+                </Button>
+                {token ? (
+                  <div className="flex flex-col gap-3">
+                    {windowsDevice ? (
+                      <CodeBlock label="Windows" value={windowsCommand} />
+                    ) : linuxDevice ? (
+                      <CodeBlock label="Linux" value={linuxCommand} />
+                    ) : (
+                      <>
+                        <CodeBlock label="Linux" value={linuxCommand} />
+                        <CodeBlock label="Windows" value={windowsCommand} />
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title="No command yet"
+                    description="The install command appears after you create one."
+                    bordered
+                  />
+                )}
+                {error ? (
+                  <p className="text-sm text-destructive">{error}</p>
+                ) : null}
               </div>
             ) : (
-              <EmptyState
-                title="No command yet"
-                description="The install command appears after you create one."
-                bordered
-              />
+              <p className="text-sm text-muted-foreground">
+                You can download the agent below. Creating an install command
+                needs enrollment access.
+              </p>
             )}
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            You can download the agent below. Creating an install command needs
-            enrollment access.
-          </p>
-        )}
-      </SectionCard>
+          </SectionCard>
 
-      <SectionCard
-        title="Download"
-        description={
-          archHint
-            ? `Copy the agent onto the device if you cannot run the command above. This device reports ${archHint}.`
-            : "Copy the agent onto the device if you cannot run the command above."
-        }
-      >
-        <div className="flex flex-wrap gap-2">
-          {showLinuxDownloads ? (
-            <>
-              <Button variant="outline" asChild>
-                <a href={linuxAmd64Url}>
-                  <DownloadIcon />
-                  Linux (Intel or AMD)
-                </a>
-              </Button>
-              <Button variant="outline" asChild>
-                <a href={linuxArm64Url}>
-                  <DownloadIcon />
-                  Linux (ARM)
-                </a>
-              </Button>
-            </>
-          ) : null}
-          {showWindowsDownloads ? (
-            <>
-              <Button variant="outline" asChild>
-                <a href={windowsAmd64Url}>
-                  <DownloadIcon />
-                  Windows (Intel or AMD)
-                </a>
-              </Button>
-              <Button variant="outline" asChild>
-                <a href={windowsArm64Url}>
-                  <DownloadIcon />
-                  Windows (ARM)
-                </a>
-              </Button>
-            </>
-          ) : null}
-        </div>
-      </SectionCard>
+          <SectionCard
+            title="Download"
+            description={
+              archHint
+                ? `Copy the agent onto the device if you cannot run the command above. This device reports ${archHint}.`
+                : "Copy the agent onto the device if you cannot run the command above."
+            }
+          >
+            <div className="flex flex-wrap gap-2">
+              {showLinuxDownloads ? (
+                <>
+                  <Button variant="outline" asChild>
+                    <a href={linuxAmd64Url}>
+                      <DownloadIcon />
+                      Linux (Intel or AMD)
+                    </a>
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <a href={linuxArm64Url}>
+                      <DownloadIcon />
+                      Linux (ARM)
+                    </a>
+                  </Button>
+                </>
+              ) : null}
+              {showWindowsDownloads ? (
+                <>
+                  <Button variant="outline" asChild>
+                    <a href={windowsAmd64Url}>
+                      <DownloadIcon />
+                      Windows (Intel or AMD)
+                    </a>
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <a href={windowsArm64Url}>
+                      <DownloadIcon />
+                      Windows (ARM)
+                    </a>
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          </SectionCard>
+        </>
+      )}
 
       <ConfirmDialog
         open={Boolean(pendingAction)}

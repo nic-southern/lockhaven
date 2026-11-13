@@ -126,6 +126,7 @@ import {
 import {
   adminVpnConfigFilename,
   permissionForServiceType,
+  requireVpnServerConfig,
   serviceConnectionDefaults,
   siteBelongsToOrganization,
 } from "./helpers"
@@ -215,24 +216,6 @@ function encryptRemoteSecret(secret: string) {
 
 function decryptRemoteSecret(payload: EncryptedSecret) {
   return decryptSecret(payload, getCredentialSecret())
-}
-
-function requireVpnServerConfig() {
-  const serverPublicKey = process.env.VPN_SERVER_PUBLIC_KEY
-  const hostname = process.env.VPN_PUBLIC_HOSTNAME ?? "vpn.example.com"
-  const port = Number(process.env.VPN_PUBLIC_PORT ?? 51820)
-
-  if (!serverPublicKey) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "VPN server is not configured",
-    })
-  }
-
-  return {
-    serverPublicKey,
-    endpoint: `${hostname}:${port}`,
-  }
 }
 
 const MAX_ADMIN_VPN_PROFILES_PER_ORG = 10

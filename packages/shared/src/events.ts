@@ -47,6 +47,7 @@ const severityByEventType: Partial<Record<AuditEventType, AuditSeverity>> = {
   firewall_sync_failed: "critical",
   device_enroll_failed: "warning",
   device_reenrolled: "notice",
+  device_tunnel_reissued: "notice",
   device_agent_attached: "notice",
   device_agent_attach_failed: "warning",
   device_check_in_failed: "warning",

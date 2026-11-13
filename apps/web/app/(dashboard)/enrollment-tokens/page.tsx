@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/dashboard/empty-state"
 import { EnrollmentInstallCommands } from "@/components/dashboard/enrollment-install-commands"
 import { FormField } from "@/components/dashboard/form-field"
 import { PageHeader } from "@/components/dashboard/page-header"
+import { CreateTunnelDeviceDialog } from "@/components/devices/create-tunnel-device-dialog"
 import { SelectField } from "@/components/dashboard/select-field"
 import { formatDate, formatRelativeTime, statusLabel } from "@/lib/dashboard"
 import { trpc } from "@/lib/trpc"
@@ -137,6 +138,7 @@ export default function EnrollmentTokensPage() {
   } | null>(null)
   const [revokeOpen, setRevokeOpen] = React.useState(false)
   const [rotateOpen, setRotateOpen] = React.useState(false)
+  const [tunnelOpen, setTunnelOpen] = React.useState(false)
 
   const [editOrganizationId, setEditOrganizationId] = React.useState("")
   const [editSiteId, setEditSiteId] = React.useState("")
@@ -433,12 +435,21 @@ export default function EnrollmentTokensPage() {
       <PageHeader
         badge="Enrollment tokens"
         title="Enrollment tokens"
-        description="Create a token, then copy the install commands. Open a token anytime to copy them again."
+        description="Create a token, then copy the install commands. Open a token anytime to copy them again. Gateways that cannot run those commands can get a WireGuard config instead."
         actions={
-          <Button onClick={openCreate}>
-            <PlusIcon />
-            New token
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => setTunnelOpen(true)}>
+              Create WireGuard config
+            </Button>
+            <Button onClick={openCreate}>
+              <PlusIcon />
+              New token
+            </Button>
+            <CreateTunnelDeviceDialog
+              open={tunnelOpen}
+              onOpenChange={setTunnelOpen}
+            />
+          </>
         }
       />
 

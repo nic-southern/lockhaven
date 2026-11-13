@@ -5,6 +5,7 @@ import {
   adminVpnConfigFilename,
   normalizeRouteValues,
   permissionForServiceType,
+  requireVpnServerConfig,
   serviceConnectionDefaults,
   siteBelongsToOrganization,
   WIREGUARD_TUNNEL_NAME_PATTERN,
@@ -96,4 +97,47 @@ test("admin vpn config names import in Android and desktop WireGuard", () => {
 
   assert.notEqual(names[0], names[1])
   assert.notEqual(names[6], names[7])
+})
+
+test("names tunnel-only device configs after the device", () => {
+  const filename = adminVpnConfigFilename(
+    "Acme Corp",
+    "10.80.10.11/32",
+    "UDM-Pro"
+  )
+  assert.match(filename, /^udm-pro-10-11\.conf$/)
+})
+
+test("requireVpnServerConfig fails closed without a server public key", () => {
+  const previous = process.env.VPN_SERVER_PUBLIC_KEY
+  delete process.env.VPN_SERVER_PUBLIC_KEY
+  try {
+    assert.throws(
+      () => requireVpnServerConfig(),
+      /VPN server is not configured/
+    )
+  } finally {
+    if (previous === undefined) {
+      delete process.env.VPN_SERVER_PUBLIC_KEY
+    } else {
+      process.env.VPN_SERVER_PUBLIC_KEY = previous
+    }
+  }
+})
+
+test("requireVpnServerConfig fails closed without a server address", () => {
+  const previous = process.env.VPN_SERVER_IP
+  delete process.env.VPN_SERVER_IP
+  try {
+    assert.throws(
+      () => requireVpnServerConfig(),
+      /VPN server is not configured/
+    )
+  } finally {
+    if (previous === undefined) {
+      delete process.env.VPN_SERVER_IP
+    } else {
+      process.env.VPN_SERVER_IP = previous
+    }
+  }
 })
