@@ -14,7 +14,11 @@ deploy after images publish to GHCR.
 ### Manual deploy from GitHub Actions
 
 On every successful `main` push, CI publishes `lockhaven-web` and
-`lockhaven-worker` to GHCR. Production is **not** updated automatically.
+`lockhaven-worker` to GHCR. Field desktop is a separate workflow
+(**Actions → Field desktop**); it is not part of PR CI. When that
+workflow runs on `main` it republishes `lockhaven-web` with new Field
+installers. Hub-only CI reuses the newest Field artifacts so downloads
+stay in the image. Production is **not** updated automatically.
 When you are ready, run the **Deploy** workflow (Actions → Deploy → Run
 workflow) and type `deploy` to confirm. That job SSHs to the host, syncs
 `deploy/production.compose.yml` plus the host helpers in `infra/systemd/`

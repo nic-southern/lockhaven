@@ -8,8 +8,10 @@ One Flutter codebase with **Linux**, **Windows**, and **macOS** targets.
 
 ## Download (operators)
 
-CI packages Field on every push. After a `main` deploy, Hub serves the same
-files next to the agent binaries:
+Field packages are **not** built on every PR. Run **Actions → Field
+desktop → Run workflow** when the Flutter app changed. On `main` that
+workflow also republishes `lockhaven-web` with the new installers. After
+a Deploy, Hub serves those files next to the agent binaries:
 
 | File                        | URL                                           |
 | --------------------------- | --------------------------------------------- |
@@ -20,8 +22,10 @@ files next to the agent binaries:
 
 Console: **Settings → Labels → Field app**.
 
-PR / CI runs also upload GitHub Actions artifacts named
+That workflow uploads GitHub Actions artifacts named
 `lockhaven-field-macos`, `lockhaven-field-linux`, and `lockhaven-field-windows`.
+Hub CI on `main` reuses the newest of those artifacts so a Hub-only change
+does not drop Field downloads.
 
 ### Warehouse Mac (download)
 
